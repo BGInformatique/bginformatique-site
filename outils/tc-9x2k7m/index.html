@@ -5,12 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>TimeCalculator — Feuille de temps et interventions</title>
-  <link rel="stylesheet" href="css/style.css?v=20260722012156">
+  <link rel="stylesheet" href="css/style.css?v=20260727180000">
 </head>
 <body>
   <header class="app-header">
     <h1>⏱ TimeCalculator</h1>
     <p class="subtitle">Punch in, punch out et suivi des interventions techniques</p>
+    <!-- Visible seulement à l'impression : la barre d'outils étant masquée,
+         sans ça une feuille imprimée ne dit pas quelle période elle couvre. -->
+    <p id="print-meta" class="print-only"></p>
     <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
   </header>
 
@@ -22,6 +25,9 @@
       <p class="form-error" id="auth-error" hidden></p>
     </div>
   </div>
+
+  <!-- Avis : échec d'enregistrement, synchro en attente, données illisibles, punch oublié -->
+  <div id="banners" class="banners" aria-live="polite"></div>
 
   <main hidden>
     <!-- Carte punch in/out -->
@@ -39,6 +45,7 @@
         <button id="btn-punch-out" class="btn btn-danger btn-lg" hidden>Punch Out</button>
         <button id="btn-cancel-punch" class="btn btn-ghost" hidden>Annuler le punch</button>
       </div>
+      <p class="shortcut-hint">Raccourcis : <kbd>P</kbd> punch in / punch out · <kbd>I</kbd> inscrire une intervention</p>
     </section>
 
     <!-- Sommaire du temps travaillé -->
@@ -58,7 +65,7 @@
     </section>
 
     <!-- Période affichée + sauvegarde -->
-    <section class="card">
+    <section class="card" id="toolbar-section">
       <div class="toolbar">
         <label class="inline-label" for="filter-period">Période :</label>
         <select id="filter-period">
@@ -75,11 +82,13 @@
           <input type="date" id="filter-from" title="Du">
           <input type="date" id="filter-to" title="Au">
         </span>
+        <span class="range-label" id="range-label"></span>
         <span class="spacer"></span>
         <button id="btn-export-report" class="btn btn-primary">📄 Rapport hebdomadaire</button>
+        <button id="btn-print" class="btn">Imprimer</button>
         <button id="btn-export-json" class="btn">Sauvegarde JSON</button>
-        <label class="btn" for="input-import">Importer JSON</label>
-        <input type="file" id="input-import" accept=".json,application/json" hidden>
+        <button id="btn-import" class="btn">Importer JSON</button>
+        <input type="file" id="input-import" accept=".json,application/json" class="visually-hidden" tabindex="-1">
       </div>
     </section>
 
@@ -88,6 +97,7 @@
       <div class="section-head">
         <h2>Feuille de temps</h2>
         <span class="spacer"></span>
+        <button id="btn-toggle-days" class="btn btn-ghost">Tout déplier</button>
         <button id="btn-add-punch" class="btn btn-primary">+ Ajouter une période</button>
         <button id="btn-export-punches" class="btn">Exporter CSV</button>
       </div>
@@ -99,7 +109,7 @@
               <th>Début</th>
               <th>Fin</th>
               <th>Durée</th>
-              <th></th>
+              <th><span class="visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody id="punch-tbody"></tbody>
@@ -108,10 +118,11 @@
       <p id="punch-empty" class="empty" hidden>Aucune période travaillée pour cette période.</p>
     </section>
 
-    <!-- Interventions -->
+    <!-- Interventions : liste chronologique, toujours modifiable -->
     <section class="card">
       <div class="section-head">
         <h2>Interventions</h2>
+        <label class="visually-hidden" for="filter-client">Filtrer par client</label>
         <select id="filter-client" title="Client">
           <option value="">Tous les clients</option>
         </select>
@@ -120,7 +131,6 @@
         </label>
         <span class="spacer"></span>
         <button id="btn-add-intervention" class="btn btn-primary">+ Inscrire une intervention</button>
-        <button id="btn-merge-interventions" class="btn" title="Regroupe temporairement l'affichage par numéro de billet, peu importe la date. N'enregistre rien — cliquez à nouveau pour revenir à l'affichage normal.">Fusionner billets</button>
         <button id="btn-export-interventions" class="btn">Exporter CSV</button>
       </div>
       <div class="filtered-total" id="intervention-total"></div>
@@ -138,13 +148,45 @@
               <th>Description</th>
               <th>Fact.</th>
               <th>À vérifier</th>
-              <th></th>
+              <th><span class="visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody id="intervention-tbody"></tbody>
         </table>
       </div>
       <p id="intervention-empty" class="empty" hidden>Aucune intervention pour cette période.</p>
+    </section>
+
+    <!-- Sommaire de facturation : regroupement en lecture seule -->
+    <section class="card">
+      <div class="section-head">
+        <h2>Sommaire de facturation</h2>
+        <label class="inline-label" for="group-by">Regrouper par :</label>
+        <select id="group-by">
+          <option value="ticket">Billet</option>
+          <option value="client">Client</option>
+          <option value="category">Catégorie</option>
+        </select>
+        <span class="spacer"></span>
+        <button id="btn-export-summary" class="btn">Exporter CSV</button>
+      </div>
+      <p class="section-note">Regroupement des interventions affichées. Rien n'est modifié ni fusionné : cliquez une ligne pour voir les vraies heures de chaque intervention.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th id="group-head">Billet</th>
+              <th>Interventions</th>
+              <th>Durée</th>
+              <th>Heures</th>
+              <th>Dont facturable</th>
+              <th>À vérifier</th>
+            </tr>
+          </thead>
+          <tbody id="summary-tbody"></tbody>
+        </table>
+      </div>
+      <p id="summary-empty" class="empty" hidden>Aucune intervention à regrouper pour cette période.</p>
     </section>
   </main>
 
@@ -195,7 +237,8 @@
         <datalist id="client-list"></datalist>
       </label>
       <label>Billet / Ticket
-        <input type="text" id="f-ticket" placeholder="N° de billet (optionnel)" autocomplete="off">
+        <input type="text" id="f-ticket" list="ticket-list" placeholder="N° de billet (optionnel)" autocomplete="off">
+        <datalist id="ticket-list"></datalist>
       </label>
       <label>Catégorie
         <select id="f-category">
@@ -229,6 +272,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="js/app.js?v=20260722012156"></script>
+  <script type="module" src="js/app.js?v=20260727180000"></script>
 </body>
 </html>

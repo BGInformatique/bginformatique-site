@@ -5,10 +5,17 @@
  * Deux registres indépendants :
  *  - punches : périodes travaillées, enregistrées sans aucune question
  *    au punch out — c'est la feuille de temps;
- *  - interventions : travaux décrits pour un client (client, catégorie,
- *    description, facturable), inscrits manuellement.
+ *  - interventions : travaux décrits pour un client (client, billet,
+ *    catégorie, description, facturable, à vérifier), inscrits manuellement.
  *
- * Données conservées dans le localStorage du navigateur (clé "timecalculator.v1").
+ * Le regroupement par billet, client ou catégorie se fait EN LECTURE SEULE,
+ * à l'affichage et à l'export : aucune intervention n'est jamais fusionnée,
+ * réécrite, ni dotée d'heures qui n'ont pas existé.
+ *
+ * Données : localStorage (clé "timecalculator.v1") + Firestore par compte
+ * Microsoft. La synchro fusionne ENREGISTREMENT PAR ENREGISTREMENT (voir
+ * mergeStates) : deux appareils qui modifient des choses différentes ne
+ * s'écrasent plus l'un l'autre.
  */
 "use strict";
 
@@ -21,7 +28,9 @@ import {
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   setDoc,
   onSnapshot,
@@ -30,15 +39,41 @@ import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
-const db = getFirestore(firebaseApp);
+
+// Cache persistant : sans lui, le travail fait hors ligne (salle de serveurs,
+// client sans Wi-Fi) ne survit pas à la fermeture de l'onglet. Le gestionnaire
+// multi-onglets évite en plus que deux onglets se disputent la connexion.
+const db = initializeFirestore(firebaseApp, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 
 const STORAGE_KEY = "timecalculator.v1";
+// Copie de l'état remplacé par un import, au cas où ce serait le mauvais fichier.
+const IMPORT_BACKUP_KEY = "timecalculator.v1.avant-import";
+// Une chaîne illisible est mise de côté au lieu d'être écrasée : elle reste récupérable.
+const QUARANTINE_PREFIX = "timecalculator.v1.illisible.";
+
+// Un punch encore ouvert après ce délai est presque toujours un punch out oublié.
+const PUNCH_OUBLIE_MS = 12 * 3600 * 1000;
+
+// Les pierres tombales plus vieilles que ça sont élaguées : elles n'ont plus
+// d'appareil à convaincre, et elles feraient gonfler le document indéfiniment.
+const TOMBSTONE_TTL_MS = 180 * 24 * 3600 * 1000;
 
 /* ---------- État ---------- */
 
-// state.activePunch : { start: ms } ou null
-// state.punches : [{ id, start: ms, end: ms }]
-// state.interventions : [{ id, start: ms, end: ms, client, ticket, category, description, billable }]
+// state.activePunch    : { start: ms } ou null
+// state.activePunchAt  : ms — dernier changement de activePunch (arbitrage entre appareils)
+// state.punches        : [{ id, start, end, updatedAt }]
+// state.interventions  : [{ id, start, end, client, ticket, category, description,
+//                           billable, toVerify, verifyNote, updatedAt }]
+// state.tombstones     : { id: ms } — enregistrements supprimés, pour que la
+//                        fusion ne les ressuscite pas depuis l'autre appareil
+// state.updatedAt      : ms — dernière modification locale, tous registres confondus
+
+// Avis à afficher dès que le DOM est prêt (load() s'exécute avant le rendu).
+const pendingBanners = [];
+
 let state = load();
 let timerInterval = null;
 
@@ -46,43 +81,291 @@ let timerInterval = null;
 // temps. Les choix manuels (déplier/replier) valent pour la session.
 let todayKey = dateISO(new Date());
 const dayOverrides = new Map();
+// À l'impression, toutes les journées sont dépliées quel que soit l'état à l'écran.
+let printing = false;
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const data = JSON.parse(raw);
-      if (Array.isArray(data.interventions) || Array.isArray(data.punches)) {
-        return normalizeState(data);
-      }
-    }
-  } catch (e) {
-    console.error("Données locales illisibles, réinitialisation.", e);
-  }
-  return { activePunch: null, punches: [], interventions: [], updatedAt: 0 };
-}
-
-function normalizeState(data) {
+function emptyState() {
   return {
-    activePunch: data.activePunch || null,
-    punches: Array.isArray(data.punches) ? data.punches : [],
-    interventions: Array.isArray(data.interventions) ? data.interventions : [],
-    updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : 0,
+    activePunch: null,
+    activePunchAt: 0,
+    punches: [],
+    interventions: [],
+    tombstones: {},
+    updatedAt: 0,
   };
 }
 
+function load() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    pendingBanners.push({
+      id: "storage",
+      tone: "danger",
+      text:
+        "Le navigateur refuse l'accès au stockage local (navigation privée ou paramètre de confidentialité). " +
+        "Rien ne sera conservé sur cet appareil — la synchro infonuagique reste votre seul filet.",
+    });
+    return emptyState();
+  }
+  if (!raw) return emptyState();
+
+  let data = null;
+  try {
+    data = JSON.parse(raw);
+    if (!data || (!Array.isArray(data.punches) && !Array.isArray(data.interventions))) {
+      throw new Error("structure inattendue");
+    }
+  } catch (e) {
+    quarantine(raw, e);
+    return emptyState();
+  }
+
+  const { state: next, rejets } = normalizeState(data);
+  if (rejets > 0) {
+    pendingBanners.push({
+      id: "rejets",
+      tone: "warn",
+      text: `${rejets} enregistrement${rejets > 1 ? "s" : ""} illisible${rejets > 1 ? "s ont" : " a"} été écarté${rejets > 1 ? "s" : ""} au chargement (date ou durée invalide). Rien n'a été renvoyé vers l'infonuagique avant votre vérification.`,
+    });
+    // Tant que des rejets n'ont pas été arbitrés, on ne pousse rien : sinon
+    // l'appareil qui a mal lu ses données les amputerait aussi pour l'autre.
+    syncBloquee = true;
+  }
+  return next;
+}
+
+// Met la chaîne illisible de côté plutôt que de la laisser se faire écraser
+// par le premier Punch In : tant qu'elle existe, elle reste récupérable.
+function quarantine(raw, err) {
+  const key = QUARANTINE_PREFIX + dateISO(new Date()) + "-" + Date.now();
+  let sauve = false;
+  try {
+    localStorage.setItem(key, raw);
+    sauve = true;
+  } catch (e) {
+    /* quota plein : on n'a pas mieux à offrir que l'avertissement */
+  }
+  // Un état vide ne doit jamais partir vers Firestore : il effacerait le
+  // document réel dès la première écriture.
+  syncBloquee = true;
+  pendingBanners.push({
+    id: "corrompu",
+    tone: "danger",
+    text:
+      "Les données locales sont illisibles (" + err.message + "). La synchronisation vers l'infonuagique est " +
+      "SUSPENDUE pour ne pas effacer vos données en ligne. " +
+      (sauve
+        ? `La version d'origine est conservée sous « ${key} » dans le stockage de ce navigateur.`
+        : "Elle n'a pas pu être mise de côté (stockage plein)."),
+  });
+}
+
+// Écarte les enregistrements inutilisables au lieu de les laisser produire
+// des « NaN h » partout. Conserve tous les autres champs tels quels : la
+// liste des champs connus n'est PAS une liste blanche, sans quoi toVerify,
+// verifyNote ou tout champ ajouté plus tard seraient amputés au chargement.
+function normalizeState(data) {
+  let rejets = 0;
+
+  const punches = [];
+  for (const p of Array.isArray(data.punches) ? data.punches : []) {
+    const clean = sanePeriod(p);
+    if (clean) punches.push(clean);
+    else rejets++;
+  }
+
+  const interventions = [];
+  for (const i of Array.isArray(data.interventions) ? data.interventions : []) {
+    const clean = sanePeriod(i);
+    if (!clean) {
+      rejets++;
+      continue;
+    }
+    interventions.push({
+      ...i,
+      ...clean,
+      client: str(i.client),
+      ticket: str(i.ticket),
+      category: str(i.category) || "Autre",
+      description: typeof i.description === "string" ? i.description : "",
+      billable: i.billable !== false,
+      toVerify: i.toVerify === true,
+      verifyNote: typeof i.verifyNote === "string" ? i.verifyNote : "",
+    });
+  }
+
+  let activePunch = null;
+  if (data.activePunch && Number.isFinite(Number(data.activePunch.start))) {
+    activePunch = { start: Number(data.activePunch.start) };
+  }
+
+  const tombstones = {};
+  if (data.tombstones && typeof data.tombstones === "object") {
+    const limite = Date.now() - TOMBSTONE_TTL_MS;
+    for (const [id, at] of Object.entries(data.tombstones)) {
+      const ms = Number(at);
+      if (Number.isFinite(ms) && ms > limite) tombstones[id] = ms;
+    }
+  }
+
+  return {
+    state: {
+      activePunch,
+      activePunchAt: num(data.activePunchAt),
+      punches,
+      interventions,
+      tombstones,
+      updatedAt: num(data.updatedAt),
+    },
+    rejets,
+  };
+}
+
+function sanePeriod(r) {
+  if (!r || typeof r !== "object") return null;
+  const start = Number(r.start);
+  const end = Number(r.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  // Un identifiant manquant est réparé, pas motif à rejet : l'enregistrement
+  // porte du temps travaillé, ce serait absurde de le jeter pour si peu.
+  return { id: str(r.id) || genId(), start, end, updatedAt: num(r.updatedAt) };
+}
+
+function str(v) {
+  return typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/* ---------- Fusion entre appareils ---------- */
+
+/*
+ * Fusion ENREGISTREMENT PAR ENREGISTREMENT, et non document par document.
+ *
+ * L'ancienne synchro remplaçait tout l'état par celui qui arrivait : le poste
+ * et le cellulaire s'écrasaient mutuellement dès qu'ils touchaient à des
+ * choses différentes. Ici, l'union des deux côtés est prise par identifiant,
+ * la version au updatedAt le plus récent l'emporte, et une pierre tombale
+ * postérieure supprime l'enregistrement. Conséquence : une fusion ne peut
+ * jamais faire disparaître un enregistrement qui n'a pas été explicitement
+ * supprimé quelque part.
+ */
+function mergeStates(local, remote) {
+  const tombstones = { ...local.tombstones };
+  for (const [id, at] of Object.entries(remote.tombstones || {})) {
+    if (!tombstones[id] || at > tombstones[id]) tombstones[id] = at;
+  }
+
+  const fusionner = (listeA, listeB) => {
+    const parId = new Map();
+    for (const r of [...listeA, ...listeB]) {
+      const existant = parId.get(r.id);
+      if (!existant || r.updatedAt > existant.updatedAt) parId.set(r.id, r);
+    }
+    const out = [];
+    for (const r of parId.values()) {
+      const efface = tombstones[r.id];
+      // La suppression ne l'emporte que si elle est postérieure à la version
+      // conservée : rééditer un enregistrement supprimé ailleurs le ramène.
+      if (efface && efface >= r.updatedAt) continue;
+      out.push(r);
+    }
+    return out.sort((a, b) => a.start - b.start);
+  };
+
+  const activeDepuisRemote = num(remote.activePunchAt) > num(local.activePunchAt);
+  return {
+    activePunch: activeDepuisRemote ? remote.activePunch : local.activePunch,
+    activePunchAt: Math.max(num(local.activePunchAt), num(remote.activePunchAt)),
+    punches: fusionner(local.punches, remote.punches),
+    interventions: fusionner(local.interventions, remote.interventions),
+    tombstones,
+    updatedAt: Math.max(num(local.updatedAt), num(remote.updatedAt)),
+  };
+}
+
+// Deux états sont-ils équivalents ? Sert à savoir si la fusion a apporté
+// quelque chose que l'autre côté n'a pas encore.
+function sameState(a, b) {
+  const cle = (s) =>
+    JSON.stringify([
+      s.activePunch ? s.activePunch.start : null,
+      s.punches.map((p) => [p.id, p.start, p.end, p.updatedAt]),
+      s.interventions.map((i) => [
+        i.id, i.start, i.end, i.client, i.ticket, i.category,
+        i.description, i.billable, i.toVerify, i.verifyNote, i.updatedAt,
+      ]),
+      Object.entries(s.tombstones).sort(),
+    ]);
+  return cle(a) === cle(b);
+}
+
+/* ---------- Enregistrement ---------- */
+
 let userDocRef = null;
 let applyingRemote = false;
+// Vrai quand l'état local est suspect : on ne pousse rien vers Firestore.
+let syncBloquee = false;
+// Dernière chaîne écrite par cet onglet, pour ignorer nos propres échos.
+let lastWritten = null;
 
-// Horodatage de la dernière modification locale : sert à ignorer les échos
-// Firestore périmés qui arriveraient après un ajout local plus récent (ce qui
-// effaçait silencieusement l'ajout avant ce correctif — voir onSnapshot plus bas).
+// Marque un enregistrement comme modifié maintenant : c'est cet horodatage
+// qui arbitre la fusion entre appareils.
+function touch(record) {
+  record.updatedAt = Date.now();
+  return record;
+}
+
+function persistLocal() {
+  const chaine = JSON.stringify(state);
+  localStorage.setItem(STORAGE_KEY, chaine);
+  lastWritten = chaine;
+}
+
+// Renvoie false si l'écriture locale a échoué : l'appelant doit alors annuler
+// son changement en mémoire plutôt que de laisser croire qu'il est enregistré.
 function save() {
+  const avant = state.updatedAt;
   state.updatedAt = Date.now();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  if (userDocRef && !applyingRemote) {
-    setDoc(userDocRef, state).catch((e) => console.error("Synchronisation Firestore échouée.", e));
+  try {
+    persistLocal();
+    dismissBanner("save");
+  } catch (e) {
+    state.updatedAt = avant;
+    banner({
+      id: "save",
+      tone: "danger",
+      text:
+        "Impossible d'enregistrer sur cet appareil : " + e.message + ". Le dernier changement a été annulé " +
+        "pour ne rien fausser. Faites une sauvegarde JSON, puis libérez de l'espace avant de continuer.",
+    });
+    return false;
   }
+  syncUp();
+  return true;
+}
+
+// Envoi vers Firestore : au mieux, jamais bloquant. Un échec est signalé,
+// pas noyé dans la console — le cache persistant réémettra l'écriture.
+function syncUp() {
+  if (!userDocRef || applyingRemote) return;
+  if (syncBloquee) return;
+  setDoc(userDocRef, state)
+    .then(() => dismissBanner("sync"))
+    .catch((e) => {
+      banner({
+        id: "sync",
+        tone: "warn",
+        text:
+          "Synchronisation infonuagique en attente (" + e.message + "). Vos données sont enregistrées sur cet " +
+          "appareil et repartiront au retour de la connexion.",
+      });
+    });
 }
 
 function genId() {
@@ -119,25 +402,40 @@ function fmtDuration(minutes) {
   return `${h} h ${pad(m)}`;
 }
 
+// Un écart peut être négatif (plus de billets inscrits que de temps punché).
+function fmtSigned(minutes) {
+  if (minutes === 0) return "0 min";
+  return (minutes < 0 ? "−" : "+") + fmtDuration(Math.abs(minutes));
+}
+
 function fmtDecimalHours(minutes) {
   return (minutes / 60).toFixed(2).replace(".", ",");
 }
 
-// Début de journée locale
+/* Toute l'arithmétique de dates passe par le calendrier local et jamais par
+ * des additions de millisecondes : « le lendemain à 6 h » n'est pas « dans
+ * 24 h » les nuits de changement d'heure (mars et novembre au Québec). */
+
 function startOfDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 }
 
 // Début de semaine (lundi)
 function startOfWeek(d) {
   const day = (d.getDay() + 6) % 7; // lundi = 0
-  const s = startOfDay(d);
-  s.setDate(s.getDate() - day);
-  return s;
+  return addDays(startOfDay(d), -day);
 }
 
 function startOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function addMonths(d, n) {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
 }
 
 /* ---------- Éléments ---------- */
@@ -145,6 +443,8 @@ function startOfMonth(d) {
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  banners: $("banners"),
+  printMeta: $("print-meta"),
   statusDot: $("status-dot"),
   statusLabel: $("status-label"),
   statusDetail: $("status-detail"),
@@ -159,12 +459,16 @@ const els = {
   customRange: $("custom-range"),
   filterFrom: $("filter-from"),
   filterTo: $("filter-to"),
+  rangeLabel: $("range-label"),
   filterClient: $("filter-client"),
   filterToVerify: $("filter-to-verify"),
   btnExportReport: $("btn-export-report"),
+  btnPrint: $("btn-print"),
   btnExportJson: $("btn-export-json"),
+  btnImport: $("btn-import"),
   inputImport: $("input-import"),
   // Feuille de temps
+  btnToggleDays: $("btn-toggle-days"),
   btnAddPunch: $("btn-add-punch"),
   btnExportPunches: $("btn-export-punches"),
   punchTotal: $("punch-total"),
@@ -182,7 +486,6 @@ const els = {
   btnPunchDialogCancel: $("btn-punch-dialog-cancel"),
   // Interventions
   btnAddIntervention: $("btn-add-intervention"),
-  btnMergeInterventions: $("btn-merge-interventions"),
   btnExportInterventions: $("btn-export-interventions"),
   interventionTotal: $("intervention-total"),
   interventionTbody: $("intervention-tbody"),
@@ -198,6 +501,7 @@ const els = {
   fClient: $("f-client"),
   fTicket: $("f-ticket"),
   clientList: $("client-list"),
+  ticketList: $("ticket-list"),
   fCategory: $("f-category"),
   fDescription: $("f-description"),
   fBillable: $("f-billable"),
@@ -206,15 +510,72 @@ const els = {
   fVerifyNote: $("f-verify-note"),
   fError: $("f-error"),
   btnInterventionDialogCancel: $("btn-intervention-dialog-cancel"),
+  // Sommaire de facturation
+  groupBy: $("group-by"),
+  groupHead: $("group-head"),
+  summaryTbody: $("summary-tbody"),
+  summaryEmpty: $("summary-empty"),
+  btnExportSummary: $("btn-export-summary"),
 };
+
+/* ---------- Avis persistants ---------- */
+
+/* Un toast disparaît tout seul : parfait pour « filtre changé », inacceptable
+ * pour « impossible d'enregistrer ». Les deux coexistent donc : showToast pour
+ * l'information fugace, les bannières pour ce qui exige une décision. */
+
+const activeBanners = new Map();
+
+function banner(opts) {
+  activeBanners.set(opts.id, opts);
+  renderBanners();
+}
+
+function dismissBanner(id) {
+  if (activeBanners.delete(id)) renderBanners();
+}
+
+function renderBanners() {
+  els.banners.innerHTML = "";
+  for (const b of activeBanners.values()) {
+    const div = document.createElement("div");
+    div.className = `banner banner-${b.tone || "info"}`;
+    const p = document.createElement("p");
+    p.textContent = b.text;
+    div.appendChild(p);
+
+    const actions = document.createElement("div");
+    actions.className = "banner-actions";
+    for (const a of b.actions || []) {
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.textContent = a.label;
+      btn.addEventListener("click", a.run);
+      actions.appendChild(btn);
+    }
+    const close = document.createElement("button");
+    close.className = "btn btn-ghost";
+    close.textContent = "Fermer";
+    close.addEventListener("click", () => dismissBanner(b.id));
+    actions.appendChild(close);
+    div.appendChild(actions);
+
+    els.banners.appendChild(div);
+  }
+}
 
 /* ---------- Punch in / out ---------- */
 
 function punchIn() {
   if (state.activePunch) return;
   state.activePunch = { start: Date.now() };
-  save();
+  state.activePunchAt = Date.now();
+  if (!save()) {
+    state.activePunch = null;
+    return;
+  }
   renderPunchCard();
+  renderStats();
 }
 
 // Le punch out enregistre la période directement, sans rien demander.
@@ -223,22 +584,40 @@ function punchOut() {
   const start = state.activePunch.start;
   // Minimum d'une minute pour qu'un punch très court reste visible.
   const end = Math.max(Date.now(), start + 60000);
-  state.punches.push({ id: genId(), start, end });
+  const record = touch({ id: genId(), start, end });
+
+  state.punches.push(record);
   state.activePunch = null;
-  save();
+  state.activePunchAt = Date.now();
+  if (!save()) {
+    // L'écriture a échoué : on remet le punch en cours plutôt que de laisser
+    // la période disparaître entre deux états.
+    state.punches.pop();
+    state.activePunch = { start };
+    renderPunchCard();
+    return;
+  }
   render();
 }
 
 function cancelPunch() {
   if (!state.activePunch) return;
   if (!confirm("Annuler le punch en cours ? Aucune période ne sera enregistrée.")) return;
+  const previous = state.activePunch;
   state.activePunch = null;
-  save();
+  state.activePunchAt = Date.now();
+  if (!save()) {
+    state.activePunch = previous;
+    return;
+  }
   renderPunchCard();
+  renderStats();
 }
 
 function renderPunchCard() {
   const active = !!state.activePunch;
+  // Punch out, annulation ou synchro : l'avis de punch oublié n'a plus d'objet.
+  if (!active) dismissBanner("punch-oublie");
   els.statusDot.classList.toggle("active", active);
   els.btnPunchIn.hidden = active;
   els.btnPunchOut.hidden = !active;
@@ -248,7 +627,7 @@ function renderPunchCard() {
   if (active) {
     const start = new Date(state.activePunch.start);
     els.statusLabel.textContent = "Au travail";
-    els.statusDetail.textContent = `Punch in à ${timeHM(start)} (${start.toLocaleDateString("fr-CA")})`;
+    els.statusDetail.textContent = `Punch in à ${timeHM(start)} (${dateISO(start)})`;
     updateTimer();
     if (!timerInterval) timerInterval = setInterval(updateTimer, 1000);
   } else {
@@ -261,23 +640,84 @@ function renderPunchCard() {
   }
 }
 
+let lastTimerMinute = -1;
+
 function updateTimer() {
   if (!state.activePunch) return;
   const s = Math.max(0, Math.floor((Date.now() - state.activePunch.start) / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   els.punchTimer.textContent = `${pad(h)}:${pad(m)}:${pad(s % 60)}`;
+  // Le sommaire compte le punch en cours : on le rafraîchit à chaque minute.
+  const minute = Math.floor(s / 60);
+  if (minute !== lastTimerMinute) {
+    lastTimerMinute = minute;
+    renderStats();
+  }
+}
+
+// Un punch out oublié le vendredi soir donne une période de 72 h imputée au
+// vendredi. On le signale et on propose de corriger l'heure de fin.
+function checkPunchOublie() {
+  if (!state.activePunch) {
+    dismissBanner("punch-oublie");
+    return;
+  }
+  const depuis = Date.now() - state.activePunch.start;
+  if (depuis < PUNCH_OUBLIE_MS) return;
+  const start = new Date(state.activePunch.start);
+  const heures = Math.floor(depuis / 3600000);
+  banner({
+    id: "punch-oublie",
+    tone: "warn",
+    text:
+      `Un punch est ouvert depuis ${heures} h (début le ${dateISO(start)} à ${timeHM(start)}). ` +
+      "S'il s'agit d'un punch out oublié, enregistrez la période avec la bonne heure de fin plutôt que de laisser courir le chronomètre.",
+    actions: [
+      {
+        label: "Enregistrer avec la bonne heure de fin",
+        run: () => {
+          // Le punch en cours n'est fermé qu'après un enregistrement réussi :
+          // annuler le dialogue ne fait pas disparaître l'heure de début.
+          if (!state.activePunch) {
+            dismissBanner("punch-oublie");
+            return;
+          }
+          const s = new Date(state.activePunch.start);
+          openPunchDialog({
+            title: "Corriger la période oubliée",
+            date: dateISO(s),
+            start: timeHM(s),
+            end: timeHM(s),
+            closesActivePunch: true,
+          });
+        },
+      },
+    ],
+  });
 }
 
 /* ---------- Formulaires : outils communs ---------- */
 
-// Reconstruit les timestamps à partir de champs date/début/fin.
-// Une fin strictement antérieure au début est interprétée comme passant minuit.
+// Reconstruit les timestamps à partir de champs date/début/fin, en passant par
+// le calendrier local. Une fin antérieure au début est le lendemain à cette
+// heure-là — pas « 24 h plus tard », qui donnerait une heure de trop la nuit
+// du passage à l'heure avancée et une heure de moins en novembre.
 function timesFromFields(dateEl, startEl, endEl) {
-  const start = new Date(`${dateEl.value}T${startEl.value}`);
-  let end = new Date(`${dateEl.value}T${endEl.value}`);
-  if (isNaN(start) || isNaN(end)) return null;
-  if (end < start) end = new Date(end.getTime() + 24 * 3600 * 1000);
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateEl.value);
+  const s = /^(\d{1,2}):(\d{2})/.exec(startEl.value);
+  const e = /^(\d{1,2}):(\d{2})/.exec(endEl.value);
+  if (!d || !s || !e) return null;
+
+  const y = Number(d[1]);
+  const mo = Number(d[2]) - 1;
+  const day = Number(d[3]);
+  const start = new Date(y, mo, day, Number(s[1]), Number(s[2]));
+  let end = new Date(y, mo, day, Number(e[1]), Number(e[2]));
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+  if (end.getTime() < start.getTime()) {
+    end = new Date(y, mo, day + 1, Number(e[1]), Number(e[2]));
+  }
   return { start: start.getTime(), end: end.getTime() };
 }
 
@@ -287,14 +727,50 @@ function showDuration(el, times) {
     return;
   }
   const min = minutesBetween(times.start, times.end);
-  el.textContent = `Durée : ${fmtDuration(min)} (${fmtDecimalHours(min)} h)`;
+  const lendemain = dateISO(new Date(times.start)) !== dateISO(new Date(times.end));
+  el.textContent =
+    `Durée : ${fmtDuration(min)} (${fmtDecimalHours(min)} h)` + (lendemain ? " — fin le lendemain" : "");
 }
 
 const INVALID_DURATION_MSG = "Vérifiez la date et les heures : la durée doit être supérieure à zéro.";
 
+// Vrai quand le dialogue de période sert à clore le punch en cours : celui-ci
+// n'est effacé qu'après un enregistrement réussi, jamais avant.
+let punchDialogClosesActive = false;
+
+// Enregistrement en cours de modification, avec ses timestamps d'origine.
+// Une heure affichée « 01:30 » est ambiguë la nuit du retour à l'heure normale
+// (elle a lieu deux fois) : si aucun champ n'a été touché, on réutilise les
+// timestamps stockés plutôt que d'en reconstruire d'autres.
+let editOrigin = null;
+
+function rememberOrigin(record, date, start, end) {
+  editOrigin = { id: record.id, date, start, end, start_ms: record.start, end_ms: record.end };
+}
+
+function resolveTimes(id, dateEl, startEl, endEl) {
+  if (
+    editOrigin &&
+    editOrigin.id === id &&
+    editOrigin.date === dateEl.value &&
+    editOrigin.start === startEl.value &&
+    editOrigin.end === endEl.value
+  ) {
+    return { start: editOrigin.start_ms, end: editOrigin.end_ms };
+  }
+  return timesFromFields(dateEl, startEl, endEl);
+}
+
+function showFormError(el, message) {
+  el.textContent = message;
+  el.hidden = false;
+}
+
 /* ---------- Feuille de temps : dialogue et CRUD ---------- */
 
 function openPunchDialog(opts) {
+  punchDialogClosesActive = opts.closesActivePunch === true;
+  if (!opts.id) editOrigin = null;
   els.punchDialogTitle.textContent = opts.title;
   els.pId.value = opts.id || "";
   els.pDate.value = opts.date;
@@ -311,17 +787,46 @@ function updatePunchFormDuration() {
 
 function submitPunchForm(event) {
   event.preventDefault();
-  const t = timesFromFields(els.pDate, els.pStart, els.pEnd);
+  const id = els.pId.value || genId();
+  const t = resolveTimes(id, els.pDate, els.pStart, els.pEnd);
   if (!t || minutesBetween(t.start, t.end) <= 0) {
-    els.pError.textContent = INVALID_DURATION_MSG;
-    els.pError.hidden = false;
-    return;
+    return showFormError(els.pError, INVALID_DURATION_MSG);
   }
-  const record = { id: els.pId.value || genId(), start: t.start, end: t.end };
+  const record = touch({ id, start: t.start, end: t.end });
+
+  const chevauche = state.punches.find(
+    (p) => p.id !== record.id && p.start < record.end && record.start < p.end
+  );
+  if (chevauche) {
+    const a = new Date(chevauche.start);
+    const ok = confirm(
+      `Cette période chevauche celle du ${dateISO(a)} (${timeHM(a)}–${timeHM(new Date(chevauche.end))}). ` +
+        "Le temps serait compté deux fois. Enregistrer quand même ?"
+    );
+    if (!ok) return;
+  }
+
   const idx = state.punches.findIndex((p) => p.id === record.id);
+  const previous = idx >= 0 ? state.punches[idx] : null;
+  const previousActive = state.activePunch;
+  const previousActiveAt = state.activePunchAt;
   if (idx >= 0) state.punches[idx] = record;
   else state.punches.push(record);
-  save();
+  // Le punch en cours n'est clos qu'ici, une fois la période bien formée.
+  if (punchDialogClosesActive) {
+    state.activePunch = null;
+    state.activePunchAt = Date.now();
+  }
+
+  if (!save()) {
+    if (idx >= 0) state.punches[idx] = previous;
+    else state.punches.pop();
+    state.activePunch = previousActive;
+    state.activePunchAt = previousActiveAt;
+    return showFormError(els.pError, "Enregistrement impossible — voir l'avis en haut de la page.");
+  }
+  punchDialogClosesActive = false;
+  editOrigin = null;
   els.punchDialog.close();
   ensureVisible(record.start);
   render();
@@ -332,6 +837,7 @@ function editPunch(id) {
   if (!p) return;
   const start = new Date(p.start);
   const end = new Date(p.end);
+  rememberOrigin(p, dateISO(start), timeHM(start), timeHM(end));
   openPunchDialog({
     title: "Modifier la période",
     id: p.id,
@@ -342,18 +848,27 @@ function editPunch(id) {
 }
 
 function deletePunch(id) {
-  const p = state.punches.find((x) => x.id === id);
-  if (!p) return;
+  const idx = state.punches.findIndex((x) => x.id === id);
+  if (idx < 0) return;
+  const p = state.punches[idx];
   const start = new Date(p.start);
   if (!confirm(`Supprimer la période du ${dateISO(start)} (${timeHM(start)}–${timeHM(new Date(p.end))}) ?`)) return;
-  state.punches = state.punches.filter((x) => x.id !== id);
-  save();
+  state.punches.splice(idx, 1);
+  // Pierre tombale : sans elle, l'autre appareil réintroduirait la période
+  // supprimée à la prochaine fusion.
+  state.tombstones[id] = Date.now();
+  if (!save()) {
+    state.punches.splice(idx, 0, p);
+    delete state.tombstones[id];
+    return;
+  }
   render();
 }
 
 /* ---------- Interventions : dialogue et CRUD ---------- */
 
 function openInterventionDialog(opts) {
+  if (!opts.id) editOrigin = null;
   els.interventionDialogTitle.textContent = opts.title;
   els.fId.value = opts.id || "";
   els.fDate.value = opts.date;
@@ -368,9 +883,55 @@ function openInterventionDialog(opts) {
   els.fVerifyNote.value = opts.verifyNote || "";
   els.fVerifyNoteWrap.hidden = !els.fToVerify.checked;
   els.fError.hidden = true;
-  refreshClientDatalist();
+  refreshDatalists();
   updateInterventionFormDuration();
   els.interventionDialog.showModal();
+  els.fDescription.focus();
+}
+
+// Reprend le contexte de la dernière intervention de la journée : mêmes client
+// et billet, et début collé sur sa fin. Un technicien qui reste sur le même
+// billet n'a plus rien à retaper; les champs restent modifiables.
+function nouvelleIntervention(prefill) {
+  const now = new Date();
+  const jour = prefill && prefill.date ? prefill.date : dateISO(now);
+  const duJour = state.interventions
+    .filter((i) => dateISO(new Date(i.start)) === jour)
+    .sort((a, b) => a.end - b.end);
+  const derniere = duJour[duJour.length - 1] || null;
+
+  let debut;
+  if (prefill && prefill.start) {
+    debut = prefill.start;
+  } else if (derniere && derniere.end <= now.getTime()) {
+    debut = timeHM(new Date(derniere.end));
+  } else {
+    debut = timeHM(new Date(now.getTime() - 3600 * 1000));
+  }
+
+  openInterventionDialog({
+    title: "Inscrire une intervention",
+    date: jour,
+    start: debut,
+    end: (prefill && prefill.end) || timeHM(now),
+    client: (prefill && prefill.client) || (derniere ? derniere.client : ""),
+    ticket: (prefill && prefill.ticket) || (derniere ? derniere.ticket : ""),
+    category: derniere ? derniere.category : "Dépannage",
+  });
+}
+
+// « Ventiler » une période punchée : les heures existent déjà, aucune raison
+// de les retaper pour inscrire le billet correspondant.
+function ventilerPunch(id) {
+  const p = state.punches.find((x) => x.id === id);
+  if (!p) return;
+  const start = new Date(p.start);
+  const end = new Date(p.end);
+  nouvelleIntervention({
+    date: dateISO(start),
+    start: timeHM(start),
+    end: timeHM(end),
+  });
 }
 
 function updateInterventionFormDuration() {
@@ -379,22 +940,19 @@ function updateInterventionFormDuration() {
 
 function submitInterventionForm(event) {
   event.preventDefault();
-  const t = timesFromFields(els.fDate, els.fStart, els.fEnd);
+  const id = els.fId.value || genId();
+  const t = resolveTimes(id, els.fDate, els.fStart, els.fEnd);
   if (!t || minutesBetween(t.start, t.end) <= 0) {
-    els.fError.textContent = INVALID_DURATION_MSG;
-    els.fError.hidden = false;
-    return;
+    return showFormError(els.fError, INVALID_DURATION_MSG);
   }
   const client = els.fClient.value.trim();
   const description = els.fDescription.value.trim();
   if (!client && !description) {
-    els.fError.textContent = "Inscrivez au moins un client ou une explication.";
-    els.fError.hidden = false;
-    return;
+    return showFormError(els.fError, "Inscrivez au moins un client ou une explication.");
   }
 
-  const record = {
-    id: els.fId.value || genId(),
+  const record = touch({
+    id,
     start: t.start,
     end: t.end,
     client,
@@ -404,13 +962,19 @@ function submitInterventionForm(event) {
     billable: els.fBillable.checked,
     toVerify: els.fToVerify.checked,
     verifyNote: els.fToVerify.checked ? els.fVerifyNote.value.trim() : "",
-  };
+  });
 
   const idx = state.interventions.findIndex((i) => i.id === record.id);
+  const previous = idx >= 0 ? state.interventions[idx] : null;
   if (idx >= 0) state.interventions[idx] = record;
   else state.interventions.push(record);
 
-  save();
+  if (!save()) {
+    if (idx >= 0) state.interventions[idx] = previous;
+    else state.interventions.pop();
+    return showFormError(els.fError, "Enregistrement impossible — voir l'avis en haut de la page.");
+  }
+  editOrigin = null;
   els.interventionDialog.close();
   ensureInterventionVisible(record);
   render();
@@ -421,6 +985,7 @@ function editIntervention(id) {
   if (!i) return;
   const start = new Date(i.start);
   const end = new Date(i.end);
+  rememberOrigin(i, dateISO(start), timeHM(start), timeHM(end));
   openInterventionDialog({
     title: "Modifier l'intervention",
     id: i.id,
@@ -438,78 +1003,121 @@ function editIntervention(id) {
 }
 
 function deleteIntervention(id) {
-  const i = state.interventions.find((x) => x.id === id);
-  if (!i) return;
+  const idx = state.interventions.findIndex((x) => x.id === id);
+  if (idx < 0) return;
+  const i = state.interventions[idx];
   const label = i.client ? ` (${i.client})` : "";
   if (!confirm(`Supprimer cette intervention${label} ?`)) return;
-  state.interventions = state.interventions.filter((x) => x.id !== id);
-  save();
+  state.interventions.splice(idx, 1);
+  state.tombstones[id] = Date.now();
+  if (!save()) {
+    state.interventions.splice(idx, 0, i);
+    delete state.tombstones[id];
+    return;
+  }
   render();
 }
 
-// Ouvre le rapport complet de la période affichée (peu importe le filtre
-// actif — aujourd'hui, semaine, mois, tout, personnalisée…), avec la
-// section Interventions regroupée par numéro de billet plutôt que par
-// semaine. Aucune donnée enregistrée n'est jamais modifiée : c'est toujours
-// une simple vue de rapport, disponible en tout temps.
-function toggleTicketMergedView() {
-  ticketMergedView = !ticketMergedView;
-  els.btnMergeInterventions.classList.toggle("active", ticketMergedView);
-  els.btnMergeInterventions.textContent = ticketMergedView ? "Annuler la fusion" : "Fusionner billets";
+function toggleInterventionVerify(id) {
+  const i = state.interventions.find((x) => x.id === id);
+  if (!i) return;
+  const avant = { toVerify: i.toVerify, verifyNote: i.verifyNote, updatedAt: i.updatedAt };
+  i.toVerify = !i.toVerify;
+  if (!i.toVerify) i.verifyNote = "";
+  touch(i);
+  if (!save()) {
+    Object.assign(i, avant);
+    return;
+  }
   renderInterventionTable();
+  renderSummaryTable();
+  if (i.toVerify) {
+    const input = els.interventionTbody.querySelector(`[data-verify-note-input="${cssEscape(id)}"]`);
+    if (input) input.focus();
+  }
 }
 
-function refreshClientDatalist() {
-  const clients = uniqueClients();
-  els.clientList.innerHTML = "";
-  for (const c of clients) {
+function updateInterventionVerifyNote(id, value) {
+  const i = state.interventions.find((x) => x.id === id);
+  if (!i) return;
+  const avant = { verifyNote: i.verifyNote, updatedAt: i.updatedAt };
+  i.verifyNote = value.trim();
+  touch(i);
+  if (!save()) Object.assign(i, avant);
+}
+
+// Les identifiants sont générés par genId() et ne contiennent que des
+// caractères sûrs, mais un sélecteur construit par concaténation reste
+// fragile : on échappe quand même.
+function cssEscape(value) {
+  return window.CSS && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&");
+}
+
+function fillDatalist(el, values) {
+  el.innerHTML = "";
+  for (const v of values) {
     const opt = document.createElement("option");
-    opt.value = c;
-    els.clientList.appendChild(opt);
+    opt.value = v;
+    el.appendChild(opt);
   }
+}
+
+function refreshDatalists() {
+  fillDatalist(els.clientList, uniqueValues((i) => i.client));
+  fillDatalist(els.ticketList, uniqueValues((i) => i.ticket));
+}
+
+function uniqueValues(pick) {
+  const set = new Set();
+  for (const i of state.interventions) {
+    const v = pick(i);
+    if (v) set.add(v);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
 }
 
 function uniqueClients() {
-  const set = new Set();
-  for (const i of state.interventions) {
-    if (i.client) set.add(i.client);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  return uniqueValues((i) => i.client);
 }
 
 /* ---------- Filtres et rendu ---------- */
 
+// Toutes les périodes sont fermées : [début, fin[. Une entrée mal datée
+// (2027 au lieu de 2026) ne peut plus gonfler « Aujourd'hui » en permanence.
 function filterRange() {
   const now = new Date();
   switch (els.filterPeriod.value) {
-    case "today":
-      return [startOfDay(now).getTime(), Infinity];
-    case "week":
-      return [startOfWeek(now).getTime(), Infinity];
+    case "today": {
+      const d = startOfDay(now);
+      return [d.getTime(), addDays(d, 1).getTime()];
+    }
+    case "week": {
+      const w = startOfWeek(now);
+      return [w.getTime(), addDays(w, 7).getTime()];
+    }
     case "last-week": {
-      const to = startOfWeek(now);
-      const from = new Date(to);
-      from.setDate(from.getDate() - 7);
-      return [from.getTime(), to.getTime()];
+      const w = startOfWeek(now);
+      return [addDays(w, -7).getTime(), w.getTime()];
     }
     case "2weeks": {
-      const from = new Date(startOfWeek(now));
-      from.setDate(from.getDate() - 7);
-      return [from.getTime(), Infinity];
+      const w = startOfWeek(now);
+      return [addDays(w, -7).getTime(), addDays(w, 7).getTime()];
     }
     case "month":
-      return [startOfMonth(now).getTime(), Infinity];
-    case "last-month": {
-      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const to = startOfMonth(now);
-      return [from.getTime(), to.getTime()];
-    }
+      return [startOfMonth(now).getTime(), addMonths(now, 1).getTime()];
+    case "last-month":
+      return [addMonths(now, -1).getTime(), startOfMonth(now).getTime()];
     case "custom": {
-      const from = els.filterFrom.value ? new Date(`${els.filterFrom.value}T00:00`) : null;
-      const to = els.filterTo.value ? new Date(`${els.filterTo.value}T00:00`) : null;
+      let from = parseDateInput(els.filterFrom.value);
+      let to = parseDateInput(els.filterTo.value);
+      // Bornes saisies à l'envers : mieux vaut la période voulue qu'un tableau
+      // vide sans explication.
+      if (from && to && from > to) [from, to] = [to, from];
       return [
         from ? from.getTime() : -Infinity,
-        to ? to.getTime() + 24 * 3600 * 1000 : Infinity,
+        // La borne « au » est inclusive : on va jusqu'à la fin de cette
+        // journée-là, par le calendrier et non par +24 h.
+        to ? addDays(to, 1).getTime() : Infinity,
       ];
     }
     default:
@@ -517,10 +1125,36 @@ function filterRange() {
   }
 }
 
+function parseDateInput(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+// Libellé de la période affichée : repris tel quel dans les noms de fichiers,
+// l'en-tête des CSV et celui du rapport, pour qu'un document retrouvé trois
+// mois plus tard dise lui-même ce qu'il contient.
+function rangeLabel() {
+  const [from, to] = filterRange();
+  if (from === -Infinity && to === Infinity) return "toutes les données";
+  const debut = from === -Infinity ? "début" : dateISO(new Date(from));
+  const fin = to === Infinity ? "fin" : dateISO(addDays(new Date(to), -1));
+  return debut === fin ? debut : `${debut} au ${fin}`;
+}
+
+function rangeSlug() {
+  const [from, to] = filterRange();
+  if (from === -Infinity && to === Infinity) return "tout";
+  const debut = from === -Infinity ? "debut" : dateISO(new Date(from));
+  const fin = to === Infinity ? dateISO(new Date()) : dateISO(addDays(new Date(to), -1));
+  return debut === fin ? debut : `${debut}_${fin}`;
+}
+
 // Bref avis visuel non bloquant (ex. quand le filtre change automatiquement).
 function showToast(message) {
   const toast = document.createElement("div");
   toast.className = "toast";
+  toast.setAttribute("role", "status");
   toast.textContent = message;
   document.body.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add("visible"));
@@ -531,9 +1165,8 @@ function showToast(message) {
 }
 
 // Si un enregistrement fraîchement ajouté tombe hors du filtre de période
-// actif (ex. plage personnalisée périmée), on bascule sur « Tout » pour
-// qu'il soit immédiatement visible, plutôt que de laisser croire qu'il n'a
-// pas été enregistré.
+// actif, on bascule sur « Tout » pour qu'il soit immédiatement visible,
+// plutôt que de laisser croire qu'il n'a pas été enregistré.
 function ensureVisible(recordStartMs) {
   const [from, to] = filterRange();
   if (recordStartMs >= from && recordStartMs < to) return;
@@ -542,129 +1175,106 @@ function ensureVisible(recordStartMs) {
   showToast("Filtre changé pour « Tout » afin d'afficher l'ajout le plus récent.");
 }
 
-// Variante pour les interventions : tient compte aussi du filtre client.
+// Variante pour les interventions : tient compte aussi des filtres client et
+// « à vérifier ».
 function ensureInterventionVisible(record) {
   const [from, to] = filterRange();
   const periodOk = record.start >= from && record.start < to;
   const clientFilter = els.filterClient.value;
   const clientOk = !clientFilter || clientFilter === record.client;
-  if (periodOk && clientOk) return;
+  const verifyOk = !els.filterToVerify.checked || record.toVerify;
+  if (periodOk && clientOk && verifyOk) return;
   els.filterPeriod.value = "all";
   els.customRange.hidden = true;
   els.filterClient.value = "";
-  showToast("Filtre changé pour « Tout » afin d'afficher l'ajout le plus récent.");
+  els.filterToVerify.checked = false;
+  showToast("Filtres réinitialisés afin d'afficher l'ajout le plus récent.");
+}
+
+function inRange(record, from, to) {
+  return record.start >= from && record.start < to;
 }
 
 function filteredPunches() {
   const [from, to] = filterRange();
-  return state.punches
-    .filter((p) => p.start >= from && p.start < to)
-    .sort((a, b) => b.start - a.start);
+  return state.punches.filter((p) => inRange(p, from, to)).sort((a, b) => b.start - a.start);
+}
+
+// Interventions de la période, sans les filtres client et « à vérifier » :
+// sert au rapprochement punché / ventilé, qui doit porter sur toute la journée.
+function periodInterventions() {
+  const [from, to] = filterRange();
+  return state.interventions.filter((i) => inRange(i, from, to));
 }
 
 function filteredInterventions() {
-  const [from, to] = filterRange();
   const client = els.filterClient.value;
   const toVerifyOnly = els.filterToVerify.checked;
-  return state.interventions
-    .filter(
-      (i) =>
-        i.start >= from &&
-        i.start < to &&
-        (!client || i.client === client) &&
-        (!toVerifyOnly || i.toVerify)
-    )
+  return periodInterventions()
+    .filter((i) => (!client || i.client === client) && (!toVerifyOnly || i.toVerify))
     .sort((a, b) => b.start - a.start);
 }
 
-function toggleInterventionVerify(id) {
-  const i = state.interventions.find((x) => x.id === id);
-  if (!i) return;
-  i.toVerify = !i.toVerify;
-  if (!i.toVerify) i.verifyNote = "";
-  save();
-  renderInterventionTable();
-  if (i.toVerify) {
-    const input = els.interventionTbody.querySelector(`[data-verify-note-input="${id}"]`);
-    if (input) input.focus();
-  }
-}
-
-function updateInterventionVerifyNote(id, value) {
-  const i = state.interventions.find((x) => x.id === id);
-  if (!i) return;
-  i.verifyNote = value.trim();
-  save();
-}
-
-// Marquer « à vérifier » depuis la ligne fusionnée (vue temporaire) applique
-// le même état à chaque intervention d'origine réelle : la note reste donc
-// visible sur chacune d'elles dans le rapport (qui les affiche séparément,
-// par semaine), même si la fusion elle-même n'est pas enregistrée.
-function toggleGroupVerify(idsCsv) {
-  const ids = idsCsv.split(",");
-  const items = ids.map((id) => state.interventions.find((x) => x.id === id)).filter(Boolean);
-  if (items.length === 0) return;
-  const newValue = !items.every((i) => i.toVerify);
-  for (const i of items) {
-    i.toVerify = newValue;
-    if (!newValue) i.verifyNote = "";
-  }
-  save();
-  renderInterventionTable();
-  if (newValue) {
-    const input = els.interventionTbody.querySelector(`[data-verify-note-input-group="${idsCsv}"]`);
-    if (input) input.focus();
-  }
-}
-
-function updateGroupVerifyNote(idsCsv, value) {
-  const ids = idsCsv.split(",");
-  const note = value.trim();
-  for (const id of ids) {
-    const i = state.interventions.find((x) => x.id === id);
-    if (i) i.verifyNote = note;
-  }
-  save();
-}
-
 function escapeHtml(s) {
-  return String(s)
+  return String(s == null ? "" : s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function render() {
+  els.rangeLabel.textContent = rangeLabel();
+  updatePrintMeta();
   renderPunchCard();
   renderStats();
   renderPunchTable();
   renderClientFilter();
   renderInterventionTable();
+  renderSummaryTable();
+  refreshDatalists();
 }
 
-// Le sommaire reflète la feuille de temps (les punchs).
+// Le sommaire reflète la feuille de temps (les punchs), punch en cours inclus :
+// à 15 h, « Aujourd'hui » ne peut plus afficher 0 min pendant que le chrono tourne.
 function renderStats() {
   const now = new Date();
+  const bornes = {
+    today: [startOfDay(now), addDays(startOfDay(now), 1)],
+    week: [startOfWeek(now), addDays(startOfWeek(now), 7)],
+    month: [startOfMonth(now), addMonths(now, 1)],
+  };
   const sums = { today: 0, week: 0, month: 0 };
-  const dayStart = startOfDay(now).getTime();
-  const weekStart = startOfWeek(now).getTime();
-  const monthStart = startOfMonth(now).getTime();
-  for (const p of state.punches) {
-    const min = minutesBetween(p.start, p.end);
-    if (p.start >= dayStart) sums.today += min;
-    if (p.start >= weekStart) sums.week += min;
-    if (p.start >= monthStart) sums.month += min;
+  const encours = { today: false, week: false, month: false };
+
+  const ajoute = (start, minutes, actif) => {
+    for (const cle of ["today", "week", "month"]) {
+      const [a, b] = bornes[cle];
+      if (start >= a.getTime() && start < b.getTime()) {
+        sums[cle] += minutes;
+        if (actif) encours[cle] = true;
+      }
+    }
+  };
+
+  for (const p of state.punches) ajoute(p.start, minutesBetween(p.start, p.end), false);
+  if (state.activePunch) {
+    ajoute(state.activePunch.start, minutesBetween(state.activePunch.start, Date.now()), true);
   }
-  els.statToday.textContent = fmtDuration(sums.today);
-  els.statWeek.textContent = fmtDuration(sums.week);
-  els.statMonth.textContent = fmtDuration(sums.month);
+
+  // Le repère n'apparaît que sur les tuiles qui comptent réellement le punch
+  // en cours : un punch commencé hier ne « coule » pas dans « Aujourd'hui ».
+  els.statToday.textContent = fmtDuration(sums.today) + (encours.today ? " ⏵" : "");
+  els.statWeek.textContent = fmtDuration(sums.week) + (encours.week ? " ⏵" : "");
+  els.statMonth.textContent = fmtDuration(sums.month) + (encours.month ? " ⏵" : "");
+  els.statToday.title = encours.today ? "Punch en cours inclus" : "";
 }
 
 // La journée en cours est dépliée (détail des périodes); les journées
 // terminées sont repliées sur leur total et se déplient d'un clic.
 function isDayExpanded(day) {
+  if (printing) return true;
   if (dayOverrides.has(day)) return dayOverrides.get(day);
   return day === todayKey;
 }
@@ -674,22 +1284,32 @@ function toggleDay(day) {
   renderPunchTable();
 }
 
-// Tableau de la feuille de temps, groupé par jour avec total quotidien.
+function minutesParJour(records) {
+  const m = new Map();
+  for (const r of records) {
+    const day = dateISO(new Date(r.start));
+    m.set(day, (m.get(day) || 0) + minutesBetween(r.start, r.end));
+  }
+  return m;
+}
+
+// Tableau de la feuille de temps, groupé par jour avec total quotidien et
+// rapprochement avec le temps ventilé en interventions.
 function renderPunchTable() {
   const rows = filteredPunches();
   els.punchTbody.innerHTML = "";
   els.punchEmpty.hidden = rows.length > 0;
 
-  const dayTotals = new Map();
+  const dayTotals = minutesParJour(rows);
   const dayCounts = new Map();
   let total = 0;
   for (const p of rows) {
     const day = dateISO(new Date(p.start));
-    const min = minutesBetween(p.start, p.end);
-    dayTotals.set(day, (dayTotals.get(day) || 0) + min);
     dayCounts.set(day, (dayCounts.get(day) || 0) + 1);
-    total += min;
+    total += minutesBetween(p.start, p.end);
   }
+
+  const interventionsDuJour = minutesParJour(state.interventions);
 
   let currentDay = null;
   for (const p of rows) {
@@ -701,13 +1321,25 @@ function renderPunchTable() {
       currentDay = day;
       const expanded = isDayExpanded(day);
       const count = dayCounts.get(day);
+      const punche = dayTotals.get(day);
+      const ventile = interventionsDuJour.get(day) || 0;
+      const ecart = punche - ventile;
+
       const trDay = document.createElement("tr");
       trDay.className = "day-row";
       trDay.dataset.day = day;
+      trDay.tabIndex = 0;
+      trDay.setAttribute("role", "button");
+      trDay.setAttribute("aria-expanded", String(expanded));
       trDay.title = "Cliquer pour afficher ou masquer le détail";
       trDay.innerHTML = `
-        <td colspan="2"><span class="chevron">${expanded ? "▾" : "▸"}</span>${dayLabel(start)} · ${count} période${count > 1 ? "s" : ""}</td>
-        <td colspan="2">Total : ${fmtDuration(dayTotals.get(day))}</td>`;
+        <td colspan="2"><span class="chevron">${expanded ? "▾" : "▸"}</span>${escapeHtml(dayLabel(start))} · ${count} période${count > 1 ? "s" : ""}</td>
+        <td>Total : ${fmtDuration(punche)}</td>
+        <td class="${ecart > 0 ? "gap-warn" : ""}">${
+          ventile === 0
+            ? "Aucun billet inscrit"
+            : `Ventilé : ${fmtDuration(ventile)} · écart ${fmtSigned(ecart)}`
+        }</td>`;
       els.punchTbody.appendChild(trDay);
     }
 
@@ -716,22 +1348,27 @@ function renderPunchTable() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${timeHM(start)}</td>
-      <td>${timeHM(end)}</td>
+      <td>${timeHM(end)}${dateISO(end) !== day ? ' <span class="next-day" title="Se termine le lendemain">+1</span>' : ""}</td>
       <td>${fmtDuration(minutesBetween(p.start, p.end))}</td>
       <td>
         <span class="row-actions">
-          <button class="icon-btn" data-edit-punch="${p.id}" title="Modifier">✏️</button>
-          <button class="icon-btn delete" data-delete-punch="${p.id}" title="Supprimer">✕</button>
+          <button class="icon-btn" data-ventiler-punch="${escapeHtml(p.id)}" title="Inscrire une intervention pour cette période" aria-label="Inscrire une intervention pour cette période">🧾</button>
+          <button class="icon-btn" data-edit-punch="${escapeHtml(p.id)}" title="Modifier" aria-label="Modifier la période">✏️</button>
+          <button class="icon-btn delete" data-delete-punch="${escapeHtml(p.id)}" title="Supprimer" aria-label="Supprimer la période">✕</button>
         </span>
       </td>`;
     els.punchTbody.appendChild(tr);
   }
 
+  const ventileTotal = periodInterventions().reduce((n, i) => n + minutesBetween(i.start, i.end), 0);
+  const ecart = total - ventileTotal;
   els.punchTotal.innerHTML =
     rows.length === 0
       ? ""
       : `${rows.length} période${rows.length > 1 ? "s" : ""} — total travaillé : ` +
-        `<strong>${fmtDuration(total)}</strong> (${fmtDecimalHours(total)} h)`;
+        `<strong>${fmtDuration(total)}</strong> (${fmtDecimalHours(total)} h) · ` +
+        `ventilé en interventions : <strong>${fmtDuration(ventileTotal)}</strong> · ` +
+        `écart : <strong class="${ecart > 0 ? "gap-warn" : ""}">${fmtSigned(ecart)}</strong>`;
 }
 
 function renderClientFilter() {
@@ -747,147 +1384,44 @@ function renderClientFilter() {
   if (clients.includes(current)) els.filterClient.value = current;
 }
 
-// Vue de fusion temporaire (par numéro de billet, peu importe la date) :
-// un simple bascule d'affichage en mémoire, jamais enregistré, jamais
-// envoyé à Firestore. S'applique par-dessus le filtre actif, quel qu'il
-// soit, et se réinitialise au rechargement de la page.
-let ticketMergedView = false;
-
-// Regroupe les interventions déjà filtrées par numéro de billet, peu importe
-// la date, pour l'affichage uniquement. Réutilise le même format `segments`
-// que la fusion permanente pour profiter du même rendu dépliable — mais rien
-// n'est écrit dans `state`. Les groupes d'un seul élément restent tels quels
-// (toujours modifiables normalement).
-function buildVirtualTicketMerge(rows) {
-  const groups = new Map();
-  const singles = [];
-  for (const i of rows) {
-    const ticket = (i.ticket || "").trim();
-    if (!ticket) {
-      singles.push(i);
-      continue;
-    }
-    if (!groups.has(ticket)) groups.set(ticket, []);
-    groups.get(ticket).push(i);
-  }
-
-  const merged = [];
-  for (const items of groups.values()) {
-    if (items.length < 2) {
-      singles.push(items[0]);
-      continue;
-    }
-    items.sort((a, b) => a.start - b.start);
-    const totalMinutes = items.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
-    const start = items[0].start;
-    const end = start + totalMinutes * 60000;
-    const clients = [...new Set(items.map((i) => i.client).filter(Boolean))];
-    const categories = [...new Set(items.map((i) => i.category).filter(Boolean))];
-    const billable = items.some((i) => i.billable);
-    const toVerify = items.some((i) => i.toVerify);
-    const notes = [...new Set(items.filter((i) => i.toVerify && i.verifyNote).map((i) => i.verifyNote))];
-    const detailLines = items.map((i) => {
-      const s = new Date(i.start);
-      const e = new Date(i.end);
-      const desc = i.description ? ` — ${i.description}` : "";
-      return `${dateISO(s)} ${timeHM(s)}–${timeHM(e)} (${i.category})${desc}`;
-    });
-
-    merged.push({
-      id: `__virtual__${items[0].ticket.trim()}`,
-      virtual: true,
-      realIds: items.map((i) => i.id),
-      start,
-      end,
-      client: clients.join(" / "),
-      ticket: items[0].ticket.trim(),
-      category: categories.join(" / "),
-      description: `[Vue fusionnée temporaire — ${items.length} interventions]\n` + detailLines.join("\n"),
-      billable,
-      toVerify,
-      verifyNote: notes.join(" · "),
-      segments: items.map((i) => ({
-        start: i.start,
-        end: i.end,
-        client: i.client,
-        category: i.category,
-        description: i.description,
-        billable: i.billable,
-        toVerify: i.toVerify,
-        verifyNote: i.verifyNote,
-      })),
-    });
-  }
-
-  return [...singles, ...merged].sort((a, b) => b.start - a.start);
-}
-
-// Sous-lignes dépliables (segments) des interventions fusionnées : par
-// défaut dépliées pour garder la durée de chaque intervention d'origine
-// visible séparément. État par intervention, conservé pour la session.
-const interventionSegmentsExpanded = new Map();
-
-function isInterventionExpanded(id) {
-  return interventionSegmentsExpanded.has(id) ? interventionSegmentsExpanded.get(id) : true;
-}
-
-function toggleInterventionSegments(id) {
-  interventionSegmentsExpanded.set(id, !isInterventionExpanded(id));
-  renderInterventionTable();
-}
-
+/* Le tableau des interventions est une liste chronologique, point.
+ * L'ancienne « vue fusionnée » y insérait des lignes virtuelles dont l'heure
+ * de fin était fabriquée (début + somme des durées) et dont la facturabilité
+ * passait au vrai dès qu'une seule intervention du groupe l'était. Le total
+ * par billet vit maintenant dans le Sommaire de facturation, qui n'invente
+ * aucune heure. */
 function renderInterventionTable() {
-  const filtered = filteredInterventions();
-  const rows = ticketMergedView ? buildVirtualTicketMerge(filtered) : filtered;
+  const rows = filteredInterventions();
   els.interventionTbody.innerHTML = "";
   els.interventionEmpty.hidden = rows.length > 0;
 
   let total = 0;
+  let billableTotal = 0;
   for (const i of rows) {
     const start = new Date(i.start);
     const end = new Date(i.end);
     const min = minutesBetween(i.start, i.end);
     total += min;
-
-    const hasSegments = Array.isArray(i.segments) && i.segments.length > 1;
-    const expanded = hasSegments && isInterventionExpanded(i.id);
-    const editable = !i.virtual;
-    // Sur une ligne fusionnée (vue temporaire), la case et la note « à
-    // vérifier » restent actives, mais s'appliquent à chaque intervention
-    // d'origine réelle (voir toggleGroupVerify) — seules modifier/supprimer
-    // sont désactivées puisqu'elles n'ont pas de sens sur un groupe.
-    const verifyTarget = editable ? `data-toggle-verify="${i.id}"` : `data-toggle-verify-group="${(i.realIds || []).join(",")}"`;
-    const noteTarget = editable
-      ? `data-verify-note-input="${i.id}"`
-      : `data-verify-note-input-group="${(i.realIds || []).join(",")}"`;
+    if (i.billable) billableTotal += min;
 
     const tr = document.createElement("tr");
-    if (hasSegments) tr.className = "merged-row";
-    if (i.toVerify) tr.classList.add("to-verify-row");
+    if (i.toVerify) tr.className = "to-verify-row";
     tr.innerHTML = `
-      <td>${
-        hasSegments
-          ? `<span class="chevron" data-toggle-segments="${i.id}" title="Afficher ou masquer les ${i.segments.length} durées d'origine">${expanded ? "▾" : "▸"}</span>`
-          : ""
-      }${dateISO(start)}</td>
+      <td>${dateISO(start)}</td>
       <td>${timeHM(start)}</td>
-      <td>${timeHM(end)}</td>
-      <td>${fmtDuration(min)}${hasSegments ? ` <span class="muted">(${i.segments.length} durées)</span>` : ""}</td>
+      <td>${timeHM(end)}${dateISO(end) !== dateISO(start) ? ' <span class="next-day" title="Se termine le lendemain">+1</span>' : ""}</td>
+      <td>${fmtDuration(min)}</td>
       <td>${escapeHtml(i.client) || "—"}</td>
-      <td>${escapeHtml(i.ticket || "") || "—"}</td>
+      <td>${escapeHtml(i.ticket) || "—"}</td>
       <td>${escapeHtml(i.category)}</td>
       <td class="desc">${escapeHtml(i.description) || "—"}</td>
       <td>${i.billable ? "✓" : "—"}</td>
-      <td class="center"><input type="checkbox" ${verifyTarget} title="À vérifier avant facturation" ${i.toVerify ? "checked" : ""}></td>
+      <td class="center"><input type="checkbox" data-toggle-verify="${escapeHtml(i.id)}" title="À vérifier avant facturation" aria-label="Marquer à vérifier avant facturation" ${i.toVerify ? "checked" : ""}></td>
       <td>
-        ${
-          editable
-            ? `<span class="row-actions">
-          <button class="icon-btn" data-edit-intervention="${i.id}" title="Modifier">✏️</button>
-          <button class="icon-btn delete" data-delete-intervention="${i.id}" title="Supprimer">✕</button>
-        </span>`
-            : `<span class="muted" title="Vue fusionnée temporaire — modifiez les interventions d'origine individuellement">—</span>`
-        }
+        <span class="row-actions">
+          <button class="icon-btn" data-edit-intervention="${escapeHtml(i.id)}" title="Modifier" aria-label="Modifier l'intervention">✏️</button>
+          <button class="icon-btn delete" data-delete-intervention="${escapeHtml(i.id)}" title="Supprimer" aria-label="Supprimer l'intervention">✕</button>
+        </span>
       </td>`;
     els.interventionTbody.appendChild(tr);
 
@@ -898,32 +1432,9 @@ function renderInterventionTable() {
         <td></td>
         <td colspan="10">
           <div class="verify-note-label">⚠️ À vérifier avant facturation</div>
-          <textarea class="verify-note-input" rows="2" ${noteTarget} placeholder="Note de vérification (optionnelle)… — Entrée pour une nouvelle ligne">${escapeHtml(i.verifyNote || "")}</textarea>
+          <textarea class="verify-note-input" rows="2" data-verify-note-input="${escapeHtml(i.id)}" aria-label="Note de vérification" placeholder="Note de vérification (optionnelle)… — Entrée pour une nouvelle ligne">${escapeHtml(i.verifyNote || "")}</textarea>
         </td>`;
       els.interventionTbody.appendChild(trNote);
-    }
-
-    if (expanded) {
-      for (const seg of i.segments) {
-        const segStart = new Date(seg.start);
-        const segEnd = new Date(seg.end);
-        const segMin = minutesBetween(seg.start, seg.end);
-        const trSeg = document.createElement("tr");
-        trSeg.className = "segment-row";
-        trSeg.innerHTML = `
-          <td></td>
-          <td>${timeHM(segStart)}</td>
-          <td>${timeHM(segEnd)}</td>
-          <td>${fmtDuration(segMin)}</td>
-          <td>${escapeHtml(seg.client) || "—"}</td>
-          <td>—</td>
-          <td>${escapeHtml(seg.category)}</td>
-          <td class="desc">${escapeHtml(seg.description) || "—"}</td>
-          <td>${seg.billable ? "✓" : "—"}</td>
-          <td></td>
-          <td></td>`;
-        els.interventionTbody.appendChild(trSeg);
-      }
     }
   }
 
@@ -931,7 +1442,102 @@ function renderInterventionTable() {
     rows.length === 0
       ? ""
       : `${rows.length} intervention${rows.length > 1 ? "s" : ""} — total : ` +
-        `<strong>${fmtDuration(total)}</strong> (${fmtDecimalHours(total)} h)`;
+        `<strong>${fmtDuration(total)}</strong> (${fmtDecimalHours(total)} h), ` +
+        `dont facturable : <strong>${fmtDuration(billableTotal)}</strong> (${fmtDecimalHours(billableTotal)} h)`;
+}
+
+/* ---------- Sommaire de facturation (regroupement en lecture seule) ---------- */
+
+const GROUP_LABELS = { ticket: "Billet", client: "Client", category: "Catégorie" };
+
+function groupedInterventions() {
+  const cle = els.groupBy.value;
+  const groupes = new Map();
+  for (const i of filteredInterventions()) {
+    const k = (i[cle] || "").trim() || "(sans " + GROUP_LABELS[cle].toLowerCase() + ")";
+    if (!groupes.has(k)) groupes.set(k, { cle: k, count: 0, minutes: 0, billable: 0, toVerify: 0, items: [] });
+    const g = groupes.get(k);
+    const min = minutesBetween(i.start, i.end);
+    g.count++;
+    g.minutes += min;
+    // Le non facturable ne devient jamais facturable par regroupement.
+    if (i.billable) g.billable += min;
+    if (i.toVerify) g.toVerify++;
+    g.items.push(i);
+  }
+  for (const g of groupes.values()) g.items.sort((a, b) => a.start - b.start);
+  return [...groupes.values()].sort((a, b) => b.minutes - a.minutes);
+}
+
+// Détail d'un groupe : les vraies heures de chaque intervention, jamais un
+// intervalle synthétique.
+const summaryExpanded = new Set();
+
+function renderSummaryTable() {
+  const groupes = groupedInterventions();
+  els.groupHead.textContent = GROUP_LABELS[els.groupBy.value];
+  els.summaryTbody.innerHTML = "";
+  els.summaryEmpty.hidden = groupes.length > 0;
+
+  let total = 0;
+  let billable = 0;
+  let aVerifier = 0;
+  for (const g of groupes) {
+    total += g.minutes;
+    billable += g.billable;
+    aVerifier += g.toVerify;
+    const ouvert = summaryExpanded.has(g.cle);
+
+    const tr = document.createElement("tr");
+    tr.className = "summary-row";
+    tr.dataset.groupe = g.cle;
+    tr.tabIndex = 0;
+    tr.setAttribute("role", "button");
+    tr.setAttribute("aria-expanded", String(ouvert));
+    tr.title = "Cliquer pour afficher le détail des interventions";
+    tr.innerHTML = `
+      <td><span class="chevron">${ouvert ? "▾" : "▸"}</span>${escapeHtml(g.cle)}</td>
+      <td>${g.count}</td>
+      <td>${fmtDuration(g.minutes)}</td>
+      <td>${fmtDecimalHours(g.minutes)} h</td>
+      <td>${fmtDuration(g.billable)} (${fmtDecimalHours(g.billable)} h)</td>
+      <td class="center">${g.toVerify > 0 ? `<span class="verify-badge">⚠️ ${g.toVerify}</span>` : "—"}</td>`;
+    els.summaryTbody.appendChild(tr);
+
+    if (!ouvert) continue;
+    for (const i of g.items) {
+      const s = new Date(i.start);
+      const e = new Date(i.end);
+      const trd = document.createElement("tr");
+      trd.className = "summary-detail";
+      trd.innerHTML = `
+        <td>${dateISO(s)} ${timeHM(s)}–${timeHM(e)}</td>
+        <td></td>
+        <td>${fmtDuration(minutesBetween(i.start, i.end))}</td>
+        <td colspan="2" class="desc">${escapeHtml(i.client) || "—"}${i.description ? " — " + escapeHtml(i.description) : ""}</td>
+        <td class="center">${i.billable ? "✓" : "—"}${i.toVerify ? " ⚠️" : ""}</td>`;
+      els.summaryTbody.appendChild(trd);
+    }
+  }
+
+  if (groupes.length > 0) {
+    const tr = document.createElement("tr");
+    tr.className = "total-row";
+    tr.innerHTML = `
+      <td>TOTAL</td>
+      <td>${groupes.reduce((n, g) => n + g.count, 0)}</td>
+      <td>${fmtDuration(total)}</td>
+      <td>${fmtDecimalHours(total)} h</td>
+      <td>${fmtDuration(billable)} (${fmtDecimalHours(billable)} h)</td>
+      <td class="center">${aVerifier > 0 ? `⚠️ ${aVerifier}` : "—"}</td>`;
+    els.summaryTbody.appendChild(tr);
+  }
+}
+
+function toggleSummaryGroup(cle) {
+  if (summaryExpanded.has(cle)) summaryExpanded.delete(cle);
+  else summaryExpanded.add(cle);
+  renderSummaryTable();
 }
 
 /* ---------- Export / import ---------- */
@@ -943,7 +1549,8 @@ function downloadFile(name, content, type) {
   a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
+  // Révoquer immédiatement coupe le téléchargement dans certains navigateurs.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function csvField(value) {
@@ -959,19 +1566,71 @@ function downloadCsv(name, lines) {
   downloadFile(name, "﻿" + lines.join("\r\n"), "text/csv;charset=utf-8");
 }
 
+// Rappelle dans le fichier lui-même quelle période et quels filtres l'ont
+// produit : un CSV retrouvé plus tard n'est plus une devinette.
+function csvEntete(titre, extra) {
+  const lignes = [
+    csvField(`${titre} — période : ${rangeLabel()}`),
+    csvField(`Généré le ${dateISO(new Date())} à ${timeHM(new Date())}`),
+  ];
+  if (extra) lignes.push(csvField(extra));
+  lignes.push("");
+  return lignes;
+}
+
+function filtresActifs() {
+  const bouts = [];
+  const client = els.filterClient.value;
+  bouts.push(client ? `Filtre client : ${client}` : "Tous les clients");
+  if (els.filterToVerify.checked) bouts.push("Seulement les interventions à vérifier");
+  return bouts.join(" — ");
+}
+
+// Ligne de sous-total ou de total. Les deux exports partagent leurs six
+// premières colonnes : le libellé va sous « Fin », les valeurs sous
+// « Durée (min) » et « Durée (h) ». Compter les points-virgules à la main
+// décalait silencieusement les chiffres d'une colonne dans Excel.
+function csvTotalRow(colonnes, libelle, minutes) {
+  const cases = new Array(colonnes).fill("");
+  cases[3] = libelle;
+  cases[4] = minutes;
+  cases[5] = fmtDecimalHours(minutes);
+  return cases.join(";");
+}
+
 function exportPunchesCsv() {
   const rows = filteredPunches();
   if (rows.length === 0) {
     alert("Aucune période à exporter pour cette période.");
     return;
   }
-  const lines = ["Date;Début;Fin;Durée (min);Durée (h)"];
-  for (const p of [...rows].reverse()) {
+  const lines = csvEntete("Feuille de temps");
+  lines.push("Date;Date de fin;Début;Fin;Durée (min);Durée (h)");
+
+  const chrono = [...rows].reverse();
+  let currentDay = null;
+  let jour = 0;
+  let total = 0;
+  const sousTotal = (day, min) => lines.push(csvTotalRow(6, `Sous-total ${day}`, min));
+
+  for (const p of chrono) {
     const start = new Date(p.start);
+    const end = new Date(p.end);
+    const day = dateISO(start);
+    if (currentDay !== null && day !== currentDay) {
+      sousTotal(currentDay, jour);
+      jour = 0;
+    }
+    currentDay = day;
     const min = minutesBetween(p.start, p.end);
-    lines.push([dateISO(start), timeHM(start), timeHM(new Date(p.end)), min, fmtDecimalHours(min)].join(";"));
+    jour += min;
+    total += min;
+    lines.push([day, dateISO(end), timeHM(start), timeHM(end), min, fmtDecimalHours(min)].join(";"));
   }
-  downloadCsv(`feuille-de-temps-${dateISO(new Date())}.csv`, lines);
+  if (currentDay !== null) sousTotal(currentDay, jour);
+  lines.push(csvTotalRow(6, "TOTAL", total));
+
+  downloadCsv(`feuille-de-temps-${rangeSlug()}.csv`, lines);
 }
 
 function exportInterventionsCsv() {
@@ -980,19 +1639,30 @@ function exportInterventionsCsv() {
     alert("Aucune intervention à exporter pour cette période.");
     return;
   }
-  const lines = ["Date;Début;Fin;Durée (min);Durée (h);Client;Billet;Catégorie;Description;Facturable;À vérifier;Note de vérification"];
+  const lines = csvEntete("Interventions", filtresActifs());
+  lines.push(
+    "Date;Date de fin;Début;Fin;Durée (min);Durée (h);Client;Billet;Catégorie;Description;Facturable;À vérifier;Note de vérification"
+  );
+  const COLONNES = 13;
+
+  let total = 0;
+  let billable = 0;
   for (const i of [...rows].reverse()) {
     const start = new Date(i.start);
+    const end = new Date(i.end);
     const min = minutesBetween(i.start, i.end);
+    total += min;
+    if (i.billable) billable += min;
     lines.push(
       [
         dateISO(start),
+        dateISO(end),
         timeHM(start),
-        timeHM(new Date(i.end)),
+        timeHM(end),
         min,
         fmtDecimalHours(min),
         csvField(i.client),
-        csvField(i.ticket || ""),
+        csvField(i.ticket),
         csvField(i.category),
         csvField(i.description),
         i.billable ? "Oui" : "Non",
@@ -1001,13 +1671,52 @@ function exportInterventionsCsv() {
       ].join(";")
     );
   }
-  downloadCsv(`interventions-${dateISO(new Date())}.csv`, lines);
+  lines.push(csvTotalRow(COLONNES, "TOTAL", total));
+  lines.push(csvTotalRow(COLONNES, "DONT FACTURABLE", billable));
+
+  downloadCsv(`interventions-${rangeSlug()}.csv`, lines);
+}
+
+function exportSummaryCsv() {
+  const groupes = groupedInterventions();
+  if (groupes.length === 0) {
+    alert("Aucune intervention à regrouper pour cette période.");
+    return;
+  }
+  const libelle = GROUP_LABELS[els.groupBy.value];
+  const lines = csvEntete(`Sommaire de facturation par ${libelle.toLowerCase()}`, filtresActifs());
+  lines.push(`${libelle};Interventions;Durée (min);Durée (h);Facturable (min);Facturable (h);À vérifier`);
+
+  let total = 0;
+  let billable = 0;
+  let count = 0;
+  let aVerifier = 0;
+  for (const g of groupes) {
+    total += g.minutes;
+    billable += g.billable;
+    count += g.count;
+    aVerifier += g.toVerify;
+    lines.push(
+      [
+        csvField(g.cle),
+        g.count,
+        g.minutes,
+        fmtDecimalHours(g.minutes),
+        g.billable,
+        fmtDecimalHours(g.billable),
+        g.toVerify,
+      ].join(";")
+    );
+  }
+  lines.push(["TOTAL", count, total, fmtDecimalHours(total), billable, fmtDecimalHours(billable), aVerifier].join(";"));
+
+  downloadCsv(`sommaire-${els.groupBy.value}-${rangeSlug()}.csv`, lines);
 }
 
 /* ---------- Rapport hebdomadaire (impression / PDF) ---------- */
 
 function isoWeekLabel(monday) {
-  const sunday = new Date(monday.getTime() + 6 * 24 * 3600 * 1000);
+  const sunday = addDays(monday, 6);
   const fmtLong = (d) => d.toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
   const range =
     monday.getMonth() === sunday.getMonth()
@@ -1016,78 +1725,10 @@ function isoWeekLabel(monday) {
   return `Semaine du ${range} ${sunday.getFullYear()}`;
 }
 
-// Regroupe des interventions déjà filtrées par période par numéro de billet,
-// peu importe la date. Vue de rapport uniquement, aucune donnée modifiée.
-function buildTicketMergedInterventionSection(interventions) {
-  const groups = new Map();
-  for (const i of interventions) {
-    const ticket = (i.ticket || "").trim();
-    const key = ticket || `__sans-billet__${i.id}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(i);
-  }
-
-  const rows = [...groups.values()]
-    .map((items) => {
-      items.sort((a, b) => a.start - b.start);
-      const ticket = (items[0].ticket || "").trim();
-      const min = items.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
-      const toVerify = items.some((i) => i.toVerify);
-      const billable = items.some((i) => i.billable);
-      const clients = [...new Set(items.map((i) => i.client).filter(Boolean))];
-      const categories = [...new Set(items.map((i) => i.category).filter(Boolean))];
-      const dates = [...new Set(items.map((i) => dateISO(new Date(i.start))))].sort();
-      const detail = items
-        .map((i) => {
-          const s = new Date(i.start);
-          const e = new Date(i.end);
-          const desc = i.description ? ` — ${escapeHtml(i.description)}` : "";
-          return `${dateISO(s)} ${timeHM(s)}–${timeHM(e)}${desc}`;
-        })
-        .join("<br>");
-      const notes = [...new Set(items.filter((i) => i.toVerify && i.verifyNote).map((i) => i.verifyNote))];
-      const notesHtml = notes.length
-        ? `<div class="verify-note">⚠️ ${notes.map((n) => escapeHtml(n)).join(" · ")}</div>`
-        : "";
-
-      return {
-        firstStart: items[0].start,
-        html: `<tr${toVerify ? ' class="to-verify-row"' : ""}>
-          <td>${dates.join(", ")}</td>
-          <td>${escapeHtml(ticket) || "—"}</td>
-          <td>${fmtDuration(min)}</td>
-          <td>${escapeHtml(clients.join(" / ")) || "—"}</td>
-          <td>${escapeHtml(categories.join(" / "))}</td>
-          <td class="desc">${detail}${notesHtml}</td>
-          <td class="center">${billable ? "✓" : "—"}</td>
-          <td class="center">${toVerify ? "⚠️" : "—"}</td>
-        </tr>`,
-      };
-    })
-    .sort((a, b) => a.firstStart - b.firstStart)
-    .map((r) => r.html)
-    .join("");
-
-  return `
-  <section class="week">
-    <table>
-      <thead><tr><th>Dates</th><th>Billet</th><th>Durée totale</th><th>Client(s)</th><th>Catégorie(s)</th><th>Détail</th><th>Fact.</th><th>Vérif.</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </section>`;
-}
-
-// mergeByTicket (uniquement pertinent en mode Période personnalisée) :
-// remplace la répartition des interventions par semaine par un regroupement
-// par numéro de billet, peu importe la date — mais toujours limité aux
-// interventions de la période affichée, et sans modifier aucune donnée
-// enregistrée (vue de rapport uniquement).
-function generateWeeklyReport(mergeByTicket) {
+function generateWeeklyReport() {
   const [from, to] = filterRange();
-  const punches = state.punches.filter((p) => p.start >= from && p.start < to).sort((a, b) => a.start - b.start);
-  const interventions = state.interventions
-    .filter((i) => i.start >= from && i.start < to)
-    .sort((a, b) => a.start - b.start);
+  const punches = state.punches.filter((p) => inRange(p, from, to)).sort((a, b) => a.start - b.start);
+  const interventions = state.interventions.filter((i) => inRange(i, from, to)).sort((a, b) => a.start - b.start);
 
   if (punches.length === 0 && interventions.length === 0) {
     alert("Aucune donnée à inclure dans le rapport pour cette période.");
@@ -1109,16 +1750,14 @@ function generateWeeklyReport(mergeByTicket) {
   const sortedWeeks = [...weeks.values()].sort((a, b) => a.monday - b.monday);
 
   let grandPunchMin = 0;
-  let grandInterventionMin = 0;
-  let grandBillableMin = 0;
   const grandToVerifyCount = interventions.filter((i) => i.toVerify).length;
 
   // Deux parties distinctes plutôt qu'un mélange par semaine : toute la
-  // feuille de temps d'abord, puis les interventions démarrent sur une
-  // nouvelle page (rapport plus propre, chaque partie lisible d'un bloc).
+  // feuille de temps d'abord, puis les interventions sur une nouvelle page.
   const punchWeekSections = sortedWeeks
     .map((w) => {
       const punchMin = w.punches.reduce((sum, p) => sum + minutesBetween(p.start, p.end), 0);
+      const ventileMin = w.interventions.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
       grandPunchMin += punchMin;
 
       const punchRows = w.punches.length
@@ -1133,68 +1772,87 @@ function generateWeeklyReport(mergeByTicket) {
 
       return `
       <section class="week">
-        <h3>${isoWeekLabel(w.monday)}</h3>
+        <h3>${escapeHtml(isoWeekLabel(w.monday))}</h3>
         <table>
           <thead><tr><th>Date</th><th>Début</th><th>Fin</th><th>Durée</th></tr></thead>
           <tbody>${punchRows}</tbody>
-          <tfoot><tr><td colspan="3">Total de la semaine</td><td>${fmtDuration(punchMin)} (${fmtDecimalHours(punchMin)} h)</td></tr></tfoot>
+          <tfoot><tr><td colspan="3">Total de la semaine — ventilé en interventions : ${fmtDuration(ventileMin)}, écart ${fmtSigned(punchMin - ventileMin)}</td><td>${fmtDuration(punchMin)} (${fmtDecimalHours(punchMin)} h)</td></tr></tfoot>
         </table>
       </section>`;
     })
     .join("");
 
-  grandInterventionMin = interventions.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
-  grandBillableMin = interventions.filter((i) => i.billable).reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
+  const grandInterventionMin = interventions.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
+  const grandBillableMin = interventions
+    .filter((i) => i.billable)
+    .reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
 
-  const interventionSectionTitle = mergeByTicket ? "Interventions (fusionnées par billet)" : "Interventions";
+  const interventionWeekSections = sortedWeeks
+    .map((w) => {
+      const interventionMin = w.interventions.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
 
-  const interventionWeekSections = mergeByTicket
-    ? buildTicketMergedInterventionSection(interventions)
-    : sortedWeeks
-        .map((w) => {
-          const interventionMin = w.interventions.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
-          const billableMin = w.interventions
-            .filter((i) => i.billable)
-            .reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
+      const interventionRows = w.interventions.length
+        ? w.interventions
+            .map((i) => {
+              const s = new Date(i.start);
+              const e = new Date(i.end);
+              return `<tr${i.toVerify ? ' class="to-verify-row"' : ""}>
+                <td>${dateISO(s)}</td>
+                <td>${timeHM(s)}–${timeHM(e)}</td>
+                <td>${fmtDuration(minutesBetween(i.start, i.end))}</td>
+                <td>${escapeHtml(i.client) || "—"}</td>
+                <td>${escapeHtml(i.ticket) || "—"}</td>
+                <td>${escapeHtml(i.category)}</td>
+                <td>${escapeHtml(i.description) || "—"}${
+                  i.toVerify && i.verifyNote ? `<div class="verify-note">⚠️ ${escapeHtml(i.verifyNote)}</div>` : ""
+                }</td>
+                <td class="center">${i.billable ? "✓" : "—"}</td>
+                <td class="center">${i.toVerify ? "⚠️" : "—"}</td>
+              </tr>`;
+            })
+            .join("")
+        : `<tr><td colspan="9" class="empty-row">Aucune intervention</td></tr>`;
 
-          const interventionRows = w.interventions.length
-            ? w.interventions
-                .map((i) => {
-                  const s = new Date(i.start);
-                  const e = new Date(i.end);
-                  const min = minutesBetween(i.start, i.end);
-                  return `<tr>
-                    <td>${dateISO(s)}</td>
-                    <td>${timeHM(s)}–${timeHM(e)}</td>
-                    <td>${fmtDuration(min)}</td>
-                    <td>${escapeHtml(i.client) || "—"}</td>
-                    <td>${escapeHtml(i.ticket || "") || "—"}</td>
-                    <td>${escapeHtml(i.category)}</td>
-                    <td>${escapeHtml(i.description) || "—"}${
-                      i.toVerify && i.verifyNote ? `<div class="verify-note">⚠️ ${escapeHtml(i.verifyNote)}</div>` : ""
-                    }</td>
-                    <td class="center">${i.billable ? "✓" : "—"}</td>
-                    <td class="center">${i.toVerify ? "⚠️" : "—"}</td>
-                  </tr>`;
-                })
-                .join("")
-            : `<tr><td colspan="9" class="empty-row">Aucune intervention</td></tr>`;
+      return `
+      <section class="week">
+        <h3>${escapeHtml(isoWeekLabel(w.monday))}</h3>
+        <table>
+          <thead><tr><th>Date</th><th>Heures</th><th>Durée</th><th>Client</th><th>Billet</th><th>Catégorie</th><th>Description</th><th>Fact.</th><th>Vérif.</th></tr></thead>
+          <tbody>${interventionRows}</tbody>
+          <tfoot><tr><td colspan="7">Total de la semaine</td><td colspan="2">${fmtDuration(interventionMin)}</td></tr></tfoot>
+        </table>
+      </section>`;
+    })
+    .join("");
 
-          return `
-          <section class="week">
-            <h3>${isoWeekLabel(w.monday)}</h3>
-            <table>
-              <thead><tr><th>Date</th><th>Heures</th><th>Durée</th><th>Client</th><th>Billet</th><th>Catégorie</th><th>Description</th><th>Fact.</th><th>Vérif.</th></tr></thead>
-              <tbody>${interventionRows}</tbody>
-              <tfoot><tr><td colspan="7">Total de la semaine</td><td colspan="2">${fmtDuration(interventionMin)}</td></tr></tfoot>
-            </table>
-          </section>`;
-        })
-        .join("");
+  // Sommaire par billet inclus dans le rapport : c'est ce qui sert à facturer,
+  // et il reprend les vraies heures de chaque intervention.
+  const parBillet = new Map();
+  for (const i of interventions) {
+    const k = (i.ticket || "").trim() || "(sans billet)";
+    if (!parBillet.has(k)) parBillet.set(k, { minutes: 0, billable: 0, count: 0, toVerify: 0, clients: new Set() });
+    const g = parBillet.get(k);
+    const min = minutesBetween(i.start, i.end);
+    g.minutes += min;
+    if (i.billable) g.billable += min;
+    if (i.toVerify) g.toVerify++;
+    g.count++;
+    if (i.client) g.clients.add(i.client);
+  }
+  const summaryRows = [...parBillet.entries()]
+    .sort((a, b) => b[1].minutes - a[1].minutes)
+    .map(
+      ([k, g]) => `<tr${g.toVerify ? ' class="to-verify-row"' : ""}>
+        <td>${escapeHtml(k)}</td>
+        <td>${escapeHtml([...g.clients].join(" / ")) || "—"}</td>
+        <td class="center">${g.count}</td>
+        <td>${fmtDuration(g.minutes)} (${fmtDecimalHours(g.minutes)} h)</td>
+        <td>${fmtDuration(g.billable)} (${fmtDecimalHours(g.billable)} h)</td>
+        <td class="center">${g.toVerify > 0 ? "⚠️ " + g.toVerify : "—"}</td>
+      </tr>`
+    )
+    .join("");
 
-  const periodFrom = sortedWeeks[0].monday;
-  const periodTo = new Date(to === Infinity ? Date.now() : to - 1);
-  const periodLabel = `${dateISO(periodFrom)} au ${dateISO(periodTo)}`;
   const generatedAt = new Date().toLocaleString("fr-CA");
 
   const html = `<!DOCTYPE html>
@@ -1247,13 +1905,14 @@ function generateWeeklyReport(mergeByTicket) {
     <div class="report-header">
       <h1>Rapport d'activité — TimeCalculator</h1>
       <div class="meta">
-        Période : ${periodLabel}<br>
-        Généré le ${generatedAt}
+        Période : ${escapeHtml(rangeLabel())}<br>
+        Généré le ${escapeHtml(generatedAt)}
       </div>
     </div>
     <div class="summary-bar">
       <div class="summary-card"><div class="label">Temps travaillé</div><div class="value">${fmtDuration(grandPunchMin)}</div></div>
       <div class="summary-card"><div class="label">Interventions</div><div class="value">${fmtDuration(grandInterventionMin)}</div></div>
+      <div class="summary-card"><div class="label">Dont facturable</div><div class="value">${fmtDuration(grandBillableMin)}</div></div>
       <div class="summary-card${grandToVerifyCount > 0 ? " warning" : ""}"><div class="label">À vérifier</div><div class="value">${grandToVerifyCount}</div></div>
     </div>
   </div>
@@ -1262,8 +1921,17 @@ function generateWeeklyReport(mergeByTicket) {
     ${punchWeekSections}
   </div>
   <div class="report-part page-break">
-    <h2>${interventionSectionTitle}</h2>
+    <h2>Interventions</h2>
     ${interventionWeekSections}
+  </div>
+  <div class="report-part page-break">
+    <h2>Sommaire de facturation par billet</h2>
+    <section class="week">
+      <table>
+        <thead><tr><th>Billet</th><th>Client(s)</th><th>Interv.</th><th>Durée totale</th><th>Dont facturable</th><th>Vérif.</th></tr></thead>
+        <tbody>${summaryRows}</tbody>
+      </table>
+    </section>
   </div>
 </body>
 </html>`;
@@ -1288,24 +1956,72 @@ function exportJson() {
 
 function importJson(file) {
   const reader = new FileReader();
+  reader.onerror = () => alert("Le fichier n'a pas pu être lu.");
   reader.onload = () => {
+    let data;
     try {
-      const data = JSON.parse(reader.result);
-      if (!data || (!Array.isArray(data.interventions) && !Array.isArray(data.punches))) {
-        throw new Error("format invalide");
-      }
-      const next = normalizeState(data);
-      const nP = next.punches.length;
-      const nI = next.interventions.length;
-      if (!confirm(`Remplacer les données actuelles par cette sauvegarde (${nP} période${nP > 1 ? "s" : ""}, ${nI} intervention${nI > 1 ? "s" : ""}) ?`)) {
-        return;
-      }
-      state = next;
-      save();
-      render();
+      data = JSON.parse(reader.result);
     } catch (e) {
       alert("Fichier de sauvegarde invalide : " + e.message);
+      return;
     }
+    if (!data || (!Array.isArray(data.interventions) && !Array.isArray(data.punches))) {
+      alert("Fichier de sauvegarde invalide : ni périodes ni interventions.");
+      return;
+    }
+
+    const { state: next, rejets } = normalizeState(data);
+    const nP = next.punches.length;
+    const nI = next.interventions.length;
+    const actuel = `Vous avez actuellement ${state.punches.length} période(s) et ${state.interventions.length} intervention(s).`;
+    const rejet = rejets > 0 ? `\n${rejets} enregistrement(s) illisible(s) du fichier seront écartés.` : "";
+    if (
+      !confirm(
+        `Remplacer TOUTES les données actuelles par cette sauvegarde ?\n\n` +
+          `Sauvegarde : ${nP} période(s), ${nI} intervention(s).\n${actuel}${rejet}\n\n` +
+          `Le remplacement sera aussi propagé à vos autres appareils.\n` +
+          `L'état actuel sera conservé dans ce navigateur sous « ${IMPORT_BACKUP_KEY} ».`
+      )
+    ) {
+      return;
+    }
+
+    let copie = true;
+    try {
+      localStorage.setItem(IMPORT_BACKUP_KEY, JSON.stringify(state));
+    } catch (e) {
+      copie = false;
+    }
+
+    // Un import est un remplacement voulu : on horodate tout au présent pour
+    // qu'il gagne l'arbitrage de fusion sur les autres appareils, et on pose
+    // des pierres tombales sur ce qui disparaît.
+    const maintenant = Date.now();
+    const gardes = new Set([...next.punches, ...next.interventions].map((r) => r.id));
+    const tombstones = { ...state.tombstones, ...next.tombstones };
+    for (const r of [...state.punches, ...state.interventions]) {
+      if (!gardes.has(r.id)) tombstones[r.id] = maintenant;
+    }
+    for (const r of [...next.punches, ...next.interventions]) r.updatedAt = maintenant;
+
+    const previous = state;
+    state = { ...next, tombstones, activePunchAt: maintenant, updatedAt: maintenant };
+    if (!save()) {
+      state = previous;
+      render();
+      return;
+    }
+    render();
+    banner({
+      id: "import",
+      tone: "info",
+      text:
+        `Import terminé : ${nP} période(s), ${nI} intervention(s).` +
+        (rejets > 0 ? ` ${rejets} enregistrement(s) illisible(s) écarté(s).` : "") +
+        (copie
+          ? ` L'état précédent est conservé sous « ${IMPORT_BACKUP_KEY} » dans ce navigateur.`
+          : " L'état précédent n'a PAS pu être sauvegardé (stockage plein)."),
+    });
   };
   reader.readAsText(file);
 }
@@ -1333,16 +2049,7 @@ for (const id of ["p-date", "p-start", "p-end"]) {
   $(id).addEventListener("input", updatePunchFormDuration);
 }
 
-els.btnAddIntervention.addEventListener("click", () => {
-  const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
-  openInterventionDialog({
-    title: "Inscrire une intervention",
-    date: dateISO(now),
-    start: timeHM(oneHourAgo),
-    end: timeHM(now),
-  });
-});
+els.btnAddIntervention.addEventListener("click", () => nouvelleIntervention());
 
 els.interventionForm.addEventListener("submit", submitInterventionForm);
 els.btnInterventionDialogCancel.addEventListener("click", () => els.interventionDialog.close());
@@ -1350,19 +2057,55 @@ for (const id of ["f-date", "f-start", "f-end"]) {
   $(id).addEventListener("input", updateInterventionFormDuration);
 }
 
-els.filterPeriod.addEventListener("change", () => {
-  els.customRange.hidden = els.filterPeriod.value !== "custom";
+// Un dialogue fermé sans enregistrer ne doit rien laisser derrière lui.
+els.punchDialog.addEventListener("close", () => {
+  punchDialogClosesActive = false;
+  editOrigin = null;
+});
+els.interventionDialog.addEventListener("close", () => {
+  editOrigin = null;
+});
+
+function renderPeriodDependent() {
+  els.rangeLabel.textContent = rangeLabel();
+  updatePrintMeta();
   renderPunchTable();
   renderInterventionTable();
+  renderSummaryTable();
+}
+
+// La feuille imprimée doit porter elle-même la période qu'elle couvre.
+function updatePrintMeta() {
+  const now = new Date();
+  els.printMeta.textContent =
+    `Période : ${rangeLabel()} — ${filtresActifs()} — imprimé le ${dateISO(now)} à ${timeHM(now)}`;
+}
+
+els.filterPeriod.addEventListener("change", () => {
+  els.customRange.hidden = els.filterPeriod.value !== "custom";
+  renderPeriodDependent();
 });
-els.filterFrom.addEventListener("change", () => { renderPunchTable(); renderInterventionTable(); });
-els.filterTo.addEventListener("change", () => { renderPunchTable(); renderInterventionTable(); });
-els.filterClient.addEventListener("change", renderInterventionTable);
-els.filterToVerify.addEventListener("change", renderInterventionTable);
+els.filterFrom.addEventListener("change", renderPeriodDependent);
+els.filterTo.addEventListener("change", renderPeriodDependent);
+els.filterClient.addEventListener("change", () => {
+  updatePrintMeta();
+  renderInterventionTable();
+  renderSummaryTable();
+});
+els.filterToVerify.addEventListener("change", () => {
+  updatePrintMeta();
+  renderInterventionTable();
+  renderSummaryTable();
+});
+els.groupBy.addEventListener("change", () => {
+  summaryExpanded.clear();
+  renderSummaryTable();
+});
 
 els.punchTbody.addEventListener("click", (event) => {
   const btn = event.target.closest("button");
   if (btn) {
+    if (btn.dataset.ventilerPunch) ventilerPunch(btn.dataset.ventilerPunch);
     if (btn.dataset.editPunch) editPunch(btn.dataset.editPunch);
     if (btn.dataset.deletePunch) deletePunch(btn.dataset.deletePunch);
     return;
@@ -1371,12 +2114,16 @@ els.punchTbody.addEventListener("click", (event) => {
   if (dayRow) toggleDay(dayRow.dataset.day);
 });
 
+// Les lignes de jour sont actionnables au clavier, pas seulement à la souris.
+els.punchTbody.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const dayRow = event.target.closest("tr.day-row");
+  if (!dayRow) return;
+  event.preventDefault();
+  toggleDay(dayRow.dataset.day);
+});
+
 els.interventionTbody.addEventListener("click", (event) => {
-  const chevron = event.target.closest("[data-toggle-segments]");
-  if (chevron) {
-    toggleInterventionSegments(chevron.dataset.toggleSegments);
-    return;
-  }
   const btn = event.target.closest("button");
   if (!btn) return;
   if (btn.dataset.editIntervention) editIntervention(btn.dataset.editIntervention);
@@ -1389,18 +2136,20 @@ els.interventionTbody.addEventListener("change", (event) => {
     toggleInterventionVerify(checkbox.dataset.toggleVerify);
     return;
   }
-  const groupCheckbox = event.target.closest("[data-toggle-verify-group]");
-  if (groupCheckbox) {
-    toggleGroupVerify(groupCheckbox.dataset.toggleVerifyGroup);
-    return;
-  }
   const noteInput = event.target.closest("[data-verify-note-input]");
-  if (noteInput) {
-    updateInterventionVerifyNote(noteInput.dataset.verifyNoteInput, noteInput.value);
-    return;
-  }
-  const groupNoteInput = event.target.closest("[data-verify-note-input-group]");
-  if (groupNoteInput) updateGroupVerifyNote(groupNoteInput.dataset.verifyNoteInputGroup, groupNoteInput.value);
+  if (noteInput) updateInterventionVerifyNote(noteInput.dataset.verifyNoteInput, noteInput.value);
+});
+
+els.summaryTbody.addEventListener("click", (event) => {
+  const row = event.target.closest("tr.summary-row");
+  if (row) toggleSummaryGroup(row.dataset.groupe);
+});
+els.summaryTbody.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const row = event.target.closest("tr.summary-row");
+  if (!row) return;
+  event.preventDefault();
+  toggleSummaryGroup(row.dataset.groupe);
 });
 
 els.fToVerify.addEventListener("change", () => {
@@ -1408,16 +2157,72 @@ els.fToVerify.addEventListener("change", () => {
   if (els.fToVerify.checked) els.fVerifyNote.focus();
 });
 
-els.btnMergeInterventions.addEventListener("click", toggleTicketMergedView);
+els.btnToggleDays.addEventListener("click", () => {
+  const jours = [...new Set(filteredPunches().map((p) => dateISO(new Date(p.start))))];
+  const toutDeplie = jours.length > 0 && jours.every((j) => isDayExpanded(j));
+  for (const j of jours) dayOverrides.set(j, !toutDeplie);
+  els.btnToggleDays.textContent = toutDeplie ? "Tout déplier" : "Tout replier";
+  renderPunchTable();
+});
 
 els.btnExportPunches.addEventListener("click", exportPunchesCsv);
 els.btnExportInterventions.addEventListener("click", exportInterventionsCsv);
-els.btnExportReport.addEventListener("click", () => generateWeeklyReport(false));
+els.btnExportSummary.addEventListener("click", exportSummaryCsv);
+els.btnExportReport.addEventListener("click", generateWeeklyReport);
 els.btnExportJson.addEventListener("click", exportJson);
+els.btnPrint.addEventListener("click", () => window.print());
+els.btnImport.addEventListener("click", () => els.inputImport.click());
 els.inputImport.addEventListener("change", () => {
   if (els.inputImport.files.length > 0) {
     importJson(els.inputImport.files[0]);
     els.inputImport.value = "";
+  }
+});
+
+// Deux onglets du même navigateur : la fusion s'applique aussi ici, pour que
+// l'onglet resté ouvert ne réécrive pas ce que l'autre vient d'enregistrer.
+window.addEventListener("storage", (event) => {
+  if (event.key !== STORAGE_KEY || event.newValue == null) return;
+  if (event.newValue === lastWritten) return;
+  try {
+    const { state: distant } = normalizeState(JSON.parse(event.newValue));
+    const fusionne = mergeStates(state, distant);
+    if (sameState(fusionne, state)) return;
+    state = fusionne;
+    lastWritten = event.newValue;
+    render();
+    showToast("Données mises à jour depuis un autre onglet.");
+  } catch (e) {
+    /* l'autre onglet a écrit quelque chose d'illisible : on garde notre état */
+  }
+});
+
+// À l'impression, toutes les journées sont dépliées et les boutons disparaissent.
+window.addEventListener("beforeprint", () => {
+  printing = true;
+  updatePrintMeta();
+  renderPunchTable();
+});
+window.addEventListener("afterprint", () => {
+  printing = false;
+  renderPunchTable();
+});
+
+// Raccourcis : uniquement hors des champs de saisie et hors dialogue.
+document.addEventListener("keydown", (event) => {
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
+  const t = event.target;
+  if (t && (t.closest("input, textarea, select") || t.isContentEditable)) return;
+  if (document.querySelector("dialog[open]")) return;
+  if (document.querySelector("main").hidden) return;
+  const k = event.key.toLowerCase();
+  if (k === "p") {
+    event.preventDefault();
+    if (state.activePunch) punchOut();
+    else punchIn();
+  } else if (k === "i") {
+    event.preventDefault();
+    nouvelleIntervention();
   }
 });
 
@@ -1468,27 +2273,66 @@ onAuthStateChanged(auth, (user) => {
 
   // Affichage instantané depuis le cache local pendant que Firestore répond.
   state = load();
+  checkPunchOublie();
   render();
 
   unsubscribeSnapshot = onSnapshot(userDocRef, (snap) => {
-    if (snap.exists()) {
-      const incoming = normalizeState(snap.data());
-      // Ignore les échos périmés (ex. confirmation tardive d'une écriture
-      // antérieure) qui arriveraient après un ajout local plus récent : sans
-      // cette garde, un ajout tout juste effectué pouvait être silencieusement
-      // écrasé par une version plus vieille reçue en retard.
-      if (incoming.updatedAt < state.updatedAt) return;
-      applyingRemote = true;
-      state = incoming;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      render();
-      applyingRemote = false;
-    } else {
-      // Première connexion : on pousse le cache local existant vers Firestore.
-      setDoc(userDocRef, state);
-    }
+    applyRemoteSnapshot(snap);
   });
 });
+
+/*
+ * Réception d'un instantané Firestore.
+ *
+ * Le piège corrigé ici : hors ligne (ou juste avant la première réponse du
+ * serveur), Firestore livre un instantané venu du cache où le document paraît
+ * inexistant. L'ancienne version poussait alors l'état local par-dessus le
+ * document réel — et si le localStorage venait d'être vidé, elle y écrivait un
+ * état VIDE, effaçant des semaines de feuille de temps. On n'amorce donc jamais
+ * un document depuis un instantané de cache.
+ */
+function applyRemoteSnapshot(snap) {
+  if (!snap.exists()) {
+    if (snap.metadata && snap.metadata.fromCache) return;
+    // Le serveur confirme qu'il n'y a rien : première connexion. On n'amorce
+    // qu'avec des données réelles.
+    if (state.punches.length > 0 || state.interventions.length > 0) syncUp();
+    return;
+  }
+
+  const { state: incoming } = normalizeState(snap.data());
+  const fusionne = mergeStates(state, incoming);
+
+  const changementLocal = !sameState(fusionne, state);
+  const changementDistant = !sameState(fusionne, incoming);
+
+  if (changementLocal) {
+    applyingRemote = true;
+    state = fusionne;
+    try {
+      persistLocal();
+    } catch (e) {
+      banner({
+        id: "save",
+        tone: "danger",
+        text: "Les données reçues n'ont pas pu être enregistrées sur cet appareil : " + e.message,
+      });
+    }
+    checkPunchOublie();
+    render();
+    applyingRemote = false;
+  }
+
+  // L'état local contenait quelque chose que le document n'a pas : on le
+  // renvoie au lieu de l'abandonner (l'ancienne version se contentait de
+  // « return », et le travail hors ligne restait coincé sur l'appareil).
+  if (changementDistant) {
+    state = fusionne;
+    syncUp();
+  }
+}
+
+/* ---------- Démarrage ---------- */
 
 // Au changement de jour, la journée qui se termine se replie et rejoint
 // les autres journées de la semaine; le sommaire repart pour le nouveau jour.
@@ -1500,3 +2344,12 @@ setInterval(() => {
     render();
   }
 }, 30000);
+
+for (const b of pendingBanners) banner(b);
+try {
+  lastWritten = localStorage.getItem(STORAGE_KEY);
+} catch (e) {
+  lastWritten = null;
+}
+checkPunchOublie();
+render();
