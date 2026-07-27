@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# Met à jour le numéro de version anti-cache d'un outil dès qu'un de ses
+# fichiers JS ou CSS est modifié.
+#
+# Pourquoi : index.html appelle ses fichiers avec « ?v=<horodatage> ». Sans
+# changement de ce numéro, un navigateur qui a déjà chargé la page peut
+# continuer à servir l'ancien JS depuis son cache — le changement est bien
+# déployé, mais invisible. Ce hook enlève l'oubli possible.
+#
+# Activation (une seule fois par clone) :
+#   git config core.hooksPath .githooks
+#
+# Pour sauter le hook une fois :  git commit --no-verify
+
+set -euo pipefail
+
+# Dossiers surveillés : ajouter une ligne par outil versionné de cette façon.
+OUTILS=("outils/tc-9x2k7m")
+
+horodatage="$(date +%Y%m%d%H%M%S)"
+touche=0
+
+for outil in "${OUTILS[@]}"; do
+  index="$outil/index.html"
+  [ -f "$index" ] || continue
+
+  # Un fichier JS ou CSS de cet outil est-il dans ce commit ?
+  if ! git diff --cached --name-only --diff-filter=ACMR \
+      | grep -qE "^${outil}/(js|css)/.*\.(js|css)$"; then
+    continue
+  fi
+
+  # index.html a-t-il bien un numéro à remplacer ?
+  if ! grep -qE '\?v=[0-9]{14}' "$index"; then
+    echo "pre-commit : $index n'a pas de « ?v=<14 chiffres> » — rien à mettre à jour." >&2
+    continue
+  fi
+
+  sed -i -E "s/\?v=[0-9]{14}/?v=${horodatage}/g" "$index"
+  git add "$index"
+  echo "pre-commit : $index → ?v=${horodatage}"
+  touche=1
+done
+
+if [ "$touche" -eq 1 ]; then
+  echo "pre-commit : le cache des navigateurs sera bien invalidé au déploiement."
+fi
+
+exit 0
