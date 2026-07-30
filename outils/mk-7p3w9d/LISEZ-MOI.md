@@ -144,10 +144,37 @@ Filet de rattrapage : `.github/workflows/tests-marketing.yml`, qui **exige** gjs
 python3 sur le runner. Sans cette exigence, un banc sauté rendrait la CI verte sans
 rien avoir vérifié.
 
+## Déployer
+
+Cet outil a **son propre script**, distinct du `deploy.sh` du site :
+
+```
+./outils/mk-7p3w9d/deployer.sh "ce qui change"
+./outils/mk-7p3w9d/deployer.sh --essai     # montre tout, n'écrit rien
+```
+
+Ce qu'il fait que `deploy.sh` ne fait pas :
+
+| | `deploy.sh` | `deployer.sh` |
+|---|---|---|
+| Mise en index | `git add .` — **tout** l'arbre de travail | seulement les chemins de cet outil |
+| Banc d'essai | via le hook, donc seulement si `js/` ou `css/` bouge | **toujours**, même pour un changement de `index.html` seul |
+| Données de mandat | aucun contrôle | **refuse** de publier un `amorce-*.json` ou un état exporté, même renommé |
+| Anti-cache | tous les outils | le sien |
+| Branche | fusionne une branche de travail dans `main` | refuse hors de `main` — renvoie à `deploy.sh` |
+
+> **Ce qu'aucun script ne peut faire.** GitHub Pages publie le dépôt **entier**
+> depuis `main`. Pousser cet outil publie donc aussi tout ce qui est déjà commité.
+> La séparation porte sur ce qu'on **commite**, pas sur ce qui part en ligne.
+
+`deploy.sh` continue de gérer l'anti-cache de tous les outils, et ce n'est pas
+redondant : comme il fait `git add .`, il peut publier cet outil sans que son
+déployeur ait été lancé. Sans ça, un JS modifié partirait en ligne sans invalidation
+de cache — déployé, mais invisible.
+
 ## Vérifier un déploiement
 
 ```
-./deploy.sh "Tableau de bord marketing : <ce qui change>"
 ./outils/mk-7p3w9d/verifier-deploiement.sh
 ```
 

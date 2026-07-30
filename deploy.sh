@@ -40,6 +40,14 @@ fi
 #    rechargement des assets par le navigateur à chaque déploiement.
 #    Chaque outil a ses propres js/app.js et css/style.css ; la boucle évite
 #    d'oublier le prochain, comme ç'a failli arriver en ajoutant mk-7p3w9d.
+#
+#    Certains outils ont leur PROPRE script de déploiement, plus étroit :
+#      outils/mk-7p3w9d/deployer.sh   (tableau de bord marketing)
+#    La boucle reste quand même ici, et ce n'est pas une redondance : ce
+#    script-ci fait « git add . », donc il peut publier n'importe quel outil
+#    même si personne n'a lancé son déployeur. Sans la boucle, ce chemin-là
+#    mettrait en ligne un JS modifié sans invalider le cache — le changement
+#    serait déployé mais invisible.
 OUTIL_VERSION=$(date +'%Y%m%d%H%M%S')
 for OUTIL_INDEX in outils/*/index.html; do
   [ -f "$OUTIL_INDEX" ] || continue
