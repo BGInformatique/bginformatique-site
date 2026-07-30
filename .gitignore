@@ -7,3 +7,7 @@ _source/
 # Banc d'essai TimeCalculator : fichiers régénérés à chaque exécution,
 # jamais publiés (banc.html détourne Firebase vers des bouchons).
 outils/tc-9x2k7m/tests/genere/
+
+# Amorces de mandats : données internes de clients, jamais publiées.
+# Elles vivent hors dépôt et s'importent par le sélecteur de fichier de l'outil.
+outils/*/amorce-*.json

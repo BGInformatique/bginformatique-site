@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Tableau de bord marketing — BG Informatique</title>
+  <link rel="stylesheet" href="css/style.css?v=20260730135030">
+</head>
+<body>
+
+<svg style="display:none">
+  <symbol id="i-lire" viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5-9-5.5z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></symbol>
+  <symbol id="i-epingle" viewBox="0 0 16 16"><path d="M9.6 1.2 14.8 6.4l-1.1 1.1-.9-.3-2.4 2.4.3 2.2-1.1 1.1-3-3-3.4 3.4-.8-.8L5.8 9l-3-3 1.1-1.1 2.2.3 2.4-2.4-.3-.9 1.4-1.1z"/></symbol>
+  <symbol id="i-crayon" viewBox="0 0 16 16"><path d="M11.6 1.4a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2l-.9.9-3-3 .9-.9zM9.8 3.2l3 3-7.2 7.2-3.6.6.6-3.6 7.2-7.2z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M7 2h2v5h5v2H9v5H7V9H2V7h5V2z"/></symbol>
+</svg>
+
+<header class="app-header">
+  <div class="marque">
+    <div class="sceau">BG</div>
+    <div>
+      <h1>Tableau de bord marketing</h1>
+      <div class="sous">BG Informatique — outil interne</div>
+    </div>
+  </div>
+  <div class="fin">
+    <div class="qui" id="qui" hidden></div>
+    <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
+  </div>
+</header>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-card">
+    <h2>Connexion requise</h2>
+    <p>Connecte-toi avec ton compte Microsoft BG Informatique pour accéder à tes tâches.</p>
+    <button id="btn-login" class="btn btn-lg">Se connecter avec Microsoft</button>
+    <p class="form-error" id="auth-error" hidden></p>
+  </div>
+</div>
+
+<div id="banners" class="banners" aria-live="polite"></div>
+
+<div id="app" hidden>
+
+  <section class="compteurs">
+    <div class="tuile">
+      <div class="mono">// Aujourd'hui</div>
+      <div class="val" id="c-jour">—</div>
+      <div class="note">sur une journée de 8 h</div>
+      <div class="jauge" id="c-jour-j"><span style="width:0"></span></div>
+    </div>
+    <div class="tuile">
+      <div class="mono">// Cette semaine</div>
+      <div class="val" id="c-sem">—</div>
+      <div class="note" id="c-sem-n">depuis lundi</div>
+      <div class="jauge" id="c-sem-j"><span style="width:0"></span></div>
+    </div>
+    <div class="tuile">
+      <div class="mono">// STME — <select id="c-stme-mandat" class="mini-select"><option value="">aucun mandat</option></select></div>
+      <div class="val" id="c-stme">—</div>
+      <div class="note" id="c-stme-n">temps consigné sur le mandat suivi ÷ 40 h</div>
+      <div class="jauge" id="c-stme-j"><span style="width:0"></span></div>
+    </div>
+    <div class="tuile">
+      <div class="mono">// Chantiers ouverts</div>
+      <div class="val" id="c-ouv">—</div>
+      <div class="note" id="c-ouv-n">—</div>
+      <div class="jauge" id="c-ouv-j"><span style="width:0"></span></div>
+    </div>
+  </section>
+
+  <main>
+    <div class="colonne">
+      <div class="entete">
+        <h2>Aujourd'hui</h2>
+        <span class="cpt" id="e-jour"></span>
+      </div>
+      <div id="l-jour"></div>
+
+      <div id="bloc-report" hidden>
+        <div class="entete" style="margin-top:4px">
+          <h2 style="font-size:14px;color:var(--warn)">Restées d'un jour précédent</h2>
+          <span class="cpt" id="e-report"></span>
+        </div>
+        <div id="l-report"></div>
+      </div>
+
+      <div class="journal">
+        <div class="entete" style="padding:0">
+          <div class="mono" style="color:var(--text-muted)">// Temps consigné aujourd'hui</div>
+          <span class="cpt" id="e-temps"></span>
+        </div>
+        <ul id="l-temps"></ul>
+      </div>
+    </div>
+
+    <div class="colonne">
+      <div class="entete">
+        <h2>Tous les chantiers</h2>
+        <span class="cpt" id="e-tout"></span>
+      </div>
+
+      <form class="ajout" id="f-ajout">
+        <input id="a-titre" placeholder="Nouvelle tâche — décrire l'action, pas le sujet" autocomplete="off">
+        <button class="btn" type="submit">Ajouter</button>
+      </form>
+
+      <div class="filtres" id="f-client"></div>
+      <div class="filtres" id="f-chantier"></div>
+      <div class="filtres" id="f-statut"></div>
+      <div id="l-tout"></div>
+    </div>
+  </main>
+
+  <div class="pied">
+    <span id="etat-sync">—</span>
+    <button id="btn-export">Exporter (TSV)</button>
+    <button id="btn-export-json">Sauvegarde (JSON)</button>
+    <button id="btn-import">Importer…</button>
+    <input type="file" id="f-import" accept=".json,.tsv" hidden>
+  </div>
+</div>
+
+<dialog id="modale">
+  <form id="f-mod">
+    <div class="mod-t" id="mod-titre">Modifier la tâche</div>
+    <div class="mod-c">
+      <div class="champ"><label for="m-titre">Titre</label><input id="m-titre" required></div>
+      <div class="champ"><label for="m-detail">Détail</label><textarea id="m-detail"></textarea></div>
+      <div class="duo">
+        <!-- Saisie libre avec suggestions tirées des tâches existantes : aucun
+             nom de client n'est écrit dans le dépôt, qui est public. -->
+        <div class="champ"><label for="m-client">Client / mandat</label>
+          <input id="m-client" list="l-clients" autocomplete="off" placeholder="Nom du mandat">
+          <datalist id="l-clients"></datalist>
+        </div>
+        <div class="champ"><label for="m-chantier">Chantier</label>
+          <select id="m-chantier">
+            <option>Pilotage</option><option>SEO</option><option>Site web</option>
+            <option>LinkedIn</option><option>Prospection</option><option>Marque</option>
+            <option>Mesure</option><option>Offre</option>
+          </select>
+        </div>
+      </div>
+      <div class="duo">
+        <div class="champ"><label for="m-prio">Priorité</label>
+          <select id="m-prio"><option value="haute">Haute</option><option value="moyenne">Moyenne</option><option value="basse">Basse</option></select>
+        </div>
+        <div class="champ"><label for="m-statut">Statut</label>
+          <select id="m-statut">
+            <option value="a_faire">À faire</option><option value="en_cours">En cours</option>
+            <option value="bloque">Bloquée</option><option value="reporte">Reportée</option>
+            <option value="fait">Faite</option>
+          </select>
+        </div>
+      </div>
+      <div class="duo">
+        <div class="champ"><label for="m-stme">STME (mandat suivi)</label>
+          <select id="m-stme"><option value="">—</option></select>
+        </div>
+        <div class="champ"><label for="m-echeance">Échéance</label><input id="m-echeance" type="date"></div>
+      </div>
+      <div class="duo">
+        <div class="champ"><label for="m-estime">Estimé (minutes)</label><input id="m-estime" type="number" min="0" step="5"></div>
+        <div class="champ"><label for="m-source">Source</label><input id="m-source" placeholder="Fichier ou décision qui justifie la tâche"></div>
+      </div>
+    </div>
+    <div class="mod-p">
+      <button type="button" class="sup" id="m-sup">Supprimer</button>
+      <div class="fin">
+        <button type="button" class="btn btn-ghost" id="m-annul">Annuler</button>
+        <button type="submit" class="btn">Enregistrer</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="js/app.js?v=20260730135030"></script>
+</body>
+</html>

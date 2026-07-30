@@ -1,0 +1,51 @@
+# Alarme de rattrapage : lance le banc d'essai du tableau de bord marketing
+# après chaque push qui touche l'outil. La vraie barrière est le hook
+# pre-commit local — deploy.sh publie main directement, donc un échec ici
+# arrive APRÈS la mise en ligne. Ce workflow attrape ce que le hook n'a pas pu
+# vérifier (poste sans gjs, commit --no-verify) et envoie le courriel d'échec
+# de GitHub.
+#
+# Miroir de tests-timecalculator.yml, à une différence près qui compte :
+# lancer.sh sort en 0 quand gjs est absent (contrat du hook : « sauté faute
+# d'outil »). Ce comportement est juste en local, mais en CI il rendrait le
+# workflow vert SANS avoir rien testé — exactement le trou que ce fichier
+# vient boucher. L'étape « vérifier gjs » ci-dessous refuse ce scénario :
+# ici, un banc sauté est une panne d'infrastructure, pas un succès.
+name: Tests Tableau de bord marketing
+on:
+  push:
+    paths: ["outils/mk-7p3w9d/**"]
+  workflow_dispatch:
+
+jobs:
+  banc-essai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # gjs n'est pas préinstallé sur ubuntu-latest, contrairement à Firefox
+      # et python3 dont dépend le banc de TimeCalculator.
+      - name: Installer gjs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gjs
+
+      # Les deux prérequis du banc se sautent en silence quand ils manquent :
+      # gjs fait sortir lancer.sh en 0, python3 fait sauter le contrôle des
+      # constantes orphelines. En local c'est voulu ; en CI ça rendrait le
+      # workflow vert sans rien avoir vérifié. On les exige donc explicitement.
+      - name: Vérifier que les prérequis du banc sont réellement là
+        run: |
+          manque=0
+          for outil in gjs python3; do
+            if ! command -v "$outil" >/dev/null; then
+              echo "::error::$outil absent du runner — le banc passerait sans rien tester."
+              manque=1
+            fi
+          done
+          [ "$manque" -eq 0 ] || exit 1
+          gjs --version
+          python3 --version
+
+      - run: ./outils/mk-7p3w9d/tests/lancer.sh

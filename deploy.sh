@@ -36,17 +36,19 @@ else
   COMMIT_MSG="Mise à jour BG Informatique - $DATE"
 fi
 
-# 0) Cache-busting pour TimeCalculator (outils/tc-9x2k7m) : force le
+# 0) Cache-busting des outils privés (outils/<slug>/index.html) : force le
 #    rechargement des assets par le navigateur à chaque déploiement.
-TC_INDEX="outils/tc-9x2k7m/index.html"
-if [ -f "$TC_INDEX" ]; then
-  TC_VERSION=$(date +'%Y%m%d%H%M%S')
+#    Chaque outil a ses propres js/app.js et css/style.css ; la boucle évite
+#    d'oublier le prochain, comme ç'a failli arriver en ajoutant mk-7p3w9d.
+OUTIL_VERSION=$(date +'%Y%m%d%H%M%S')
+for OUTIL_INDEX in outils/*/index.html; do
+  [ -f "$OUTIL_INDEX" ] || continue
   sed -i.bak -E \
-    -e "s#(js/app\.js)\?v=[0-9]+#\1?v=${TC_VERSION}#" \
-    -e "s#(css/style\.css)\?v=[0-9]+#\1?v=${TC_VERSION}#" \
-    "$TC_INDEX"
-  rm -f "${TC_INDEX}.bak"
-fi
+    -e "s#(js/app\.js)\?v=[0-9]+#\1?v=${OUTIL_VERSION}#" \
+    -e "s#(css/style\.css)\?v=[0-9]+#\1?v=${OUTIL_VERSION}#" \
+    "$OUTIL_INDEX"
+  rm -f "${OUTIL_INDEX}.bak"
+done
 
 # 0b) Cache-busting des feuilles de style du site.
 #     style.css et residentiel.css évoluent ensemble : un navigateur qui
@@ -59,7 +61,11 @@ while IFS= read -r -d '' f; do
   sed -i -E \
     "s#(href=\"[^\"]*(style|residentiel)\.css)(\?v=[0-9a-f]+)?\"#\1?v=${CSS_VERSION}\"#g" \
     "$f"
-done < <(find . -name '*.html' -not -path './outils/tc-9x2k7m/*' -not -path './.git/*' -print0)
+#     Les outils privés sont exclus : chacun a son propre css/style.css, déjà
+#     versionné à l'étape 0. Sans cette exclusion, la substitution ci-dessous
+#     réécrirait leur ?v= avec le condensé du CSS du site — deux versionneurs
+#     sur le même attribut, et le cache-busting des outils cesserait d'être fiable.
+done < <(find . -name '*.html' -not -path './outils/*' -not -path './.git/*' -print0)
 echo -e "${BLUE}Feuilles de style versionnées : v=${CSS_VERSION}${NC}"
 
 # 1) Committer les modifications locales (s'il y en a)
