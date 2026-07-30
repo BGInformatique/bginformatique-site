@@ -3,3 +3,7 @@ _source/
 
 # Package de design livré (ne pas publier sur le site)
 *.zip
+
+# Banc d'essai TimeCalculator : fichiers régénérés à chaque exécution,
+# jamais publiés (banc.html détourne Firebase vers des bouchons).
+outils/tc-9x2k7m/tests/genere/

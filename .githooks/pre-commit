@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # Dossiers surveillés : ajouter une ligne par outil versionné de cette façon.
-OUTILS=("outils/tc-9x2k7m")
+OUTILS=("outils/tc-9x2k7m" "outils/mk-7p3w9d")
 
 horodatage="$(date +%Y%m%d%H%M%S)"
 touche=0
@@ -29,6 +29,35 @@ for outil in "${OUTILS[@]}"; do
   if ! git diff --cached --name-only --diff-filter=ACMR \
       | grep -qE "^${outil}/(js|css)/.*\.(js|css)$"; then
     continue
+  fi
+
+  # Barrière : le banc d'essai doit passer AVANT que le changement parte.
+  # deploy.sh publie main directement — un test qui échoue APRÈS le push
+  # échoue après la mise en ligne, donc trop tard.
+  #
+  # Le hook ne connaît PAS les prérequis de chaque outil (Firefox + python3
+  # pour TimeCalculator, gjs pour le marketing) : c'est à chaque
+  # tests/lancer.sh de vérifier les siens et de le dire par son CODE DE
+  # SORTIE. Contrat commun aux deux bancs :
+  #     0     → banc passé (ou sauté faute d'outil, MK) : on continue
+  #     2     → banc n'a pas pu tourner (prérequis/infra absents, TC) : on
+  #             continue avec un avertissement — GitHub Actions rattrape
+  #   autre   → au moins un test a ÉCHOUÉ : commit refusé
+  #
+  # Sans cette distinction, le code 2 de TC (« Firefox absent ») bloquerait
+  # tout commit sur une session infonuagique, à rebours du but recherché.
+  if [ -x "$outil/tests/lancer.sh" ]; then
+    echo "pre-commit : banc d'essai de $outil…"
+    code=0
+    "$outil/tests/lancer.sh" || code=$?
+    if [ "$code" -eq 2 ]; then
+      echo "pre-commit : banc de $outil non concluant (prérequis ou infra absents)," >&2
+      echo "  sauté ici — le workflow GitHub Actions le lancera après le push." >&2
+    elif [ "$code" -ne 0 ]; then
+      echo "pre-commit : ÉCHEC du banc d'essai de $outil — commit refusé." >&2
+      echo "  Corriger, ou sauter une fois avec : git commit --no-verify" >&2
+      exit 1
+    fi
   fi
 
   # index.html a-t-il bien un numéro à remplacer ?

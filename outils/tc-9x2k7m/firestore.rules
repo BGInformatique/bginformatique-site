@@ -1,0 +1,125 @@
+rules_version = '2';
+
+// =============================================================================
+//  BGInformatique — Firestore — projet « bgtimecalculator »
+//  Outils couverts :
+//    TimeCalculator            https://bginformatique.ca/outils/tc-9x2k7m/
+//    Tableau de bord marketing https://bginformatique.ca/outils/mk-7p3w9d/
+//
+//  Le fichier vit dans le dossier de TimeCalculator pour raisons historiques ;
+//  il vaut pour TOUT le projet Firestore, un seul jeu de règles étant publié
+//  par base de données. Le déplacer casserait les liens des documents
+//  existants — on le laisse ici et on le dit.
+//
+//  CE FICHIER EST LA RÉFÉRENCE VERSIONNÉE. La console Firebase ne lit pas ce
+//  dépôt : après toute modification ici, coller le contenu dans
+//  Console → Firestore Database → Règles, en suivant SECURITE-FIRESTORE.md.
+//
+//  INTENTION : un compte connecté n'atteint QUE sa propre feuille de temps.
+//  Chemin réellement utilisé par l'application (js/app.js) :
+//      users/{uid}/timecalculator/state
+//
+//  DEUX POINTS DE SÉMANTIQUE QUI EXPLIQUENT LA FORME DU FICHIER
+//  1. Le refus est l'état par défaut : un chemin non couvert par un « match »
+//     est inaccessible. Il n'y a donc PAS de bloc final
+//     « match /{document=**} { allow read, write: if false; } » : redondant.
+//  2. Quand plusieurs « match » couvrent un même document, l'accès est accordé
+//     dès qu'UNE condition est vraie. Un « if false » ne reprend jamais un
+//     accès accordé ailleurs. La sécurité vient de ce qu'on n'écrit PAS.
+//
+//  ANTI-VERROUILLAGE : l'accès du propriétaire ne dépend que de
+//  request.auth.uid == uid. Aucune lecture annexe, aucun document de
+//  configuration, aucune validation de champ — rien qui puisse « tomber »
+//  parce qu'un champ a changé de nom ou qu'un document manque.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estProprietaire(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // -------------------------------------------------------------------------
+    //  FEUILLE DE TEMPS — users/{uid}/timecalculator/{docId}
+    //  Un seul document aujourd'hui : « state ».
+    //  Portée limitée à cette sous-collection à dessein : autoriser tout
+    //  /users/{uid}/{document=**} laisserait n'importe quel compte connecté
+    //  créer un nombre illimité de collections sous son dossier — stockage et
+    //  écritures facturés au projet. Un futur outil du site aura son propre
+    //  bloc : c'est un ajout, il ne met pas celui-ci en danger.
+    // -------------------------------------------------------------------------
+    match /users/{uid}/timecalculator/{docId} {
+
+      // get + list. L'application ne fait que des get (onSnapshot sur un
+      // document précis) ; list ne porte de toute façon que sur les documents
+      // du propriétaire.
+      allow read: if estProprietaire(uid);
+
+      // Aucune validation de forme, et c'est un choix, pas un oubli :
+      // l'application réécrit l'état ENTIER à chaque sauvegarde (setDoc sans
+      // merge) et le format a déjà changé une fois. Une liste de champs figée
+      // barrerait le propriétaire au prochain changement de schéma, et le cache
+      // persistant masquerait la panne pendant des heures. La validation de
+      // forme appartient au code de l'application (normalizeState, tests).
+      allow create, update: if estProprietaire(uid);
+
+      // L'application ne supprime jamais ce document. La console Firebase et
+      // l'Admin SDK ignorent les règles : la suppression reste possible pour le
+      // propriétaire du projet, mais pas depuis un navigateur.
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    //  MARKETING — users/{uid}/marketing/{docId}
+    //  Outil : Tableau de bord marketing
+    //          https://bginformatique.ca/outils/mk-7p3w9d/
+    //  Un seul document aujourd'hui : « state ».
+    //
+    //  C'est le « futur outil » annoncé au bloc précédent : un AJOUT, pas une
+    //  modification. Le bloc TimeCalculator n'est pas touché, et rien ici ne
+    //  peut lui retirer un accès — deux « match » ne se soustraient jamais.
+    //
+    //  Même forme et mêmes raisons que TimeCalculator : portée limitée à la
+    //  sous-collection (pas de {document=**}, qui laisserait un compte connecté
+    //  créer des collections parasites aux frais du projet), et aucune
+    //  validation de champ (l'application réécrit l'état entier ; un schéma
+    //  figé ici barrerait le propriétaire au prochain changement de format).
+    // -------------------------------------------------------------------------
+    match /users/{uid}/marketing/{docId} {
+      allow read: if estProprietaire(uid);
+      allow create, update: if estProprietaire(uid);
+
+      // L'application ne supprime jamais ce document : les enregistrements
+      // retirés sont marqués par pierre tombale À L'INTÉRIEUR du document,
+      // pour qu'un autre appareil ne les ressuscite pas à la synchro suivante.
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    //  DURCISSEMENT PAR FOURNISSEUR — NE PAS ACTIVER SANS VÉRIFIER
+    // -------------------------------------------------------------------------
+    //  La valeur de request.auth.token.firebase.sign_in_provider pour un
+    //  compte Microsoft est très probablement « microsoft.com », mais la
+    //  documentation ne la garantit pas — et « probablement » se paierait ici
+    //  d'un verrouillage en pleine paye.
+    //
+    //  VÉRIFIER D'ABORD — connecté à l'outil, dans la console du navigateur :
+    //    const { getAuth, getIdTokenResult } = await import(
+    //      "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+    //    console.log((await getIdTokenResult(getAuth().currentUser)).claims.firebase);
+    //  Lire la valeur EXACTE de sign_in_provider, puis l'ajouter en ET :
+    //    return request.auth != null && request.auth.uid == uid
+    //           && request.auth.token.firebase.sign_in_provider == "microsoft.com";
+    //
+    //  Le locataire Entra ID (9e6d32d9-…) N'EST PAS vérifiable ici : le
+    //  paramètre « tenant » de setCustomParameters part vers Microsoft et
+    //  n'entre pas dans le jeton Firebase. Ce verrou se règle dans Entra ID
+    //  (inscription d'application « locataire unique »), pas dans ce fichier.
+    //
+    //  Si un filtre par courriel était un jour préféré, ANCRER le motif —
+    //  matches() n'est pas ancré : "@bginformatique[.]ca" accepterait
+    //  « pirate@bginformatique.ca.exemple.com ». Écrire "^.*@bginformatique[.]ca$".
+    // -------------------------------------------------------------------------
+  }
+}

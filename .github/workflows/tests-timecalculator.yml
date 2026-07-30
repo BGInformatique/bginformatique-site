@@ -1,0 +1,20 @@
+# Alarme de rattrapage : lance le banc d'essai de TimeCalculator après chaque
+# push qui touche l'outil. La vraie barrière est le hook pre-commit local —
+# deploy.sh publie main directement, donc un échec ici arrive APRÈS la mise en
+# ligne. Ce workflow attrape ce que le hook n'a pas pu vérifier (session sans
+# Firefox, commit --no-verify) et envoie le courriel d'échec de GitHub.
+name: Tests TimeCalculator
+on:
+  push:
+    paths: ["outils/tc-9x2k7m/**"]
+  workflow_dispatch:
+
+jobs:
+  banc-essai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # Firefox et python3 sont préinstallés sur ubuntu-latest ;
+      # lancer.sh fixe lui-même TZ=America/Toronto.
+      - run: ./outils/tc-9x2k7m/tests/lancer.sh

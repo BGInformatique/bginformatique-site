@@ -9,7 +9,16 @@ git config core.hooksPath .githooks
 Sans elle, les hooks ci-dessous ne s'exécutent pas — les commits fonctionnent
 quand même, mais sans le garde-fou.
 
-## `pre-commit` — numéro anti-cache
+## `pre-commit` — banc d'essai puis numéro anti-cache
+
+Quand un fichier `js/` ou `css/` d'un outil surveillé entre dans un commit,
+le hook lance d'abord son banc d'essai (`tests/lancer.sh`) et refuse le commit
+si un test échoue. Chaque banc vérifie lui-même ses prérequis (Firefox +
+python3 pour TimeCalculator, gjs pour le marketing) et le signale par son code
+de sortie ; s'ils manquent, le banc est sauté avec un avertissement — le
+workflow GitHub Actions le rattrape après le push.
+
+## Numéro anti-cache
 
 Dès qu'un fichier `js/` ou `css/` d'un outil surveillé entre dans un commit, le
 hook met à jour le `?v=<horodatage>` de son `index.html` et le rajoute au commit.
