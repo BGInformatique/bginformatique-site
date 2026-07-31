@@ -92,19 +92,20 @@ if [ "$code" -ne 0 ]; then
   exit 1
 fi
 
-# ── 4) Anti-cache ─────────────────────────────────────────────────────────
-INDEX="$OUTIL/index.html"
-if grep -qE '\?v=[0-9]{14}' "$INDEX"; then
-  VERSION="$(date +%Y%m%d%H%M%S)"
-  if [ "$ESSAI" -eq 0 ]; then
-    sed -i -E "s/\?v=[0-9]{14}/?v=${VERSION}/g" "$INDEX"
-    echo -e "${BLEU}Anti-cache : ?v=${VERSION}${NC}"
+# ── 4) Anti-cache — toutes les pages de l'outil ───────────────────────────
+VERSION="$(date +%Y%m%d%H%M%S)"
+for PAGE in "$OUTIL"/*.html; do
+  if grep -qE '\?v=[0-9]{14}' "$PAGE"; then
+    if [ "$ESSAI" -eq 0 ]; then
+      sed -i -E "s/\?v=[0-9]{14}/?v=${VERSION}/g" "$PAGE"
+      echo -e "${BLEU}Anti-cache $(basename "$PAGE") : ?v=${VERSION}${NC}"
+    else
+      echo -e "${BLEU}Anti-cache $(basename "$PAGE") : ?v= serait mis à jour${NC}"
+    fi
   else
-    echo -e "${BLEU}Anti-cache : ?v= serait mis à jour${NC}"
+    echo -e "${JAUNE}Attention : $PAGE n'a pas de « ?v=<14 chiffres> » — anti-cache inactif.${NC}"
   fi
-else
-  echo -e "${JAUNE}Attention : $INDEX n'a pas de « ?v=<14 chiffres> » — anti-cache inactif.${NC}"
-fi
+done
 
 # ── 5) Index : uniquement les chemins de cet outil ────────────────────────
 if [ "$ESSAI" -eq 0 ]; then

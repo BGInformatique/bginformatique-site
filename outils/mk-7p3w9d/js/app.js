@@ -411,7 +411,9 @@ function carte(t, contexte) {
     <div class="outils">
       <button class="ic ${actif ? "on" : ""}" data-chrono title="${actif ? "Arrêter le minuteur" : "Démarrer le minuteur"}">
         <svg><use href="#${actif ? "i-stop" : "i-lire"}"></use></svg></button>
-      <button class="ic ${lcOccupe ? "on" : ""}" data-claude title="${lcOccupe ? "Claude travaille sur cette tâche" : "Lancer cette tâche avec Claude sur BG001"}">
+      <button class="ic ${lcOccupe ? "on" : ""}" data-claude title="${t.chantier === "LinkedIn"
+        ? "Ouvrir la page du lot LinkedIn (tous les posts)"
+        : lcOccupe ? "Claude travaille sur cette tâche" : "Lancer cette tâche avec Claude sur BG001"}">
         <svg><use href="#i-eclair"></use></svg></button>
       <button class="ic" data-manuel title="Consigner du temps à la main">
         <svg><use href="#i-plus"></use></svg></button>
@@ -425,7 +427,10 @@ function carte(t, contexte) {
     rendre();
   };
   el.querySelector("[data-chrono]").onclick = () => (actif ? arreter() : demarrer(t.id));
-  el.querySelector("[data-claude]").onclick = () => lancerClaude(t);
+  // Chantier LinkedIn : l'éclair mène à la page du lot (tous les posts sur une
+  // page, copie d'un bouton) — il n'y a rien à confier à Claude, tout est prêt.
+  el.querySelector("[data-claude]").onclick = () =>
+    (t.chantier === "LinkedIn" ? (window.location.href = "linkedin.html") : lancerClaude(t));
   el.querySelector("[data-manuel]").onclick = () => {
     const v = prompt(`Combien de minutes consigner sur « ${t.titre} » ?`, "30");
     if (v === null) return;

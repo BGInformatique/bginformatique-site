@@ -131,6 +131,26 @@ si le lanceur est éteint — les demandes attendent en file.
 L'interrogation de la file ne renvoie que les documents au `statut` « demande » :
 `state` n'a pas ce champ et n'est jamais relu par le lanceur.
 
+---
+
+## Page « Lot LinkedIn » (`linkedin.html`)
+
+Le bouton éclair d'une tâche du chantier **LinkedIn** ne lance pas Claude : il
+mène à `linkedin.html` — toutes les publications du lot sur **une seule page**,
+un bouton **Copier** par texte (à coller tel quel dans LinkedIn), une case
+**Publié** et un compteur d'avancement.
+
+**Données** : `users/<uid>/marketing/linkedin-lot` — les textes ne vivent que
+dans Firestore, derrière la connexion Microsoft, jamais dans ce dépôt (public).
+Le lot se verse depuis BG001 (le fichier maître reste dans le dossier du
+mandat, hors dépôt).
+
+**Consignation automatique** : marquer « Publié » déclenche, côté BG001, le
+passage de la ligne du journal TSV du mandat de `lot_livre` à `utilise`
+(copie `.bak` avant chaque écriture), puis le lanceur confirme dans le document
+(`consigne: true` — la page n'écrit jamais ce champ à true, elle affiche
+« consignation en attente… » tant que BG001 n'a pas confirmé).
+
 - **Exporter (TSV)** — tâches et temps, au format des journaux de suivi d'un
   dossier client (`_Journal_*.tsv` et compagnie). C'est ce qui permet de reverser
   l'état d'un mandat chez le client.

@@ -183,6 +183,30 @@ main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns:
   font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-muted);
   margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* Page Lot LinkedIn */
+.pubs { display: flex; flex-direction: column; gap: 14px; max-width: 860px; margin: 0 auto; padding: 0 0 40px; }
+.pub {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 16px;
+}
+.pub.fait { border-color: var(--ok); }
+.pub.fait .pub-num { background: var(--ok); color: #fff; }
+.pub-entete { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.pub-num {
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--surface); color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, monospace; font-weight: 700;
+}
+.pub-sujet { flex: 1; min-width: 200px; }
+.pub-boutons { display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
+.pub-texte {
+  margin-top: 12px; padding: 12px 14px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+}
+.pub.fait .pub-texte { opacity: .55; }
 .outils { display: flex; gap: 3px; flex: none; align-items: flex-start; }
 .ic {
   width: 28px; height: 28px; border-radius: 8px; border: none; background: none;

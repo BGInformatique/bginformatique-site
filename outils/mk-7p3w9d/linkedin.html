@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Lot LinkedIn — Tableau de bord marketing</title>
+  <link rel="stylesheet" href="css/style.css?v=20260730230318">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="marque">
+    <div class="sceau">BG</div>
+    <div>
+      <h1>Lot LinkedIn</h1>
+      <div class="sous"><a href="./" style="color:inherit">← Retour au tableau de bord</a></div>
+    </div>
+  </div>
+  <div class="fin">
+    <div class="qui" id="qui" hidden></div>
+    <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
+  </div>
+</header>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-card">
+    <h2>Connexion requise</h2>
+    <p>Connecte-toi avec ton compte Microsoft BG Informatique pour voir le lot.</p>
+    <button id="btn-login" class="btn btn-lg">Se connecter avec Microsoft</button>
+    <p class="form-error" id="auth-error" hidden></p>
+  </div>
+</div>
+
+<div id="banners" class="banners" aria-live="polite"></div>
+
+<div id="app" hidden>
+  <section class="compteurs" style="grid-template-columns:1fr">
+    <div class="tuile">
+      <div class="mono" id="lot-titre">// Lot LinkedIn</div>
+      <div class="val" id="c-pub">—</div>
+      <div class="note">Chaque texte se copie tel quel, sans mise en forme — une publication par jour ouvrable. Cocher « Publié » consigne automatiquement le journal sur BG001.</div>
+      <div class="jauge" id="c-pub-j"><span style="width:0"></span></div>
+    </div>
+  </section>
+
+  <div id="l-posts" class="pubs"></div>
+</div>
+
+<script type="module" src="js/linkedin.js?v=20260730230318"></script>
+</body>
+</html>
