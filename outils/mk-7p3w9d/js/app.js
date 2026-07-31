@@ -414,6 +414,8 @@ function carte(t, contexte) {
       <div class="etiq">${pil.join("")}</div>
     </div>
     <div class="outils">
+      <button class="ic ${t.statut === "fait" ? "on" : ""}" data-fait title="${t.statut === "fait" ? "Remettre à faire" : "Marquer faite"}">
+        <svg><use href="#i-coche"></use></svg></button>
       <button class="ic ${actif ? "on" : ""}" data-chrono title="${actif ? "Arrêter le minuteur" : "Démarrer le minuteur"}">
         <svg><use href="#${actif ? "i-stop" : "i-lire"}"></use></svg></button>
       <button class="ic ${lcOccupe ? "on" : ""}" data-claude title="${t.chantier === "LinkedIn"
@@ -430,6 +432,15 @@ function carte(t, contexte) {
   el.querySelector("[data-bascule]").onclick = () => {
     ouvertes.has(t.id) ? ouvertes.delete(t.id) : ouvertes.add(t.id);
     rendre();
+  };
+  el.querySelector("[data-fait]").onclick = () => {
+    if (t.statut === "fait") {
+      enregistrerTache({ id: t.id, statut: "a_faire" });
+      return;
+    }
+    // Le minuteur en cours sur cette tâche est arrêté et son temps consigné.
+    if (actif) arreter(true);
+    enregistrerTache({ id: t.id, statut: "fait" });
   };
   el.querySelector("[data-chrono]").onclick = () => (actif ? arreter() : demarrer(t.id));
   // Chantier LinkedIn : l'éclair mène à la page du lot (tous les posts sur une
