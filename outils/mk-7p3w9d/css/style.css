@@ -161,6 +161,28 @@ main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns:
 .pil.fait { background: rgba(22, 163, 74, .14); color: var(--ok); }
 .pil.reporte { background: rgba(180, 83, 9, .15); color: var(--warn); }
 .pil.temps { background: transparent; padding-left: 0; text-transform: none; letter-spacing: 0; }
+
+/* Lancements Claude sur BG001 */
+.pil.claude { border: 1px solid var(--border); background: transparent; }
+.pil.claude.en_cours, .pil.claude.demande {
+  border-color: var(--primary); color: var(--primary); background: transparent;
+  animation: cl-pulse 1.6s ease-in-out infinite;
+}
+.pil.claude.fait { border-color: var(--ok); color: var(--ok); background: transparent; }
+.pil.claude.echec { border-color: var(--danger); color: var(--danger); background: transparent; }
+@keyframes cl-pulse { 50% { opacity: .45; } }
+.cl-resultat { display: none; }
+.carte.ouvert .cl-resultat {
+  display: block; margin-top: 8px; padding: 9px 11px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 320px; overflow-y: auto;
+}
+.carte.ouvert .cl-resultat.err { border-color: var(--danger); }
+.cl-entete {
+  font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-muted);
+  margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .outils { display: flex; gap: 3px; flex: none; align-items: flex-start; }
 .ic {
   width: 28px; height: 28px; border-radius: 8px; border: none; background: none;

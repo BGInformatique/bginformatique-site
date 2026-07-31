@@ -31,6 +31,10 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
   doc,
+  collection,
+  query,
+  orderBy,
+  limit,
   setDoc,
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -62,6 +66,14 @@ const LIB_STATUT = {
 const RANG_PRIO = { haute: 0, moyenne: 1, basse: 2 };
 const RANG_STAT = { en_cours: 0, bloque: 1, a_faire: 2, reporte: 3, fait: 4 };
 
+// Lancements Claude : documents lancement-* de la même sous-collection,
+// traités sur BG001 par Claude_Lanceur/lanceur.py (hors dépôt). L'outil web
+// n'écrit que la demande ; le lanceur écrit la progression et le résultat.
+const LIB_LANCEMENT = {
+  demande: "Claude · demandé", en_cours: "Claude · en cours…",
+  fait: "Claude · fait", echec: "Claude · échec",
+};
+
 const $ = (id) => document.getElementById(id);
 const ech = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -81,6 +93,10 @@ let userDocRef = null;
 let dernierEcrit = null;
 let filtreClient = "", filtreChantier = "", filtreStatut = "actives";
 const ouvertes = new Set();
+
+// Dernier lancement Claude par tâche (idTache -> doc lancement-*).
+let uidCourant = null;
+let lancements = new Map();
 
 function normaliser(brut) {
   const s = VIDE();
@@ -263,6 +279,23 @@ function enregistrerTache(d) {
   enregistrer();
 }
 
+function lancerClaude(t) {
+  if (!uidCourant) return;
+  const l = lancements.get(t.id);
+  if (l && (l.statut === "demande" || l.statut === "en_cours")) {
+    avis("Un lancement est déjà en cours pour cette tâche.", true);
+    return;
+  }
+  if (!confirm(`Lancer Claude sur BG001 pour « ${t.titre} » ?\n\n` +
+               "La tâche s'exécutera sans intervention ; le résultat s'affichera ici.")) return;
+  const nom = `lancement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  setDoc(doc(db, "users", uidCourant, "marketing", nom), {
+    idTache: t.id, titre: t.titre || "", detail: t.detail || "",
+    client: t.client || "", chantier: t.chantier || "",
+    statut: "demande", demandeLe: maintenant(), maj: maintenant(),
+  }).catch((e) => avis("Lancement refusé : " + e.message, true));
+}
+
 function supprimerTache(id) {
   state.taches = state.taches.filter((t) => t.id !== id);
   const rattaches = state.temps.filter((e) => e.idTache === id).map((e) => e.id);
@@ -355,6 +388,12 @@ function carte(t, contexte) {
   if (total) pil.push(`<span class="pil temps">${fmt(total)} consigné${dujour ? ` · ${fmt(dujour)} aujourd'hui` : ""}</span>`);
   else if (t.estimeMin) pil.push(`<span class="pil temps">estimé ${fmt(Number(t.estimeMin))}</span>`);
 
+  const lc = lancements.get(t.id);
+  if (lc && LIB_LANCEMENT[lc.statut]) {
+    pil.push(`<span class="pil claude ${ech(lc.statut)}">${LIB_LANCEMENT[lc.statut]}</span>`);
+  }
+  const lcOccupe = lc && (lc.statut === "demande" || lc.statut === "en_cours");
+
   const el = document.createElement("div");
   el.className = "carte" + (t.statut === "fait" ? " fait" : "") +
     (actif ? " actif" : "") + (ouvertes.has(t.id) ? " ouvert" : "");
@@ -364,11 +403,16 @@ function carte(t, contexte) {
       <div class="titre-t" data-bascule>${ech(t.titre)}</div>
       ${t.detail ? `<div class="detail">${ech(t.detail)}</div>` : ""}
       ${t.source ? `<div class="source">// ${ech(t.source)}</div>` : ""}
+      ${lc && (lc.resultat || lc.erreur) ? `<div class="cl-resultat${lc.erreur ? " err" : ""}">
+        <div class="cl-entete">// Claude — ${lc.erreur ? "échec" : "résultat"}${lc.finiLe ? " · " + ech(new Date(lc.finiLe).toLocaleString("fr-CA")) : ""}</div>
+        ${ech(lc.erreur || lc.resultat)}</div>` : ""}
       <div class="etiq">${pil.join("")}</div>
     </div>
     <div class="outils">
       <button class="ic ${actif ? "on" : ""}" data-chrono title="${actif ? "Arrêter le minuteur" : "Démarrer le minuteur"}">
         <svg><use href="#${actif ? "i-stop" : "i-lire"}"></use></svg></button>
+      <button class="ic ${lcOccupe ? "on" : ""}" data-claude title="${lcOccupe ? "Claude travaille sur cette tâche" : "Lancer cette tâche avec Claude sur BG001"}">
+        <svg><use href="#i-eclair"></use></svg></button>
       <button class="ic" data-manuel title="Consigner du temps à la main">
         <svg><use href="#i-plus"></use></svg></button>
       ${contexte === "tout" ? `<button class="ic ${epingle ? "on" : ""}" data-epingle title="${epingle ? "Retirer d'aujourd'hui" : "Épingler à aujourd'hui"}">
@@ -381,6 +425,7 @@ function carte(t, contexte) {
     rendre();
   };
   el.querySelector("[data-chrono]").onclick = () => (actif ? arreter() : demarrer(t.id));
+  el.querySelector("[data-claude]").onclick = () => lancerClaude(t);
   el.querySelector("[data-manuel]").onclick = () => {
     const v = prompt(`Combien de minutes consigner sur « ${t.titre} » ?`, "30");
     if (v === null) return;
@@ -666,12 +711,16 @@ $("btn-login").addEventListener("click", () => {
 $("btn-logout").addEventListener("click", () => signOut(auth));
 
 let desabonner = null;
+let desabonnerLancements = null;
 
 onAuthStateChanged(auth, (user) => {
   if (desabonner) { desabonner(); desabonner = null; }
+  if (desabonnerLancements) { desabonnerLancements(); desabonnerLancements = null; }
 
   if (!user) {
     userDocRef = null;
+    uidCourant = null;
+    lancements = new Map();
     dernierEcrit = null;
     state = VIDE();
     $("auth-gate").hidden = false;
@@ -699,6 +748,22 @@ onAuthStateChanged(auth, (user) => {
     avis("Lecture Firestore refusée : " + e.message + ". Les règles du bloc " +
          "MARKETING sont-elles publiées ?", true);
   });
+
+  // File de lancement Claude : seuls les documents portant demandeLe sont des
+  // lancements — le document « state » n'en a pas et reste hors de la requête.
+  uidCourant = user.uid;
+  const reqLancements = query(collection(db, "users", user.uid, "marketing"),
+    orderBy("demandeLe", "desc"), limit(30));
+  desabonnerLancements = onSnapshot(reqLancements, (snap) => {
+    lancements = new Map();
+    snap.forEach((d) => {
+      const l = d.data();
+      if (!l || !l.idTache) return;
+      const p = lancements.get(l.idTache);
+      if (!p || (l.demandeLe || 0) > (p.demandeLe || 0)) lancements.set(l.idTache, l);
+    });
+    rendre();
+  }, () => { /* lanceur absent ou index en création : l'outil reste utilisable */ });
 });
 
 /* Le minuteur en cours doit rester visible sans recharger la page. */

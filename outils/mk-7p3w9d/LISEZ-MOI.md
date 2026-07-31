@@ -106,7 +106,30 @@ consigné : il ne suit pas le calendrier, et il ignore les autres mandats.
 
 ---
 
-## Filet de sécurité
+## Lancements Claude sur BG001
+
+Chaque tâche porte un bouton **éclair** : il dépose une demande d'exécution que la
+machine BG001 ramasse et confie à `claude -p` (mode sans interface,
+`--permission-mode acceptEdits`). La progression et le résultat reviennent dans
+l'outil, en direct, y compris depuis un téléphone.
+
+**Documents** : `users/<uid>/marketing/lancement-<horodatage>-<aléa>` — même
+sous-collection que `state`, donc couverts par le même bloc de règles (propriétaire
+seul, pas de suppression navigateur). Champs écrits par l'outil : `idTache`,
+`titre`, `detail`, `client`, `chantier`, `statut: "demande"`, `demandeLe`. Champs
+écrits par le lanceur : `statut` (`en_cours`, `fait`, `echec`), `debuteLe`,
+`finiLe`, `resultat`, `erreur`, `coutUsd`, `tours`.
+
+**Côté BG001, hors dépôt** : `~/Bureau/BG Informatique/Claude_Lanceur/lanceur.py`,
+service systemd `bg-lanceur.service` (utilisateur, `linger` actif — il tourne sans
+session ouverte et survit aux redémarrages). Identité : compte de service
+`lanceur-marketing@bgtimecalculator` limité au rôle `datastore.user`, clé dans
+`~/.config/bg-lanceur/`. L'accès serveur ignore les règles Firestore ; c'est lui qui
+purge les lancements terminés après 30 jours. L'outil web reste pleinement utilisable
+si le lanceur est éteint — les demandes attendent en file.
+
+L'interrogation de la file ne renvoie que les documents au `statut` « demande » :
+`state` n'a pas ce champ et n'est jamais relu par le lanceur.
 
 - **Exporter (TSV)** — tâches et temps, au format des journaux de suivi d'un
   dossier client (`_Journal_*.tsv` et compagnie). C'est ce qui permet de reverser
