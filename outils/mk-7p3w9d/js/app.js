@@ -71,7 +71,7 @@ const RANG_STAT = { en_cours: 0, bloque: 1, a_faire: 2, reporte: 3, fait: 4 };
 // n'écrit que la demande ; le lanceur écrit la progression et le résultat.
 const LIB_LANCEMENT = {
   demande: "Claude · demandé", en_cours: "Claude · en cours…",
-  fait: "Claude · fait", echec: "Claude · échec",
+  fait: "Claude · fait", echec: "Claude · échec", annule: "Claude · annulé",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -282,8 +282,13 @@ function enregistrerTache(d) {
 function lancerClaude(t) {
   if (!uidCourant) return;
   const l = lancements.get(t.id);
-  if (l && (l.statut === "demande" || l.statut === "en_cours")) {
-    avis("Un lancement est déjà en cours pour cette tâche.", true);
+  // Activation accidentelle : le même bouton annule le lancement actif. Le
+  // lanceur de BG001 interrompt alors le processus s'il est déjà parti.
+  if (l && l.docId && (l.statut === "demande" || l.statut === "en_cours")) {
+    if (!confirm(`Annuler le lancement Claude pour « ${t.titre} » ?`)) return;
+    setDoc(doc(db, "users", uidCourant, "marketing", l.docId),
+      { statut: "annule", maj: maintenant() }, { merge: true })
+      .catch((e) => avis("Annulation refusée : " + e.message, true));
     return;
   }
   if (!confirm(`Lancer Claude sur BG001 pour « ${t.titre} » ?\n\n` +
@@ -413,7 +418,7 @@ function carte(t, contexte) {
         <svg><use href="#${actif ? "i-stop" : "i-lire"}"></use></svg></button>
       <button class="ic ${lcOccupe ? "on" : ""}" data-claude title="${t.chantier === "LinkedIn"
         ? "Ouvrir la page du lot LinkedIn (tous les posts)"
-        : lcOccupe ? "Claude travaille sur cette tâche" : "Lancer cette tâche avec Claude sur BG001"}">
+        : lcOccupe ? "Annuler le lancement Claude en cours" : "Lancer cette tâche avec Claude sur BG001"}">
         <svg><use href="#i-eclair"></use></svg></button>
       <button class="ic" data-manuel title="Consigner du temps à la main">
         <svg><use href="#i-plus"></use></svg></button>
@@ -765,7 +770,9 @@ onAuthStateChanged(auth, (user) => {
       const l = d.data();
       if (!l || !l.idTache) return;
       const p = lancements.get(l.idTache);
-      if (!p || (l.demandeLe || 0) > (p.demandeLe || 0)) lancements.set(l.idTache, l);
+      if (!p || (l.demandeLe || 0) > (p.demandeLe || 0)) {
+        lancements.set(l.idTache, { ...l, docId: d.id });
+      }
     });
     rendre();
   }, () => { /* lanceur absent ou index en création : l'outil reste utilisable */ });

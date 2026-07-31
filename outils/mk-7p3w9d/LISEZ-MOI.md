@@ -120,6 +120,13 @@ seul, pas de suppression navigateur). Champs écrits par l'outil : `idTache`,
 écrits par le lanceur : `statut` (`en_cours`, `fait`, `echec`), `debuteLe`,
 `finiLe`, `resultat`, `erreur`, `coutUsd`, `tours`.
 
+**Annulation (activation accidentelle)** : tant qu'un lancement est « demandé »
+ou « en cours », le même bouton éclair l'annule (`statut: "annule"`, écrit par
+l'outil). Le lanceur vérifie ce statut avant la prise en charge **et toutes les
+15 s pendant l'exécution** : il interrompt alors le processus Claude. Un
+lancement annulé n'est jamais requalifié `fait`, même si le travail venait de
+se terminer.
+
 **Côté BG001, hors dépôt** : `~/Bureau/BG Informatique/Claude_Lanceur/lanceur.py`,
 service systemd `bg-lanceur.service` (utilisateur, `linger` actif — il tourne sans
 session ouverte et survit aux redémarrages). Identité : compte de service

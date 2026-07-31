@@ -170,6 +170,7 @@ main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns:
 }
 .pil.claude.fait { border-color: var(--ok); color: var(--ok); background: transparent; }
 .pil.claude.echec { border-color: var(--danger); color: var(--danger); background: transparent; }
+.pil.claude.annule { border-color: var(--warn); color: var(--warn); background: transparent; }
 @keyframes cl-pulse { 50% { opacity: .45; } }
 .cl-resultat { display: none; }
 .carte.ouvert .cl-resultat {
