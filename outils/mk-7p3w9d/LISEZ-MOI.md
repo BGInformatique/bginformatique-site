@@ -22,8 +22,10 @@ Créé le 30 juillet 2026, sur le patron de TimeCalculator (`outils/tc-9x2k7m`).
 | Déploiement | `./deploy.sh` à la racine du dépôt |
 
 **Chemin Firestore : `users/<uid>/marketing/state`.** Distinct de
-`users/<uid>/timecalculator/state` : les deux outils ne se voient pas et ne peuvent
-pas s'écraser.
+`users/<uid>/timecalculator/state` : chaque outil n'écrit que chez lui, ils ne
+peuvent pas s'écraser. Une exception voulue depuis le 31 juillet : l'outil
+marketing **lit** `timecalculator/state` (même compte, lecture seule) pour la
+charte marketing vs N2 — aucune écriture croisée, et son absence n'empêche rien.
 
 > ⚠️ **Les règles doivent être publiées avant que l'outil fonctionne.** Firebase ne
 > lit pas ce dépôt. Coller `firestore.rules` dans Console → Firestore Database →
@@ -110,6 +112,13 @@ Sous les tuiles, la **charte hebdomadaire** trace le temps marketing du mandat s
 une barre par semaine (lundi au dimanche) depuis le début du plan, avec la ligne du
 nominal 40 h/sem et la moyenne en titre. Les semaines vides restent visibles — un trou
 est une donnée. Étiquettes directes jusqu'à 16 semaines, infobulle par barre ensuite.
+
+La **charte marketing vs N2** empile, sur les mêmes semaines, le marketing (bleu) et
+le soutien N2 (gris) tiré du time-tracker : interventions hors catégorie « Marketing »
+— celles-là sont déjà consignées ici, les compter en N2 les compterait deux fois.
+L'étiquette de barre donne la part marketing de la semaine. Une semaine sans quart
+pointé n'est pas suivie : pas de barre grise, et l'infobulle le dit. Le titre affiche
+la part marketing cumulée sur les semaines suivies.
 
 Les tuiles **Plan V5** et **Rythme** rapportent ce même temps consigné au plan entier
 (52 sem × 40 h = 2 080 h). La **date de début du plan** se règle dans la tuile Rythme

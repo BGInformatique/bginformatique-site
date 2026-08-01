@@ -163,6 +163,11 @@ button { font: inherit; cursor: pointer; }
   position: absolute; top: 100%; margin-top: 4px;
   font: 600 10px ui-monospace, monospace; color: var(--text-muted);
 }
+/* Marketing vs N2 : barres empilées — le N2 est le contexte, en gris. */
+.g-col span.g-n2 { background: var(--text-muted); opacity: .5; }
+.g-col span.sous { border-radius: 0; }
+.lg { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; background: var(--primary); }
+.lg-n2 { background: var(--text-muted); opacity: .5; }
 
 /* ── grille ───────────────────────────────────────────── */
 main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; }

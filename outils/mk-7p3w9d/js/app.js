@@ -99,6 +99,10 @@ const ouvertes = new Set();
 let uidCourant = null;
 let lancements = new Map();
 
+// Time-tracker (TimeCalculator, même compte), lu en LECTURE SEULE : la charte
+// marketing vs N2 en tire les interventions. Aucune écriture vers ce document.
+let tcState = null;
+
 function normaliser(brut) {
   const s = VIDE();
   if (!brut || typeof brut !== "object") return s;
@@ -609,7 +613,53 @@ function rendre() {
     const totalM = semaines.reduce((s, [, m]) => s + m, 0);
     $("g-hist-n").textContent =
       `moyenne ${fmt(Math.round(totalM / semaines.length))} / sem · nominal 40 h`;
+
+    /* ── marketing vs soutien N2, mêmes semaines ──
+       Le N2 vient du time-tracker : interventions hors catégorie « Marketing »
+       (celles-là sont déjà consignées ici — les compter en N2 les compterait
+       deux fois). Une semaine sans quart pointé n'est pas suivie : la barre
+       grise y est absente, pas nulle. */
+    const n2ParSem = new Map(), couvertes = new Set();
+    for (const p of (tcState && tcState.punches) || []) {
+      if (p && p.start) couvertes.add(lundi(jourISO(new Date(p.start))));
+    }
+    for (const iv of (tcState && tcState.interventions) || []) {
+      if (!iv || !iv.start || !iv.end || iv.category === "Marketing") continue;
+      const cle = lundi(jourISO(new Date(iv.start)));
+      couvertes.add(cle);
+      n2ParSem.set(cle, (n2ParSem.get(cle) || 0) +
+        Math.max(0, Math.round((iv.end - iv.start) / 60000)));
+    }
+    const maxTot = Math.max(MIN_PAR_STME,
+      ...semaines.map(([cle, m]) => m + (n2ParSem.get(cle) || 0)));
+    $("g-vs-ref").style.bottom = (MIN_PAR_STME / maxTot) * 100 + "%";
+    $("g-vs-barres").innerHTML = semaines.map(([cle, m], i) => {
+      const n2 = n2ParSem.get(cle) || 0;
+      const suivi = couvertes.has(cle);
+      const d = new Date(cle + "T00:00:00");
+      const mois = i === 0 || d.getDate() <= 7
+        ? d.toLocaleDateString("fr-CA", { month: "short" }) : "";
+      const titre = `Semaine du ${cle} — marketing ${fmt(m)}` + (suivi
+        ? ` · soutien N2 ${fmt(n2)} · total ${fmt(m + n2)}`
+        : " · N2 non suivi (avant le time-tracker)");
+      const etiq = etiquettes && suivi && (m + n2)
+        ? `<i>${Math.round((m / (m + n2)) * 100)} %</i>` : "";
+      return `<div class="g-col" title="${titre}">${etiq}` +
+        (n2 ? `<span class="g-n2" style="height:${(n2 / maxTot) * 100}%;min-height:2px${m ? ";margin-bottom:2px" : ""}"></span>` : "") +
+        `<span class="${n2 ? "sous" : ""}" style="height:${(m / maxTot) * 100}%${m ? ";min-height:2px" : ""}"></span>` +
+        `<b>${ech(mois)}</b></div>`;
+    }).join("");
+    let sMkt = 0, sN2 = 0;
+    for (const [cle, m] of semaines) {
+      if (!couvertes.has(cle)) continue;
+      sMkt += m;
+      sN2 += n2ParSem.get(cle) || 0;
+    }
+    $("g-vs-n").textContent = sMkt + sN2
+      ? `part marketing ${Math.round((sMkt / (sMkt + sN2)) * 100)} % sur les semaines suivies`
+      : "en attente du time-tracker";
   }
+  $("g-vs").hidden = !mandat;
 
   const taches = state.taches.filter(visible);
   const ouv = taches.filter((t) => t.statut !== "fait").length;
@@ -834,15 +884,18 @@ $("btn-logout").addEventListener("click", () => signOut(auth));
 
 let desabonner = null;
 let desabonnerLancements = null;
+let desabonnerTC = null;
 
 onAuthStateChanged(auth, (user) => {
   if (desabonner) { desabonner(); desabonner = null; }
   if (desabonnerLancements) { desabonnerLancements(); desabonnerLancements = null; }
+  if (desabonnerTC) { desabonnerTC(); desabonnerTC = null; }
 
   if (!user) {
     userDocRef = null;
     uidCourant = null;
     lancements = new Map();
+    tcState = null;
     dernierEcrit = null;
     state = VIDE();
     $("auth-gate").hidden = false;
@@ -870,6 +923,13 @@ onAuthStateChanged(auth, (user) => {
     avis("Lecture Firestore refusée : " + e.message + ". Les règles du bloc " +
          "MARKETING sont-elles publiées ?", true);
   });
+
+  // Time-tracker du même compte, en lecture seule, pour la charte
+  // marketing vs N2. Son absence n'empêche rien : la charte montre alors
+  // le marketing seul.
+  desabonnerTC = onSnapshot(doc(db, "users", user.uid, "timecalculator", "state"),
+    (snap) => { tcState = snap.exists() ? snap.data() : null; rendre(); },
+    () => { tcState = null; });
 
   // File de lancement Claude : seuls les documents portant demandeLe sont des
   // lancements — le document « state » n'en a pas et reste hors de la requête.
