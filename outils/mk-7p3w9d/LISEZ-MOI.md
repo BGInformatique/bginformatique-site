@@ -96,6 +96,8 @@ cache (`snap.metadata.fromCache`).
 | **Aujourd'hui** | temps consigné depuis minuit, sur une journée de référence de 8 h |
 | **Cette semaine** | depuis lundi |
 | **STME — mandat suivi** | temps consigné sur le mandat choisi dans la tuile ÷ 40 h |
+| **Plan V5 — accompli** | pourcentage des 2 080 h du plan (52 sem × 40 h) déjà consignées sur le mandat suivi ; le repère sur la jauge marque où le plan attend le compteur aujourd'hui |
+| **Rythme** | avance ou retard sur le rythme de 40 h par semaine écoulée depuis la date de début du plan, en STME et en heures |
 | **Chantiers ouverts** | tâches non terminées, et la part déjà faite |
 
 La STME (« semaine de travail marketing effectif ») est une unité du **Cahier de
@@ -103,6 +105,14 @@ déploiement V5 d'un client**, pas de BG : 40 h de travail effectif, 52 au plan.
 seul mandat à la fois peut être suivi de cette façon — le sélecteur est dans la tuile,
 et le choix est enregistré avec l'état. Le compteur ne mesure que ce qui est réellement
 consigné : il ne suit pas le calendrier, et il ignore les autres mandats.
+
+Les tuiles **Plan V5** et **Rythme** rapportent ce même temps consigné au plan entier
+(52 sem × 40 h = 2 080 h). La **date de début du plan** se règle dans la tuile Rythme
+(champ date, rangé dans `config.debutPlan` — donc privé, comme le mandat suivi).
+L'« attendu » avance de 40 h par semaine écoulée depuis cette date, au prorata du
+jour, plafonné à 2 080 h. Comme les compteurs ne voient que le consigné, du travail
+fait **avant** l'outil se rattrape par une entrée de temps manuelle en bloc (bouton
+« + » d'une tâche) — c'est le cumul qui compte, pas la date de l'entrée.
 
 ---
 
@@ -182,7 +192,7 @@ Trois contrôles, tous sur le vrai `js/app.js`, jamais sur une copie :
    appel subsiste compile sans broncher et ne plante qu'à l'exécution. C'est arrivé
    avec la constante qui portait le mandat par défaut : la déclaration partait, un
    appel restait, et toute création de tâche aurait planté en ligne.
-3. **Fusion multi-appareils** (`tests/fusion.js`) — 15 essais sur la perte de données
+3. **Fusion multi-appareils** (`tests/fusion.js`) — 17 essais sur la perte de données
    silencieuse : ajout croisé, édition concurrente, résurrection après suppression,
    et l'état vide qui écrase l'autre.
 

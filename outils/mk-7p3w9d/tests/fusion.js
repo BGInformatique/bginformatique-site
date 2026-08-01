@@ -178,7 +178,25 @@ print('\nFusion multi-appareils — ' + APP + '\n');
     fusionner(avecReglage, autreReglage).config.mandatStme === 'Mandat B');
 }
 
-/* 10. Un état sans champ `config` du tout (document d'avant ce réglage) ne doit
+/* 10. Le début du plan suit les mêmes règles que le mandat suivi : un appareil
+       sans la date ne l'efface pas, et entre deux dates le côté le plus
+       récemment enregistré gagne. */
+{
+  const avecDate = { taches: [], temps: [], tombstones: {},
+                     config: { mandatStme: 'Mandat A', debutPlan: '2026-06-01' }, updatedAt: T(2) };
+  const sansDate = { taches: [], temps: [], tombstones: {},
+                     config: { mandatStme: 'Mandat A', debutPlan: '' }, updatedAt: T(5) };
+  verifier('réglages : un appareil sans date de début n\'efface pas celle de l\'autre',
+    fusionner(avecDate, sansDate).config.debutPlan === '2026-06-01',
+    JSON.stringify(fusionner(avecDate, sansDate).config));
+
+  const autreDate = { taches: [], temps: [], tombstones: {},
+                      config: { mandatStme: 'Mandat A', debutPlan: '2026-06-08' }, updatedAt: T(5) };
+  verifier('réglages : entre deux dates de début, le plus récemment enregistré gagne',
+    fusionner(avecDate, autreDate).config.debutPlan === '2026-06-08');
+}
+
+/* 11. Un état sans champ `config` du tout (document d'avant ce réglage) ne doit
        pas faire planter la fusion. */
 {
   const ancien = { taches: [tache('a', T(1))], temps: [], tombstones: {}, updatedAt: T(1) };

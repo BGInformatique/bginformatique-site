@@ -116,11 +116,29 @@ button { font: inherit; cursor: pointer; }
 }
 .mini-select:hover { color: var(--primary); border-bottom-color: var(--primary); }
 .mini-select:focus { outline: none; color: var(--primary); }
+.mini-date {
+  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .05em;
+  color: var(--text-muted); background: none; border: none;
+  border-bottom: 1px dotted var(--border); padding: 0 2px 1px; cursor: pointer;
+  color-scheme: light;
+}
+.mini-date:hover { color: var(--primary); border-bottom-color: var(--primary); }
+.mini-date:focus { outline: none; color: var(--primary); }
+@media (prefers-color-scheme: dark) { .mini-date { color-scheme: dark; } }
 .tuile .val { font-size: 25px; font-weight: 800; line-height: 1.15; margin-top: 5px; letter-spacing: -.02em; }
+.tuile .val.avance { color: var(--ok); }
+.tuile .val.retard { color: var(--warn); }
 .tuile .note { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
 .jauge { height: 5px; border-radius: 3px; background: var(--surface); margin-top: 10px; overflow: hidden; }
 .jauge span { display: block; height: 100%; background: var(--primary); transition: width .35s ease; }
 .jauge.plein span { background: var(--ok); }
+/* Jauge « bullet » : la barre est le consigné, le repère est où le plan attend. */
+.jauge.bullet { overflow: visible; position: relative; }
+.jauge.bullet span { border-radius: 3px; }
+.jauge .cible {
+  position: absolute; top: -3px; width: 2px; height: 11px;
+  transform: translateX(-50%); background: var(--text-muted); border-radius: 1px;
+}
 
 /* ── grille ───────────────────────────────────────────── */
 main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; }

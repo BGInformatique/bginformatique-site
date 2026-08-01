@@ -53,6 +53,7 @@ const CLE_AVANT_IMPORT = "marketing.v1.avant-import";
 
 const MIN_PAR_STME = 40 * 60;   // une STME du Cahier V5 = 40 h de travail effectif
 const STME_TOTAL = 52;
+const MIN_PLAN_TOTAL = STME_TOTAL * MIN_PAR_STME;   // le plan entier : 52 sem × 40 h
 const RETENTION_TOMBSTONE = 90 * 24 * 3600 * 1000;
 
 // Aucun nom de client n'est écrit ici : le dépôt est public et déployé tel quel.
@@ -87,7 +88,7 @@ const nouvelId = () =>
 
 /* ═══════════════════════════════  état  ═══════════════════════════════ */
 
-const VIDE = () => ({ taches: [], temps: [], tombstones: {}, config: { mandatStme: "" }, updatedAt: 0 });
+const VIDE = () => ({ taches: [], temps: [], tombstones: {}, config: { mandatStme: "", debutPlan: "" }, updatedAt: 0 });
 let state = VIDE();
 let userDocRef = null;
 let dernierEcrit = null;
@@ -104,7 +105,12 @@ function normaliser(brut) {
   s.taches = Array.isArray(brut.taches) ? brut.taches.filter((t) => t && t.id) : [];
   s.temps = Array.isArray(brut.temps) ? brut.temps.filter((e) => e && e.id) : [];
   s.tombstones = brut.tombstones && typeof brut.tombstones === "object" ? brut.tombstones : {};
-  s.config = { mandatStme: (brut.config && brut.config.mandatStme) || "" };
+  // Le champ date ne produit que l'ISO ou vide ; un import peut apporter autre chose.
+  const debutBrut = (brut.config && brut.config.debutPlan) || "";
+  s.config = {
+    mandatStme: (brut.config && brut.config.mandatStme) || "",
+    debutPlan: /^\d{4}-\d{2}-\d{2}$/.test(debutBrut) ? debutBrut : "",
+  };
   s.updatedAt = Number(brut.updatedAt) || 0;
   for (const t of s.taches) {
     t.maj = Number(t.maj) || 0;
@@ -180,6 +186,8 @@ function fusionner(a, b) {
   const config = {
     mandatStme: (recent.config && recent.config.mandatStme) ||
                 (autre.config && autre.config.mandatStme) || "",
+    debutPlan: (recent.config && recent.config.debutPlan) ||
+               (autre.config && autre.config.debutPlan) || "",
   };
 
   return {
@@ -515,6 +523,53 @@ function rendre() {
     : "choisir le mandat dont le temps compte en STME";
   jauge("c-stme-j", (stme / STME_TOTAL) * 100);
 
+  /* ── plan V5 : part accomplie et rythme ──
+     « Attendu » : où le plan situe le compteur aujourd'hui, à 40 h par semaine
+     écoulée depuis la date de début (au prorata du jour), plafonné au plan
+     entier. Le compteur, lui, ne voit que le temps consigné : du travail
+     antérieur à l'outil se rattrape par une entrée manuelle en bloc. */
+  const debutPlan = state.config.debutPlan;
+  const joursPlan = debutPlan && debutPlan <= auj
+    ? (new Date(auj) - new Date(debutPlan)) / 86400000 + 1 : 0;
+  const attenduMin = Math.min(MIN_PLAN_TOTAL, (joursPlan / 7) * MIN_PAR_STME);
+
+  const pctPlan = (mMandat / MIN_PLAN_TOTAL) * 100;
+  $("c-plan").textContent = mandat ? pctPlan.toFixed(1) + " %" : "—";
+  $("c-plan-n").textContent = mandat
+    ? `${fmt(mMandat)} sur ${MIN_PLAN_TOTAL / 60} h — ${STME_TOTAL} sem × 40 h`
+    : "choisir le mandat suivi dans la tuile STME";
+  jauge("c-plan-j", pctPlan, pctPlan >= 100);
+  const cible = $("c-plan-c");
+  cible.hidden = !mandat || !attenduMin;
+  cible.style.left = Math.min(100, (attenduMin / MIN_PLAN_TOTAL) * 100) + "%";
+
+  const champDebut = $("c-rythme-debut");
+  if (champDebut.value !== (debutPlan || "")) champDebut.value = debutPlan || "";
+  const vRythme = $("c-rythme"), nRythme = $("c-rythme-n");
+  vRythme.className = "val";
+  if (!mandat) {
+    vRythme.textContent = "—";
+    nRythme.textContent = "choisir le mandat suivi dans la tuile STME";
+    jauge("c-rythme-j", 0);
+  } else if (!debutPlan) {
+    vRythme.textContent = "—";
+    nRythme.textContent = "inscrire la date de début du plan, en haut de la tuile";
+    jauge("c-rythme-j", 0);
+  } else if (debutPlan > auj) {
+    vRythme.textContent = "—";
+    nRythme.textContent = `le plan commence le ${debutPlan}`;
+    jauge("c-rythme-j", 0);
+  } else {
+    const ecartMin = mMandat - attenduMin;
+    const enAvance = ecartMin >= 0;
+    vRythme.textContent =
+      `${enAvance ? "+" : "−"}${(Math.abs(ecartMin) / MIN_PAR_STME).toFixed(2)} STME`;
+    vRythme.className = "val " + (enAvance ? "avance" : "retard");
+    nRythme.textContent = `${enAvance ? "en avance" : "en retard"} de ` +
+      `${fmt(Math.round(Math.abs(ecartMin)))} — attendu ${fmt(Math.round(attenduMin))}`;
+    jauge("c-rythme-j", (mMandat / attenduMin) * 100, enAvance);
+  }
+
   const taches = state.taches.filter(visible);
   const ouv = taches.filter((t) => t.statut !== "fait").length;
   const faites = taches.length - ouv;
@@ -662,6 +717,11 @@ function clientParDefaut() {
 
 $("c-stme-mandat").addEventListener("change", (ev) => {
   state.config.mandatStme = ev.target.value;
+  enregistrer();
+});
+
+$("c-rythme-debut").addEventListener("change", (ev) => {
+  state.config.debutPlan = ev.target.value;
   enregistrer();
 });
 
