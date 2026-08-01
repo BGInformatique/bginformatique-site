@@ -101,77 +101,6 @@ button { font: inherit; cursor: pointer; }
 }
 .banner.err { background: rgba(220, 38, 38, .1); color: var(--danger); border-color: rgba(220, 38, 38, .28); }
 
-/* ── compteurs ────────────────────────────────────────── */
-.compteurs {
-  padding: 16px 22px 0; display: grid; gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-}
-.tuile { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; }
-.tuile .mono { color: var(--text-muted); }
-.mini-select {
-  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--text-muted); background: none;
-  border: none; border-bottom: 1px dotted var(--border); padding: 0 2px 1px;
-  cursor: pointer; max-width: 150px;
-}
-.mini-select:hover { color: var(--primary); border-bottom-color: var(--primary); }
-.mini-select:focus { outline: none; color: var(--primary); }
-.mini-date {
-  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .05em;
-  color: var(--text-muted); background: none; border: none;
-  border-bottom: 1px dotted var(--border); padding: 0 2px 1px; cursor: pointer;
-  color-scheme: light;
-}
-.mini-date:hover { color: var(--primary); border-bottom-color: var(--primary); }
-.mini-date:focus { outline: none; color: var(--primary); }
-@media (prefers-color-scheme: dark) { .mini-date { color-scheme: dark; } }
-.tuile .val { font-size: 25px; font-weight: 800; line-height: 1.15; margin-top: 5px; letter-spacing: -.02em; }
-.tuile .val.avance { color: var(--ok); }
-.tuile .val.retard { color: var(--warn); }
-.tuile .note { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
-.jauge { height: 5px; border-radius: 3px; background: var(--surface); margin-top: 10px; overflow: hidden; }
-.jauge span { display: block; height: 100%; background: var(--primary); transition: width .35s ease; }
-.jauge.plein span { background: var(--ok); }
-/* Jauge « bullet » : la barre est le consigné, le repère est où le plan attend. */
-.jauge.bullet { overflow: visible; position: relative; }
-.jauge.bullet span { border-radius: 3px; }
-.jauge .cible {
-  position: absolute; top: -3px; width: 2px; height: 11px;
-  transform: translateX(-50%); background: var(--text-muted); border-radius: 1px;
-}
-
-/* ── historique hebdomadaire ──────────────────────────── */
-.graphe { margin: 12px 22px 0; }
-.g-zone { position: relative; height: 130px; margin: 26px 2px 20px; }
-.g-ref { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--text-muted); opacity: .55; }
-.g-ref span {
-  position: absolute; right: 0; top: -15px;
-  font: 600 10px ui-monospace, monospace; color: var(--text-muted);
-}
-.g-barres { display: flex; align-items: flex-end; gap: 3px; height: 100%; position: relative; }
-.g-col {
-  flex: 1; height: 100%; min-width: 0; position: relative;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-}
-.g-col span { display: block; width: 100%; max-width: 26px; border-radius: 3px 3px 0 0; background: var(--primary); }
-.g-col span.plein { background: var(--ok); }
-.g-col i {
-  font: 600 10px ui-monospace, monospace; font-style: normal;
-  color: var(--text-muted); margin-bottom: 3px; white-space: nowrap;
-}
-.g-col b {
-  position: absolute; top: 100%; margin-top: 4px;
-  font: 600 10px ui-monospace, monospace; color: var(--text-muted);
-}
-/* Marketing vs N2 : barres empilées — le N2 est le contexte, en gris. */
-.g-col span.g-n2 { background: var(--text-muted); opacity: .5; }
-.g-col span.sous { border-radius: 0; }
-/* Effectif (25 %) vs formation technique (75 %) : même teinte, part atténuée. */
-.g-col span.g-form { background: var(--primary); opacity: .35; }
-.lg-form { opacity: .35; }
-.lg { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; background: var(--primary); }
-.lg-n2 { background: var(--text-muted); opacity: .5; }
-
 /* ── grille ───────────────────────────────────────────── */
 main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; }
 @media (max-width: 1060px) { main { grid-template-columns: 1fr; } }
@@ -278,11 +207,12 @@ main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns:
 .puce[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
 .vide { border: 1px dashed var(--border); border-radius: var(--r); padding: 24px 18px; text-align: center; color: var(--text-muted); font-size: 13.5px; }
 .ajout { display: flex; gap: 8px; }
-.ajout input {
+.ajout input, .cherche {
   flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--text);
 }
-.ajout input:focus, .champ input:focus, .champ select:focus, .champ textarea:focus {
+.cherche { width: 100%; }
+.ajout input:focus, .cherche:focus, .champ input:focus, .champ select:focus, .champ textarea:focus {
   outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .13);
 }
 

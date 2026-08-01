@@ -22,10 +22,10 @@ Créé le 30 juillet 2026, sur le patron de TimeCalculator (`outils/tc-9x2k7m`).
 | Déploiement | `./deploy.sh` à la racine du dépôt |
 
 **Chemin Firestore : `users/<uid>/marketing/state`.** Distinct de
-`users/<uid>/timecalculator/state` : chaque outil n'écrit que chez lui, ils ne
-peuvent pas s'écraser. Une exception voulue depuis le 31 juillet : l'outil
-marketing **lit** `timecalculator/state` (même compte, lecture seule) pour la
-charte marketing vs N2 — aucune écriture croisée, et son absence n'empêche rien.
+`users/<uid>/timecalculator/state` : les deux outils ne se voient pas et ne
+peuvent pas s'écraser. (Une lecture croisée du time-tracker a existé quelques
+heures le 31 juillet pour une charte marketing vs N2, retirée le soir même
+avec le recentrage sur les tâches.)
 
 > ⚠️ **Les règles doivent être publiées avant que l'outil fonctionne.** Firebase ne
 > lit pas ce dépôt. Coller `firestore.rules` dans Console → Firestore Database →
@@ -46,8 +46,8 @@ charte marketing vs N2 — aucune écriture croisée, et son absence n'empêche 
 1. Publier les règles (ci-dessus).
 2. Ouvrir l'outil, se connecter avec le compte Microsoft.
 3. **Importer** → le fichier d'amorce du mandat, gardé **hors dépôt** dans
-   `~/Bureau/BG Informatique/Tableau_de_Bord/amorce-<mandat>.json`.
-4. Sur la tuile **STME**, choisir le mandat dont le temps doit compter en STME.
+   `~/Bureau/BG Informatique/Tableau_de_Bord/amorce-<mandat>.json`. Le mandat
+   par défaut à la saisie naît des tâches importées (`config.mandatStme`).
 
 L'import **fusionne**, il n'écrase pas. Une copie de l'état précédent est gardée dans
 `localStorage` sous `marketing.v1.avant-import`.
@@ -91,49 +91,28 @@ cache (`snap.metadata.fromCache`).
 
 ---
 
-## Les compteurs
+## Recentrage du 31 juillet 2026 : un tableau de bord de TÂCHES
 
-| Compteur | Ce qu'il mesure |
-|---|---|
-| **Aujourd'hui** | temps consigné depuis minuit, sur une journée de référence de 8 h |
-| **Cette semaine** | depuis lundi |
-| **STME — mandat suivi** | temps **effectif** (25 % du consigné) sur le mandat choisi ÷ 40 h |
-| **Plan V5 — accompli** | pourcentage des 2 080 h du plan (52 sem × 40 h) couvert par le temps effectif ; le repère sur la jauge marque où le plan attend le compteur aujourd'hui |
-| **Rythme** | avance ou retard du temps effectif sur le rythme de 40 h par semaine écoulée depuis la date de début du plan |
-| **Formation technique** | les 75 % restants du temps consigné — l'apprentissage |
-| **Chantiers ouverts** | tâches non terminées, et la part déjà faite |
+Décision de Jérémie, le 31 juillet au soir : **plus de statistiques à l'écran.**
+Les sept tuiles (Aujourd'hui, Cette semaine, STME, Plan V5, Rythme, Formation
+technique, Chantiers ouverts) et les deux chartes hebdomadaires, ajoutées le
+même jour, ont été retirées de l'interface — le code reste dans l'historique
+git si le besoin revient.
 
-**Règle du 31 juillet 2026, rétroactive au début du plan** (constante `PART_FORMATION`) :
-75 % du temps consigné au mandat suivi est de la **formation technique** ; les 25 %
-restants sont le **marketing effectif** — le temps moyen qu'auraient pris les tâches
-en vitesse de croisière. La règle s'applique au calcul seulement : les entrées de
-temps et les exports restent bruts.
+Ce qui reste, et c'est le cœur : les deux colonnes de tâches (épinglées
+aujourd'hui / tous les chantiers), l'ajout rapide, les filtres par mandat,
+chantier et statut, un **filtre texte** (titre, détail, source, mandat), le
+minuteur et la consignation de temps par tâche avec le journal du jour, la
+modale d'édition, et toute l'automatisation : bouton éclair (Claude sur BG001),
+page « Lot LinkedIn », tâches déposées chaque lundi par le prospecteur.
 
-La STME (« semaine de travail marketing effectif ») est une unité du **Cahier de
-déploiement V5 d'un client**, pas de BG : 40 h de travail effectif, 52 au plan. Un
-seul mandat à la fois peut être suivi de cette façon — le sélecteur est dans la tuile,
-et le choix est enregistré avec l'état. Le compteur ne mesure que ce qui est réellement
-consigné : il ne suit pas le calendrier, et il ignore les autres mandats.
-
-Sous les tuiles, la **charte hebdomadaire** trace le temps marketing du mandat suivi,
-une barre par semaine (lundi au dimanche) depuis le début du plan, avec la ligne du
-nominal 40 h/sem et la moyenne en titre. Les semaines vides restent visibles — un trou
-est une donnée. Étiquettes directes jusqu'à 16 semaines, infobulle par barre ensuite.
-
-La **charte marketing vs N2** empile, sur les mêmes semaines, le marketing (bleu) et
-le soutien N2 (gris) tiré du time-tracker : interventions hors catégorie « Marketing »
-— celles-là sont déjà consignées ici, les compter en N2 les compterait deux fois.
-L'étiquette de barre donne la part marketing de la semaine. Une semaine sans quart
-pointé n'est pas suivie : pas de barre grise, et l'infobulle le dit. Le titre affiche
-la part marketing cumulée sur les semaines suivies.
-
-Les tuiles **Plan V5** et **Rythme** rapportent ce même temps consigné au plan entier
-(52 sem × 40 h = 2 080 h). La **date de début du plan** se règle dans la tuile Rythme
-(champ date, rangé dans `config.debutPlan` — donc privé, comme le mandat suivi).
-L'« attendu » avance de 40 h par semaine écoulée depuis cette date, au prorata du
-jour, plafonné à 2 080 h. Comme les compteurs ne voient que le consigné, du travail
-fait **avant** l'outil se rattrape par une entrée de temps manuelle en bloc (bouton
-« + » d'une tâche) — c'est le cumul qui compte, pas la date de l'entrée.
+**Le modèle de données ne change pas.** Les entrées de temps,
+`config.mandatStme` et `config.debutPlan` restent stockés, fusionnés entre
+appareils et présents dans les exports TSV/JSON — seul l'affichage a été
+retiré. La décision 10 du `Journal_Decisions.md` du mandat (25 % effectif /
+75 % formation technique) reste une règle de lecture des heures ; elle n'est
+simplement plus calculée ici. Le mandat proposé par défaut à la saisie vient
+toujours de `config.mandatStme`, puis du mandat le plus fréquent.
 
 ---
 

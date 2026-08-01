@@ -51,15 +51,6 @@ const CLE_MINUTEUR = "marketing.v1.minuteur";
 const CLE_QUARANTAINE = "marketing.v1.illisible.";
 const CLE_AVANT_IMPORT = "marketing.v1.avant-import";
 
-const MIN_PAR_STME = 40 * 60;   // une STME du Cahier V5 = 40 h de travail effectif
-const STME_TOTAL = 52;
-const MIN_PLAN_TOTAL = STME_TOTAL * MIN_PAR_STME;   // le plan entier : 52 sem × 40 h
-// Règle du 31 juillet 2026, rétroactive au début du plan : 75 % du temps
-// consigné au mandat suivi est de la formation technique (apprentissage) ;
-// les 25 % restants sont le marketing effectif — le temps moyen qu'auraient
-// pris les tâches en vitesse de croisière. STME, plan V5 et rythme comptent
-// l'effectif ; les données consignées, elles, restent brutes.
-const PART_FORMATION = 0.75;
 const RETENTION_TOMBSTONE = 90 * 24 * 3600 * 1000;
 
 // Aucun nom de client n'est écrit ici : le dépôt est public et déployé tel quel.
@@ -98,16 +89,12 @@ const VIDE = () => ({ taches: [], temps: [], tombstones: {}, config: { mandatStm
 let state = VIDE();
 let userDocRef = null;
 let dernierEcrit = null;
-let filtreClient = "", filtreChantier = "", filtreStatut = "actives";
+let filtreClient = "", filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
 const ouvertes = new Set();
 
 // Dernier lancement Claude par tâche (idTache -> doc lancement-*).
 let uidCourant = null;
 let lancements = new Map();
-
-// Time-tracker (TimeCalculator, même compte), lu en LECTURE SEULE : la charte
-// marketing vs N2 en tire les interventions. Aucune écriture vers ce document.
-let tcState = null;
 
 function normaliser(brut) {
   const s = VIDE();
@@ -379,12 +366,6 @@ function fmt(m) {
   return r ? `${h} h ${String(r).padStart(2, "0")}` : `${h} h`;
 }
 
-function lundi(iso) {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return jourISO(d);
-}
-
 const tacheDe = (idTache) => state.taches.find((t) => t.id === idTache);
 
 const trier = (a, b) =>
@@ -489,12 +470,6 @@ function remplir(cible, taches, contexte, vide) {
   cible.appendChild(env);
 }
 
-function jauge(sel, pct, plein) {
-  const el = $(sel);
-  el.classList.toggle("plein", !!plein);
-  el.firstElementChild.style.width = Math.min(100, Math.max(0, pct)) + "%";
-}
-
 function boutons(cible, entrees, courant, action) {
   $(cible).innerHTML = entrees.map(([v, l]) =>
     `<button class="puce" data-v="${ech(v)}" aria-pressed="${courant === v}">${ech(l)}</button>`).join("");
@@ -507,184 +482,14 @@ function rendre() {
   const auj = jourISO();
   const visible = (t) => !filtreClient || t.client === filtreClient;
 
-  /* ── compteurs ── */
+  /* ── temps du jour (pied de la colonne Aujourd'hui) ── */
   const tempsVisible = state.temps.filter((e) => {
     const t = tacheDe(e.idTache);
     return !filtreClient || (t && t.client === filtreClient);
   });
   const mJour = somme(tempsVisible.filter((e) => e.date === auj));
-  const l = lundi(auj);
-  const mSem = somme(tempsVisible.filter((e) => e.date >= l && e.date <= auj));
-  const mandat = state.config.mandatStme;
-  const mMandat = mandat ? somme(state.temps.filter((e) => {
-    const t = tacheDe(e.idTache);
-    return t && t.client === mandat;
-  })) : 0;
-  const mEffectif = Math.round(mMandat * (1 - PART_FORMATION));
-  const mFormation = mMandat - mEffectif;
-  const stme = mEffectif / MIN_PAR_STME;
-
-  $("c-jour").textContent = fmt(mJour);
-  jauge("c-jour-j", (mJour / 480) * 100, mJour >= 480);
-  $("c-sem").textContent = fmt(mSem);
-  $("c-sem-n").textContent = `depuis lundi ${l}`;
-  jauge("c-sem-j", (mSem / MIN_PAR_STME) * 100, mSem >= MIN_PAR_STME);
-  $("c-stme").textContent = mandat ? stme.toFixed(2) : "—";
-  $("c-stme-n").textContent = mandat
-    ? `sur ${STME_TOTAL} au plan V5 · ${fmt(mEffectif)} effectives (25 %) sur ${fmt(mMandat)}`
-    : "choisir le mandat dont le temps compte en STME";
-  jauge("c-stme-j", (stme / STME_TOTAL) * 100);
-
-  /* ── plan V5 : part accomplie et rythme ──
-     « Attendu » : où le plan situe le compteur aujourd'hui, à 40 h par semaine
-     écoulée depuis la date de début (au prorata du jour), plafonné au plan
-     entier. Le compteur, lui, ne voit que le temps consigné : du travail
-     antérieur à l'outil se rattrape par une entrée manuelle en bloc. */
-  const debutPlan = state.config.debutPlan;
-  const joursPlan = debutPlan && debutPlan <= auj
-    ? (new Date(auj) - new Date(debutPlan)) / 86400000 + 1 : 0;
-  const attenduMin = Math.min(MIN_PLAN_TOTAL, (joursPlan / 7) * MIN_PAR_STME);
-
-  const pctPlan = (mEffectif / MIN_PLAN_TOTAL) * 100;
-  $("c-plan").textContent = mandat ? pctPlan.toFixed(1) + " %" : "—";
-  $("c-plan-n").textContent = mandat
-    ? `${fmt(mEffectif)} effectives sur ${MIN_PLAN_TOTAL / 60} h — ${STME_TOTAL} sem × 40 h`
-    : "choisir le mandat suivi dans la tuile STME";
-  jauge("c-plan-j", pctPlan, pctPlan >= 100);
-  const cible = $("c-plan-c");
-  cible.hidden = !mandat || !attenduMin;
-  cible.style.left = Math.min(100, (attenduMin / MIN_PLAN_TOTAL) * 100) + "%";
-
-  const champDebut = $("c-rythme-debut");
-  if (champDebut.value !== (debutPlan || "")) champDebut.value = debutPlan || "";
-  const vRythme = $("c-rythme"), nRythme = $("c-rythme-n");
-  vRythme.className = "val";
-  if (!mandat) {
-    vRythme.textContent = "—";
-    nRythme.textContent = "choisir le mandat suivi dans la tuile STME";
-    jauge("c-rythme-j", 0);
-  } else if (!debutPlan) {
-    vRythme.textContent = "—";
-    nRythme.textContent = "inscrire la date de début du plan, en haut de la tuile";
-    jauge("c-rythme-j", 0);
-  } else if (debutPlan > auj) {
-    vRythme.textContent = "—";
-    nRythme.textContent = `le plan commence le ${debutPlan}`;
-    jauge("c-rythme-j", 0);
-  } else {
-    const ecartMin = mEffectif - attenduMin;
-    const enAvance = ecartMin >= 0;
-    vRythme.textContent =
-      `${enAvance ? "+" : "−"}${(Math.abs(ecartMin) / MIN_PAR_STME).toFixed(2)} STME`;
-    vRythme.className = "val " + (enAvance ? "avance" : "retard");
-    nRythme.textContent = `${enAvance ? "en avance" : "en retard"} de ` +
-      `${fmt(Math.round(Math.abs(ecartMin)))} — attendu ${fmt(Math.round(attenduMin))} effectives`;
-    jauge("c-rythme-j", (mEffectif / attenduMin) * 100, enAvance);
-  }
-
-  /* ── formation technique : le 75 % d'apprentissage ── */
-  $("c-form").textContent = mandat ? fmt(mFormation) : "—";
-  $("c-form-n").textContent = mandat
-    ? `${Math.round(PART_FORMATION * 100)} % des ${fmt(mMandat)} consignées — apprentissage`
-    : "choisir le mandat suivi dans la tuile STME";
-  jauge("c-form-j", (mFormation / MIN_PLAN_TOTAL) * 100);
-
-  /* ── historique : temps marketing du mandat suivi, par semaine ──
-     Une barre par semaine (lundi au dimanche), du lundi du début du plan — ou
-     de la première entrée si elle est antérieure — jusqu'à cette semaine. Les
-     semaines sans temps consigné restent visibles : un trou est une donnée. */
-  $("g-hist").hidden = !mandat;
-  if (mandat) {
-    const parSem = new Map();
-    for (const e of state.temps) {
-      const t = tacheDe(e.idTache);
-      if (!t || t.client !== mandat) continue;
-      const cle = lundi(e.date);
-      parSem.set(cle, (parSem.get(cle) || 0) + (e.minutes || 0));
-    }
-    const cles = [...parSem.keys()].sort();
-    let depart = debutPlan && debutPlan <= auj ? lundi(debutPlan) : (cles[0] || lundi(auj));
-    if (cles[0] && cles[0] < depart) depart = cles[0];
-    const finSem = lundi(auj);
-    const semaines = [];
-    for (const d = new Date(depart + "T00:00:00"); jourISO(d) <= finSem; d.setDate(d.getDate() + 7)) {
-      const cle = jourISO(d);
-      semaines.push([cle, parSem.get(cle) || 0]);
-    }
-    const maxM = Math.max(MIN_PAR_STME, ...semaines.map(([, m]) => m));
-    $("g-ref").style.bottom = (MIN_PAR_STME / maxM) * 100 + "%";
-    const etiquettes = semaines.length <= 16;
-    $("g-barres").innerHTML = semaines.map(([cle, m], i) => {
-      const d = new Date(cle + "T00:00:00");
-      // Un repère de mois sous le premier lundi de chaque mois (et au départ).
-      const mois = i === 0 || d.getDate() <= 7
-        ? d.toLocaleDateString("fr-CA", { month: "short" }) : "";
-      const eff = Math.round(m * (1 - PART_FORMATION));
-      const titre = `Semaine du ${cle} — ${fmt(m)} · dont ${fmt(eff)} effectives, ` +
-        `${fmt(m - eff)} formation technique`;
-      return `<div class="g-col" title="${titre}">` +
-        (etiquettes && m ? `<i>${Math.round(m / 60)} h</i>` : "") +
-        (m ? `<span class="g-form" style="height:${((m - eff) / maxM) * 100}%;min-height:2px;margin-bottom:2px"></span>` : "") +
-        `<span class="${m ? "sous" : ""}" style="height:${(eff / maxM) * 100}%${m ? ";min-height:2px" : ""}"></span>` +
-        `<b>${ech(mois)}</b></div>`;
-    }).join("");
-    const totalM = semaines.reduce((s, [, m]) => s + m, 0);
-    $("g-hist-n").textContent =
-      `moyenne ${fmt(Math.round(totalM / semaines.length))} / sem · nominal 40 h`;
-
-    /* ── marketing vs soutien N2, mêmes semaines ──
-       Le N2 vient du time-tracker : interventions hors catégorie « Marketing »
-       (celles-là sont déjà consignées ici — les compter en N2 les compterait
-       deux fois). Une semaine sans quart pointé n'est pas suivie : la barre
-       grise y est absente, pas nulle. */
-    const n2ParSem = new Map(), couvertes = new Set();
-    for (const p of (tcState && tcState.punches) || []) {
-      if (p && p.start) couvertes.add(lundi(jourISO(new Date(p.start))));
-    }
-    for (const iv of (tcState && tcState.interventions) || []) {
-      if (!iv || !iv.start || !iv.end || iv.category === "Marketing") continue;
-      const cle = lundi(jourISO(new Date(iv.start)));
-      couvertes.add(cle);
-      n2ParSem.set(cle, (n2ParSem.get(cle) || 0) +
-        Math.max(0, Math.round((iv.end - iv.start) / 60000)));
-    }
-    const maxTot = Math.max(MIN_PAR_STME,
-      ...semaines.map(([cle, m]) => m + (n2ParSem.get(cle) || 0)));
-    $("g-vs-ref").style.bottom = (MIN_PAR_STME / maxTot) * 100 + "%";
-    $("g-vs-barres").innerHTML = semaines.map(([cle, m], i) => {
-      const n2 = n2ParSem.get(cle) || 0;
-      const suivi = couvertes.has(cle);
-      const d = new Date(cle + "T00:00:00");
-      const mois = i === 0 || d.getDate() <= 7
-        ? d.toLocaleDateString("fr-CA", { month: "short" }) : "";
-      const titre = `Semaine du ${cle} — marketing ${fmt(m)}` + (suivi
-        ? ` · soutien N2 ${fmt(n2)} · total ${fmt(m + n2)}`
-        : " · N2 non suivi (avant le time-tracker)");
-      const etiq = etiquettes && suivi && (m + n2)
-        ? `<i>${Math.round((m / (m + n2)) * 100)} %</i>` : "";
-      return `<div class="g-col" title="${titre}">${etiq}` +
-        (n2 ? `<span class="g-n2" style="height:${(n2 / maxTot) * 100}%;min-height:2px${m ? ";margin-bottom:2px" : ""}"></span>` : "") +
-        `<span class="${n2 ? "sous" : ""}" style="height:${(m / maxTot) * 100}%${m ? ";min-height:2px" : ""}"></span>` +
-        `<b>${ech(mois)}</b></div>`;
-    }).join("");
-    let sMkt = 0, sN2 = 0;
-    for (const [cle, m] of semaines) {
-      if (!couvertes.has(cle)) continue;
-      sMkt += m;
-      sN2 += n2ParSem.get(cle) || 0;
-    }
-    $("g-vs-n").textContent = sMkt + sN2
-      ? `part marketing ${Math.round((sMkt / (sMkt + sN2)) * 100)} % sur les semaines suivies`
-      : "en attente du time-tracker";
-  }
-  $("g-vs").hidden = !mandat;
 
   const taches = state.taches.filter(visible);
-  const ouv = taches.filter((t) => t.statut !== "fait").length;
-  const faites = taches.length - ouv;
-  $("c-ouv").textContent = ouv;
-  $("c-ouv-n").textContent = `${faites} faite${faites > 1 ? "s" : ""} sur ${taches.length}`;
-  jauge("c-ouv-j", taches.length ? (faites / taches.length) * 100 : 0);
 
   /* ── aujourd'hui ── */
   const duJour = taches.filter((t) => t.jour === auj).sort(trier);
@@ -706,13 +511,9 @@ function rendre() {
   boutons("f-client", [["", "Tous les mandats"], ...clients.map((c) => [c, c])],
     filtreClient, (v) => { filtreClient = v; });
 
-  // Suggestions de saisie et choix du mandat suivi en STME : les deux listes
-  // naissent des tâches, jamais d'une liste écrite dans le code.
+  // Suggestions de saisie de la modale : la liste naît des tâches, jamais
+  // d'une liste écrite dans le code (le dépôt est public).
   $("l-clients").innerHTML = clients.map((c) => `<option value="${ech(c)}">`).join("");
-  const sel = $("c-stme-mandat");
-  sel.innerHTML = `<option value="">aucun mandat</option>` +
-    clients.map((c) => `<option value="${ech(c)}">${ech(c)}</option>`).join("");
-  sel.value = clients.includes(mandat) ? mandat : "";
 
   const chantiers = [...new Set(taches.map((t) => t.chantier).filter(Boolean))].sort();
   boutons("f-chantier", [["", "Tous"], ...chantiers.map((c) => [c, c])],
@@ -726,7 +527,9 @@ function rendre() {
   const tout = taches.filter((t) =>
     (!filtreChantier || t.chantier === filtreChantier) &&
     (filtreStatut === "" ||
-      (filtreStatut === "actives" ? t.statut !== "fait" : t.statut === filtreStatut))
+      (filtreStatut === "actives" ? t.statut !== "fait" : t.statut === filtreStatut)) &&
+    (!filtreTexte || [t.titre, t.detail, t.source, t.client]
+      .join(" ").toLowerCase().includes(filtreTexte))
   ).sort(trier);
   remplir($("l-tout"), tout, "tout", "Aucune tâche ne correspond à ce filtre.");
   $("e-tout").textContent = `${tout.length} affichée${tout.length > 1 ? "s" : ""} sur ${taches.length}`;
@@ -824,14 +627,9 @@ function clientParDefaut() {
   return state.config.mandatStme || meilleur;
 }
 
-$("c-stme-mandat").addEventListener("change", (ev) => {
-  state.config.mandatStme = ev.target.value;
-  enregistrer();
-});
-
-$("c-rythme-debut").addEventListener("change", (ev) => {
-  state.config.debutPlan = ev.target.value;
-  enregistrer();
+$("f-texte").addEventListener("input", (ev) => {
+  filtreTexte = ev.target.value.trim().toLowerCase();
+  rendre();
 });
 
 /* ═══════════════════════════  import / export  ═════════════════════════ */
@@ -902,18 +700,15 @@ $("btn-logout").addEventListener("click", () => signOut(auth));
 
 let desabonner = null;
 let desabonnerLancements = null;
-let desabonnerTC = null;
 
 onAuthStateChanged(auth, (user) => {
   if (desabonner) { desabonner(); desabonner = null; }
   if (desabonnerLancements) { desabonnerLancements(); desabonnerLancements = null; }
-  if (desabonnerTC) { desabonnerTC(); desabonnerTC = null; }
 
   if (!user) {
     userDocRef = null;
     uidCourant = null;
     lancements = new Map();
-    tcState = null;
     dernierEcrit = null;
     state = VIDE();
     $("auth-gate").hidden = false;
@@ -941,13 +736,6 @@ onAuthStateChanged(auth, (user) => {
     avis("Lecture Firestore refusée : " + e.message + ". Les règles du bloc " +
          "MARKETING sont-elles publiées ?", true);
   });
-
-  // Time-tracker du même compte, en lecture seule, pour la charte
-  // marketing vs N2. Son absence n'empêche rien : la charte montre alors
-  // le marketing seul.
-  desabonnerTC = onSnapshot(doc(db, "users", user.uid, "timecalculator", "state"),
-    (snap) => { tcState = snap.exists() ? snap.data() : null; rendre(); },
-    () => { tcState = null; });
 
   // File de lancement Claude : seuls les documents portant demandeLe sont des
   // lancements — le document « state » n'en a pas et reste hors de la requête.
