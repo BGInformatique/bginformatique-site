@@ -121,6 +121,13 @@ button { font: inherit; cursor: pointer; }
   background: var(--bg); cursor: pointer;
 }
 .p-sig:focus { outline: none; border-color: var(--primary); }
+.p-cand-titre { color: var(--text-muted); margin-top: 16px; }
+.p-cand-carte { cursor: default; }
+.p-actions { display: flex; gap: 6px; }
+.p-btn { padding: 5px 10px; font-size: 12.5px; }
+.p-lien { font-size: 11px; color: var(--primary); word-break: break-all; text-decoration: none; }
+.p-lien:hover { text-decoration: underline; }
+.p-ajout { margin-top: 12px; max-width: 520px; }
 
 /* ── grille ───────────────────────────────────────────── */
 main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; }

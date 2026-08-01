@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Tableau de bord marketing — BG Informatique</title>
-  <link rel="stylesheet" href="css/style.css?v=20260801002807">
+  <link rel="stylesheet" href="css/style.css?v=20260801015615">
 </head>
 <body>
 
@@ -52,6 +52,14 @@
       <span class="cpt" id="p-maj"></span>
     </div>
     <div class="p-grille" id="p-liste"></div>
+    <div id="p-candidats" hidden>
+      <div class="mono p-cand-titre">// Candidats proposés par l'engin — accepter pour mettre en cadence</div>
+      <div class="p-grille" id="p-cand-liste"></div>
+    </div>
+    <form class="ajout p-ajout" id="p-ajout">
+      <input id="p-nom" placeholder="Ajouter un prospect à la main — nom de l'entreprise" autocomplete="off">
+      <button class="btn" type="submit">Ajouter</button>
+    </form>
   </section>
 
   <main>
@@ -162,6 +170,6 @@
   </form>
 </dialog>
 
-<script type="module" src="js/app.js?v=20260801002807"></script>
+<script type="module" src="js/app.js?v=20260801015615"></script>
 </body>
 </html>

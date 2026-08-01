@@ -545,6 +545,54 @@ function rendreProspection() {
     };
     cible.appendChild(el);
   }
+
+  /* Candidats du recherchiste : rien n'entre dans la cadence sans un
+     Accepter explicite ; un Rejeter est définitif (jamais reproposé). */
+  const cands = (prospection && prospection.candidats) || [];
+  const decisions = (prospection && prospection.candidatures) || {};
+  const ajouts = (prospection && prospection.ajouts) || {};
+  $("p-candidats").hidden = !cands.length && !Object.keys(ajouts).length;
+  const zc = $("p-cand-liste");
+  zc.innerHTML = "";
+  for (const c of cands) {
+    const d = decisions[c.id] && decisions[c.id].decision;
+    const el = document.createElement("div");
+    el.className = "p-carte p-cand-carte";
+    el.innerHTML = `
+      <div class="p-nom">${ech(c.nom)}</div>
+      <div class="etiq">
+        ${c.secteur ? `<span class="pil">${ech(c.secteur)}</span>` : ""}
+        ${c.ville ? `<span class="pil">${ech(c.ville)}</span>` : ""}
+        ${c.taille ? `<span class="pil">${ech(c.taille)}</span>` : ""}
+      </div>
+      <div class="p-note">${ech(c.angle || "")}</div>
+      ${/^https?:\/\//.test(c.site || "") ? `<a class="p-lien" href="${ech(c.site)}"
+        target="_blank" rel="noopener noreferrer">${ech(c.site)}</a>` : ""}
+      ${d ? `<div class="p-note">${d === "accepte"
+          ? "accepté — en cadence au prochain cycle"
+          : "rejeté — ne sera plus proposé"}</div>`
+        : `<div class="p-actions">
+             <button type="button" class="btn p-btn" data-d="accepte">Accepter</button>
+             <button type="button" class="btn btn-ghost p-btn" data-d="rejete">Rejeter</button>
+           </div>`}`;
+    el.querySelectorAll("[data-d]").forEach((b) => {
+      b.onclick = () => {
+        if (!uidCourant) return;
+        setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+          { candidatures: { [c.id]: { decision: b.dataset.d, maj: maintenant() } } },
+          { merge: true })
+          .catch((e) => avis("Décision refusée : " + e.message, true));
+      };
+    });
+    zc.appendChild(el);
+  }
+  for (const a of Object.values(ajouts)) {
+    const el = document.createElement("div");
+    el.className = "p-carte p-cand-carte";
+    el.innerHTML = `<div class="p-nom">${ech(a.nom || "")}</div>
+      <div class="p-note">ajout manuel — en cadence au prochain cycle</div>`;
+    zc.appendChild(el);
+  }
 }
 
 function boutons(cible, entrees, courant, action) {
@@ -709,6 +757,19 @@ function clientParDefaut() {
 $("f-texte").addEventListener("input", (ev) => {
   filtreTexte = ev.target.value.trim().toLowerCase();
   rendre();
+});
+
+$("p-ajout").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const nom = $("p-nom").value.trim();
+  if (!nom || !uidCourant) return;
+  $("p-nom").value = "";
+  const cle = nom.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "prospect";
+  setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+    { ajouts: { [cle]: { nom, maj: maintenant() } } }, { merge: true })
+    .then(() => avis(`« ${nom} » sera intégré à la cadence au prochain cycle du prospecteur.`))
+    .catch((e) => avis("Ajout refusé : " + e.message, true));
 });
 
 /* ═══════════════════════════  import / export  ═════════════════════════ */
