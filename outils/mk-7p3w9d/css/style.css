@@ -101,6 +101,27 @@ button { font: inherit; cursor: pointer; }
 }
 .banner.err { background: rgba(220, 38, 38, .1); color: var(--danger); border-color: rgba(220, 38, 38, .28); }
 
+/* ── volet prospection ────────────────────────────────── */
+.prosp { padding: 16px 22px 0; }
+.p-grille {
+  display: grid; gap: 9px; margin-top: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+}
+.p-carte {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+  padding: 11px 13px; cursor: pointer; display: flex; flex-direction: column; gap: 6px;
+  transition: border-color .15s;
+}
+.p-carte:hover { border-color: var(--primary); }
+.p-nom { font-weight: 600; font-size: 13.5px; line-height: 1.3; }
+.p-note { color: var(--text-muted); font-size: 11.5px; min-height: 15px; }
+.p-sig {
+  font: inherit; font-size: 11.5px; color: var(--text-muted); width: 100%;
+  border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px;
+  background: var(--bg); cursor: pointer;
+}
+.p-sig:focus { outline: none; border-color: var(--primary); }
+
 /* ── grille ───────────────────────────────────────────── */
 main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; }
 @media (max-width: 1060px) { main { grid-template-columns: 1fr; } }

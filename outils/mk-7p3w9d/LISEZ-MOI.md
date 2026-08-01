@@ -106,6 +106,24 @@ minuteur et la consignation de temps par tâche avec le journal du jour, la
 modale d'édition, et toute l'automatisation : bouton éclair (Claude sur BG001),
 page « Lot LinkedIn », tâches déposées chaque lundi par le prospecteur.
 
+## Volet Prospection (1er août 2026)
+
+En tête de page, une carte par prospect : état de la cadence, relances faites,
+prochaine action. Les données viennent du **miroir** que le prospecteur de
+BG001 publie dans `users/<uid>/marketing/prospection` (même sous-collection,
+donc mêmes règles que `state` — rien à republier en console ; aucun nom de
+prospect dans le code, le dépôt est public). La source de vérité reste le
+journal TSV du dossier de prospection, hors dépôt.
+
+- **Cliquer une carte** filtre la liste des tâches sur ce prospect — le
+  brouillon de relance est là.
+- **« Signaler… »** (répondu, RDV fixé, client, dormance, réactiver) écrit un
+  signal dans le miroir ; le prospecteur l'applique au journal TSV au cycle
+  suivant, puis l'efface. Un signal prime sur la cadence — un prospect qui a
+  répondu ne sera plus relancé.
+- La carte sait aussi montrer, avant même le prochain cycle, qu'une relance
+  marquée faite est **envoyée** (croisement avec la tâche liée).
+
 **Le modèle de données ne change pas.** Les entrées de temps,
 `config.mandatStme` et `config.debutPlan` restent stockés, fusionnés entre
 appareils et présents dans les exports TSV/JSON — seul l'affichage a été

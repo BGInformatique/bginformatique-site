@@ -96,6 +96,25 @@ const ouvertes = new Set();
 let uidCourant = null;
 let lancements = new Map();
 
+// Volet Prospection : miroir du journal tenu par le prospecteur sur BG001
+// (document marketing/prospection). La page le lit, et peut y déposer un
+// « signal » (répondu, RDV fixé…) que le prospecteur applique au journal
+// TSV au cycle suivant. Les brouillons de relance, eux, sont des tâches.
+let prospection = null;
+
+const LIB_PROSP = {
+  a_contacter: "À contacter", contact_prepare: "1er contact prêt",
+  contacte_sans_reponse: "Sans réponse", relance_preparee: "Relance prête",
+  relance_envoyee: "Relance envoyée", repondu: "A répondu",
+  rdv_fixe: "RDV fixé", dormant: "Dormant", client: "Client",
+  abandonne: "Abandonné",
+};
+const CLASSE_PROSP = {
+  contact_prepare: "en_cours", relance_preparee: "en_cours",
+  repondu: "fait", rdv_fixe: "fait", client: "fait",
+  dormant: "reporte", abandonne: "bloque",
+};
+
 function normaliser(brut) {
   const s = VIDE();
   if (!brut || typeof brut !== "object") return s;
@@ -470,6 +489,64 @@ function remplir(cible, taches, contexte, vide) {
   cible.appendChild(env);
 }
 
+function rendreProspection() {
+  const liste = (prospection && prospection.prospects) || [];
+  $("prospection").hidden = !liste.length;
+  if (!liste.length) return;
+  const signaux = (prospection && prospection.signaux) || {};
+  $("p-maj").textContent = prospection.majLe
+    ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} — ` +
+      "cliquer un prospect pour voir ses tâches"
+    : "";
+  const cible = $("p-liste");
+  cible.innerHTML = "";
+  for (const p of liste) {
+    // Ce que la page sait de plus frais que le miroir hebdomadaire : un signal
+    // déposé ici, ou la tâche de relance déjà marquée faite (envoi confirmé).
+    const t = p.tacheId ? state.taches.find((x) => x.id === p.tacheId) : null;
+    const envoye = t && t.statut === "fait";
+    const sig = signaux[p.id] && signaux[p.id].statut;
+    const statut = sig || (envoye ? "relance_envoyee" : p.statut);
+    const el = document.createElement("div");
+    el.className = "p-carte";
+    el.innerHTML = `
+      <div class="p-nom">${ech(p.prospect)}</div>
+      <div class="etiq">
+        <span class="pil ${CLASSE_PROSP[statut] || ""}">${LIB_PROSP[statut] || ech(statut)}</span>
+        ${p.relances ? `<span class="pil">${p.relances} relance${p.relances > 1 ? "s" : ""}</span>` : ""}
+      </div>
+      <div class="p-note">${sig ? "signalé — le journal suivra au prochain cycle"
+        : envoye ? "envoi noté — journal à jour au prochain cycle"
+        : p.prochaine ? "prochaine action : " + ech(p.prochaine) : ""}</div>
+      <select class="p-sig" title="Signaler un changement d'état au prospecteur">
+        <option value="">signaler…</option>
+        <option value="repondu">a répondu</option>
+        <option value="rdv_fixe">rendez-vous fixé</option>
+        <option value="client">devenu client</option>
+        <option value="dormant">mettre en dormance</option>
+        <option value="a_contacter">réactiver la cadence</option>
+      </select>`;
+    if (p.note) el.title = p.note;
+    el.onclick = (ev) => {
+      if (ev.target.closest("select")) return;
+      filtreTexte = p.prospect.toLowerCase();
+      $("f-texte").value = p.prospect;
+      filtreChantier = "";
+      filtreStatut = "";
+      rendre();
+      $("l-tout").scrollIntoView({ behavior: "smooth" });
+    };
+    el.querySelector(".p-sig").onchange = (ev) => {
+      const v = ev.target.value;
+      if (!v || !uidCourant) return;
+      setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+        { signaux: { [p.id]: { statut: v, maj: maintenant() } } }, { merge: true })
+        .catch((e) => avis("Signal refusé : " + e.message, true));
+    };
+    cible.appendChild(el);
+  }
+}
+
 function boutons(cible, entrees, courant, action) {
   $(cible).innerHTML = entrees.map(([v, l]) =>
     `<button class="puce" data-v="${ech(v)}" aria-pressed="${courant === v}">${ech(l)}</button>`).join("");
@@ -553,6 +630,8 @@ function rendre() {
       ul.appendChild(li);
     }
   }
+
+  rendreProspection();
 }
 
 /* ═══════════════════════════  modale  ══════════════════════════════════ */
@@ -700,15 +779,18 @@ $("btn-logout").addEventListener("click", () => signOut(auth));
 
 let desabonner = null;
 let desabonnerLancements = null;
+let desabonnerProspection = null;
 
 onAuthStateChanged(auth, (user) => {
   if (desabonner) { desabonner(); desabonner = null; }
   if (desabonnerLancements) { desabonnerLancements(); desabonnerLancements = null; }
+  if (desabonnerProspection) { desabonnerProspection(); desabonnerProspection = null; }
 
   if (!user) {
     userDocRef = null;
     uidCourant = null;
     lancements = new Map();
+    prospection = null;
     dernierEcrit = null;
     state = VIDE();
     $("auth-gate").hidden = false;
@@ -736,6 +818,12 @@ onAuthStateChanged(auth, (user) => {
     avis("Lecture Firestore refusée : " + e.message + ". Les règles du bloc " +
          "MARKETING sont-elles publiées ?", true);
   });
+
+  // Miroir de prospection publié par le prospecteur de BG001. Son absence
+  // n'empêche rien : le volet reste simplement caché.
+  desabonnerProspection = onSnapshot(doc(db, "users", user.uid, "marketing", "prospection"),
+    (snap) => { prospection = snap.exists() ? snap.data() : null; rendreProspection(); },
+    () => { prospection = null; });
 
   // File de lancement Claude : seuls les documents portant demandeLe sont des
   // lancements — le document « state » n'en a pas et reste hors de la requête.
