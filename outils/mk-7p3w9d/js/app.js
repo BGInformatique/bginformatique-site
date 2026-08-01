@@ -54,6 +54,12 @@ const CLE_AVANT_IMPORT = "marketing.v1.avant-import";
 const MIN_PAR_STME = 40 * 60;   // une STME du Cahier V5 = 40 h de travail effectif
 const STME_TOTAL = 52;
 const MIN_PLAN_TOTAL = STME_TOTAL * MIN_PAR_STME;   // le plan entier : 52 sem × 40 h
+// Règle du 31 juillet 2026, rétroactive au début du plan : 75 % du temps
+// consigné au mandat suivi est de la formation technique (apprentissage) ;
+// les 25 % restants sont le marketing effectif — le temps moyen qu'auraient
+// pris les tâches en vitesse de croisière. STME, plan V5 et rythme comptent
+// l'effectif ; les données consignées, elles, restent brutes.
+const PART_FORMATION = 0.75;
 const RETENTION_TOMBSTONE = 90 * 24 * 3600 * 1000;
 
 // Aucun nom de client n'est écrit ici : le dépôt est public et déployé tel quel.
@@ -514,7 +520,9 @@ function rendre() {
     const t = tacheDe(e.idTache);
     return t && t.client === mandat;
   })) : 0;
-  const stme = mMandat / MIN_PAR_STME;
+  const mEffectif = Math.round(mMandat * (1 - PART_FORMATION));
+  const mFormation = mMandat - mEffectif;
+  const stme = mEffectif / MIN_PAR_STME;
 
   $("c-jour").textContent = fmt(mJour);
   jauge("c-jour-j", (mJour / 480) * 100, mJour >= 480);
@@ -523,7 +531,7 @@ function rendre() {
   jauge("c-sem-j", (mSem / MIN_PAR_STME) * 100, mSem >= MIN_PAR_STME);
   $("c-stme").textContent = mandat ? stme.toFixed(2) : "—";
   $("c-stme-n").textContent = mandat
-    ? `sur ${STME_TOTAL} au plan V5 · ${fmt(mMandat)} consignées`
+    ? `sur ${STME_TOTAL} au plan V5 · ${fmt(mEffectif)} effectives (25 %) sur ${fmt(mMandat)}`
     : "choisir le mandat dont le temps compte en STME";
   jauge("c-stme-j", (stme / STME_TOTAL) * 100);
 
@@ -537,10 +545,10 @@ function rendre() {
     ? (new Date(auj) - new Date(debutPlan)) / 86400000 + 1 : 0;
   const attenduMin = Math.min(MIN_PLAN_TOTAL, (joursPlan / 7) * MIN_PAR_STME);
 
-  const pctPlan = (mMandat / MIN_PLAN_TOTAL) * 100;
+  const pctPlan = (mEffectif / MIN_PLAN_TOTAL) * 100;
   $("c-plan").textContent = mandat ? pctPlan.toFixed(1) + " %" : "—";
   $("c-plan-n").textContent = mandat
-    ? `${fmt(mMandat)} sur ${MIN_PLAN_TOTAL / 60} h — ${STME_TOTAL} sem × 40 h`
+    ? `${fmt(mEffectif)} effectives sur ${MIN_PLAN_TOTAL / 60} h — ${STME_TOTAL} sem × 40 h`
     : "choisir le mandat suivi dans la tuile STME";
   jauge("c-plan-j", pctPlan, pctPlan >= 100);
   const cible = $("c-plan-c");
@@ -564,15 +572,22 @@ function rendre() {
     nRythme.textContent = `le plan commence le ${debutPlan}`;
     jauge("c-rythme-j", 0);
   } else {
-    const ecartMin = mMandat - attenduMin;
+    const ecartMin = mEffectif - attenduMin;
     const enAvance = ecartMin >= 0;
     vRythme.textContent =
       `${enAvance ? "+" : "−"}${(Math.abs(ecartMin) / MIN_PAR_STME).toFixed(2)} STME`;
     vRythme.className = "val " + (enAvance ? "avance" : "retard");
     nRythme.textContent = `${enAvance ? "en avance" : "en retard"} de ` +
-      `${fmt(Math.round(Math.abs(ecartMin)))} — attendu ${fmt(Math.round(attenduMin))}`;
-    jauge("c-rythme-j", (mMandat / attenduMin) * 100, enAvance);
+      `${fmt(Math.round(Math.abs(ecartMin)))} — attendu ${fmt(Math.round(attenduMin))} effectives`;
+    jauge("c-rythme-j", (mEffectif / attenduMin) * 100, enAvance);
   }
+
+  /* ── formation technique : le 75 % d'apprentissage ── */
+  $("c-form").textContent = mandat ? fmt(mFormation) : "—";
+  $("c-form-n").textContent = mandat
+    ? `${Math.round(PART_FORMATION * 100)} % des ${fmt(mMandat)} consignées — apprentissage`
+    : "choisir le mandat suivi dans la tuile STME";
+  jauge("c-form-j", (mFormation / MIN_PLAN_TOTAL) * 100);
 
   /* ── historique : temps marketing du mandat suivi, par semaine ──
      Une barre par semaine (lundi au dimanche), du lundi du début du plan — ou
@@ -604,10 +619,13 @@ function rendre() {
       // Un repère de mois sous le premier lundi de chaque mois (et au départ).
       const mois = i === 0 || d.getDate() <= 7
         ? d.toLocaleDateString("fr-CA", { month: "short" }) : "";
-      return `<div class="g-col" title="Semaine du ${cle} — ${fmt(m)}">` +
+      const eff = Math.round(m * (1 - PART_FORMATION));
+      const titre = `Semaine du ${cle} — ${fmt(m)} · dont ${fmt(eff)} effectives, ` +
+        `${fmt(m - eff)} formation technique`;
+      return `<div class="g-col" title="${titre}">` +
         (etiquettes && m ? `<i>${Math.round(m / 60)} h</i>` : "") +
-        `<span class="${m >= MIN_PAR_STME ? "plein" : ""}"` +
-        ` style="height:${(m / maxM) * 100}%${m ? ";min-height:2px" : ""}"></span>` +
+        (m ? `<span class="g-form" style="height:${((m - eff) / maxM) * 100}%;min-height:2px;margin-bottom:2px"></span>` : "") +
+        `<span class="${m ? "sous" : ""}" style="height:${(eff / maxM) * 100}%${m ? ";min-height:2px" : ""}"></span>` +
         `<b>${ech(mois)}</b></div>`;
     }).join("");
     const totalM = semaines.reduce((s, [, m]) => s + m, 0);

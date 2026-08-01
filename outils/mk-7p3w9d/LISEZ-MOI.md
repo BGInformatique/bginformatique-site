@@ -97,10 +97,17 @@ cache (`snap.metadata.fromCache`).
 |---|---|
 | **Aujourd'hui** | temps consigné depuis minuit, sur une journée de référence de 8 h |
 | **Cette semaine** | depuis lundi |
-| **STME — mandat suivi** | temps consigné sur le mandat choisi dans la tuile ÷ 40 h |
-| **Plan V5 — accompli** | pourcentage des 2 080 h du plan (52 sem × 40 h) déjà consignées sur le mandat suivi ; le repère sur la jauge marque où le plan attend le compteur aujourd'hui |
-| **Rythme** | avance ou retard sur le rythme de 40 h par semaine écoulée depuis la date de début du plan, en STME et en heures |
+| **STME — mandat suivi** | temps **effectif** (25 % du consigné) sur le mandat choisi ÷ 40 h |
+| **Plan V5 — accompli** | pourcentage des 2 080 h du plan (52 sem × 40 h) couvert par le temps effectif ; le repère sur la jauge marque où le plan attend le compteur aujourd'hui |
+| **Rythme** | avance ou retard du temps effectif sur le rythme de 40 h par semaine écoulée depuis la date de début du plan |
+| **Formation technique** | les 75 % restants du temps consigné — l'apprentissage |
 | **Chantiers ouverts** | tâches non terminées, et la part déjà faite |
+
+**Règle du 31 juillet 2026, rétroactive au début du plan** (constante `PART_FORMATION`) :
+75 % du temps consigné au mandat suivi est de la **formation technique** ; les 25 %
+restants sont le **marketing effectif** — le temps moyen qu'auraient pris les tâches
+en vitesse de croisière. La règle s'applique au calcul seulement : les entrées de
+temps et les exports restent bruts.
 
 La STME (« semaine de travail marketing effectif ») est une unité du **Cahier de
 déploiement V5 d'un client**, pas de BG : 40 h de travail effectif, 52 au plan. Un

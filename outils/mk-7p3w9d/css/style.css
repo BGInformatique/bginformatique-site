@@ -166,6 +166,9 @@ button { font: inherit; cursor: pointer; }
 /* Marketing vs N2 : barres empilées — le N2 est le contexte, en gris. */
 .g-col span.g-n2 { background: var(--text-muted); opacity: .5; }
 .g-col span.sous { border-radius: 0; }
+/* Effectif (25 %) vs formation technique (75 %) : même teinte, part atténuée. */
+.g-col span.g-form { background: var(--primary); opacity: .35; }
+.lg-form { opacity: .35; }
 .lg { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; background: var(--primary); }
 .lg-n2 { background: var(--text-muted); opacity: .5; }
 
