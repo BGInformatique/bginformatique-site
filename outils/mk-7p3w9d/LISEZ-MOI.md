@@ -168,6 +168,23 @@ L'interrogation de la file ne renvoie que les documents au `statut` « demande �
 
 ---
 
+## Page « Ma journée » (`jour.html`)
+
+L'écran « quoi faire aujourd'hui », calculé de la date — bouton « Ma journée »
+dans l'entête du tableau de bord. Quatre sections, dans l'ordre d'attaque :
+
+| Section | Contenu |
+|---|---|
+| **En retard** | tâches échues, épinglées restées d'un jour précédent |
+| **Aujourd'hui** | rituels du jour (lundi : brouillons du prospecteur ; jeudi : candidats du recherchiste ; vendredi : statistiques et point de semaine), publication LinkedIn du jour ouvrable, brouillons de prospection à envoyer, épinglées et échéances du jour |
+| **À trier** | candidats de l'engin en attente, tâches bloquées à revoir |
+| **Cette semaine** | échéances des 7 prochains jours |
+
+Lecture seule, en direct (mêmes documents Firestore que le tableau de bord —
+`state`, `prospection`, `linkedin-lot`). Chaque élément mène au bon endroit :
+une tâche ouvre le tableau de bord **préfiltré** sur elle (`./#q=<titre>`),
+la publication ouvre la page du lot.
+
 ## Page « Lot LinkedIn » (`linkedin.html`)
 
 Le bouton éclair d'une tâche du chantier **LinkedIn** ne lance pas Claude : il

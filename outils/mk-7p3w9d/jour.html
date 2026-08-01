@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Lot LinkedIn — Tableau de bord marketing</title>
+  <title>Ma journée — Tableau de bord marketing</title>
   <link rel="stylesheet" href="css/style.css?v=20260801144950">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <div class="marque">
     <div class="sceau">BG</div>
     <div>
-      <h1>Lot LinkedIn</h1>
+      <h1>Ma journée</h1>
       <div class="sous"><a href="./" style="color:inherit">← Retour au tableau de bord</a></div>
     </div>
   </div>
@@ -26,7 +26,7 @@
 <div id="auth-gate" class="auth-gate">
   <div class="auth-card">
     <h2>Connexion requise</h2>
-    <p>Connecte-toi avec ton compte Microsoft BG Informatique pour voir le lot.</p>
+    <p>Connecte-toi avec ton compte Microsoft BG Informatique pour voir ta journée.</p>
     <button id="btn-login" class="btn btn-lg">Se connecter avec Microsoft</button>
     <p class="form-error" id="auth-error" hidden></p>
   </div>
@@ -37,16 +37,17 @@
 <div id="app" hidden>
   <section class="compteurs" style="grid-template-columns:1fr">
     <div class="tuile">
-      <div class="mono" id="lot-titre">// Lot LinkedIn</div>
-      <div class="val" id="c-pub">—</div>
-      <div class="note">Chaque texte se copie tel quel, sans mise en forme — une publication par jour ouvrable. Cocher « Publié » consigne automatiquement le journal sur BG001.</div>
-      <div class="jauge" id="c-pub-j"><span style="width:0"></span></div>
+      <div class="mono" id="j-date">// —</div>
+      <div class="val" id="j-compte">—</div>
+      <div class="note">Quoi faire, calculé de la date : échéances, cadence de
+        prospection, publication LinkedIn du jour et rituels de la semaine.
+        S'actualise en direct — cliquer un élément mène au bon endroit.</div>
     </div>
   </section>
 
-  <div id="l-posts" class="pubs"></div>
+  <div class="jour" id="j-sections"></div>
 </div>
 
-<script type="module" src="js/linkedin.js?v=20260801144950"></script>
+<script type="module" src="js/jour.js?v=20260801144950"></script>
 </body>
 </html>

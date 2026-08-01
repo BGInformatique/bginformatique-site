@@ -25,7 +25,6 @@ if ! command -v gjs >/dev/null; then
   exit 0
 fi
 
-echo "── Syntaxe de js/app.js"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -36,21 +35,24 @@ trap 'rm -rf "$tmp"' EXIT
 # trouve jamais sa borne de fin et supprime tout jusqu'au bas du fichier. Le
 # banc affichait alors « 20 lignes » et ne vérifiait plus rien. On suit donc
 # l'instruction jusqu'à son point-virgule, ligne par ligne.
-awk '
-  /^import[[:space:]]/ { dans = 1 }
-  dans { if (/;[[:space:]]*$/) dans = 0; next }
-  { print }
-' "$APP" > "$tmp/corps.js"
+for JS in "$ICI/../js/app.js" "$ICI/../js/jour.js" "$ICI/../js/linkedin.js"; do
+  [ -f "$JS" ] || continue
+  echo "── Syntaxe de js/$(basename "$JS")"
+  awk '
+    /^import[[:space:]]/ { dans = 1 }
+    dans { if (/;[[:space:]]*$/) dans = 0; next }
+    { print }
+  ' "$JS" > "$tmp/corps.js"
 
-lignes_app=$(wc -l < "$APP")
-lignes_corps=$(wc -l < "$tmp/corps.js")
-if [ "$lignes_corps" -lt $((lignes_app / 2)) ]; then
-  echo "  ✗ Le retrait des imports a mangé le fichier ($lignes_corps/$lignes_app lignes)." >&2
-  echo "    Le test de syntaxe ne prouverait rien — banc arrêté." >&2
-  exit 1
-fi
+  lignes_js=$(wc -l < "$JS")
+  lignes_corps=$(wc -l < "$tmp/corps.js")
+  if [ "$lignes_corps" -lt $((lignes_js / 2)) ]; then
+    echo "  ✗ Le retrait des imports a mangé le fichier ($lignes_corps/$lignes_js lignes)." >&2
+    echo "    Le test de syntaxe ne prouverait rien — banc arrêté." >&2
+    exit 1
+  fi
 
-cat > "$tmp/syntaxe.js" <<EOF
+  cat > "$tmp/syntaxe.js" <<EOF
 const GLib = imports.gi.GLib;
 const [ok, bytes] = GLib.file_get_contents('$tmp/corps.js');
 const src = new TextDecoder().decode(bytes);
@@ -63,10 +65,11 @@ try {
 }
 EOF
 
-if ! gjs "$tmp/syntaxe.js"; then
-  echo "  ✗ Banc échoué à l'étape syntaxe." >&2
-  exit 1
-fi
+  if ! gjs "$tmp/syntaxe.js"; then
+    echo "  ✗ Banc échoué à l'étape syntaxe ($(basename "$JS"))." >&2
+    exit 1
+  fi
+done
 
 echo
 echo "── Constantes référencées mais non déclarées"

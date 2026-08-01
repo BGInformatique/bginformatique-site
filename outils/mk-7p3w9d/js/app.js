@@ -759,6 +759,15 @@ $("f-texte").addEventListener("input", (ev) => {
   rendre();
 });
 
+// Arrivée depuis « Ma journée » : #q=<texte> préremplit le filtre texte,
+// pour atterrir directement sur la tâche visée.
+if (location.hash.startsWith("#q=")) {
+  const q = decodeURIComponent(location.hash.slice(3));
+  $("f-texte").value = q;
+  filtreTexte = q.trim().toLowerCase();
+  filtreStatut = "";
+}
+
 $("p-ajout").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const nom = $("p-nom").value.trim();
