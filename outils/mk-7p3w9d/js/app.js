@@ -570,6 +570,47 @@ function rendre() {
     jauge("c-rythme-j", (mMandat / attenduMin) * 100, enAvance);
   }
 
+  /* ── historique : temps marketing du mandat suivi, par semaine ──
+     Une barre par semaine (lundi au dimanche), du lundi du début du plan — ou
+     de la première entrée si elle est antérieure — jusqu'à cette semaine. Les
+     semaines sans temps consigné restent visibles : un trou est une donnée. */
+  $("g-hist").hidden = !mandat;
+  if (mandat) {
+    const parSem = new Map();
+    for (const e of state.temps) {
+      const t = tacheDe(e.idTache);
+      if (!t || t.client !== mandat) continue;
+      const cle = lundi(e.date);
+      parSem.set(cle, (parSem.get(cle) || 0) + (e.minutes || 0));
+    }
+    const cles = [...parSem.keys()].sort();
+    let depart = debutPlan && debutPlan <= auj ? lundi(debutPlan) : (cles[0] || lundi(auj));
+    if (cles[0] && cles[0] < depart) depart = cles[0];
+    const finSem = lundi(auj);
+    const semaines = [];
+    for (const d = new Date(depart + "T00:00:00"); jourISO(d) <= finSem; d.setDate(d.getDate() + 7)) {
+      const cle = jourISO(d);
+      semaines.push([cle, parSem.get(cle) || 0]);
+    }
+    const maxM = Math.max(MIN_PAR_STME, ...semaines.map(([, m]) => m));
+    $("g-ref").style.bottom = (MIN_PAR_STME / maxM) * 100 + "%";
+    const etiquettes = semaines.length <= 16;
+    $("g-barres").innerHTML = semaines.map(([cle, m], i) => {
+      const d = new Date(cle + "T00:00:00");
+      // Un repère de mois sous le premier lundi de chaque mois (et au départ).
+      const mois = i === 0 || d.getDate() <= 7
+        ? d.toLocaleDateString("fr-CA", { month: "short" }) : "";
+      return `<div class="g-col" title="Semaine du ${cle} — ${fmt(m)}">` +
+        (etiquettes && m ? `<i>${Math.round(m / 60)} h</i>` : "") +
+        `<span class="${m >= MIN_PAR_STME ? "plein" : ""}"` +
+        ` style="height:${(m / maxM) * 100}%${m ? ";min-height:2px" : ""}"></span>` +
+        `<b>${ech(mois)}</b></div>`;
+    }).join("");
+    const totalM = semaines.reduce((s, [, m]) => s + m, 0);
+    $("g-hist-n").textContent =
+      `moyenne ${fmt(Math.round(totalM / semaines.length))} / sem · nominal 40 h`;
+  }
+
   const taches = state.taches.filter(visible);
   const ouv = taches.filter((t) => t.statut !== "fait").length;
   const faites = taches.length - ouv;

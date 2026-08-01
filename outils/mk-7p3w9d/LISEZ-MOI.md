@@ -106,6 +106,11 @@ seul mandat à la fois peut être suivi de cette façon — le sélecteur est da
 et le choix est enregistré avec l'état. Le compteur ne mesure que ce qui est réellement
 consigné : il ne suit pas le calendrier, et il ignore les autres mandats.
 
+Sous les tuiles, la **charte hebdomadaire** trace le temps marketing du mandat suivi,
+une barre par semaine (lundi au dimanche) depuis le début du plan, avec la ligne du
+nominal 40 h/sem et la moyenne en titre. Les semaines vides restent visibles — un trou
+est une donnée. Étiquettes directes jusqu'à 16 semaines, infobulle par barre ensuite.
+
 Les tuiles **Plan V5** et **Rythme** rapportent ce même temps consigné au plan entier
 (52 sem × 40 h = 2 080 h). La **date de début du plan** se règle dans la tuile Rythme
 (champ date, rangé dans `config.debutPlan` — donc privé, comme le mandat suivi).

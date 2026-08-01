@@ -140,6 +140,30 @@ button { font: inherit; cursor: pointer; }
   transform: translateX(-50%); background: var(--text-muted); border-radius: 1px;
 }
 
+/* ── historique hebdomadaire ──────────────────────────── */
+.graphe { margin: 12px 22px 0; }
+.g-zone { position: relative; height: 130px; margin: 26px 2px 20px; }
+.g-ref { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--text-muted); opacity: .55; }
+.g-ref span {
+  position: absolute; right: 0; top: -15px;
+  font: 600 10px ui-monospace, monospace; color: var(--text-muted);
+}
+.g-barres { display: flex; align-items: flex-end; gap: 3px; height: 100%; position: relative; }
+.g-col {
+  flex: 1; height: 100%; min-width: 0; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+}
+.g-col span { display: block; width: 100%; max-width: 26px; border-radius: 3px 3px 0 0; background: var(--primary); }
+.g-col span.plein { background: var(--ok); }
+.g-col i {
+  font: 600 10px ui-monospace, monospace; font-style: normal;
+  color: var(--text-muted); margin-bottom: 3px; white-space: nowrap;
+}
+.g-col b {
+  position: absolute; top: 100%; margin-top: 4px;
+  font: 600 10px ui-monospace, monospace; color: var(--text-muted);
+}
+
 /* ── grille ───────────────────────────────────────────── */
 main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; }
 @media (max-width: 1060px) { main { grid-template-columns: 1fr; } }
