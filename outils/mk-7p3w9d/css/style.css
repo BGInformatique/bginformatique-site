@@ -66,6 +66,15 @@ button { font: inherit; cursor: pointer; }
 .app-header h1 { font-size: 16px; }
 .app-header .sous { color: var(--text-muted); font-size: 12px; }
 .app-header .fin { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* ── sélecteur de mandat (en-tête) ────────────────────────
+   Mêmes pastilles que les filtres, mais plus grandes et en bleu une fois
+   choisies : le mandat commande tout l'écran, il ne doit pas se lire comme
+   un filtre de plus. */
+.mandat { display: flex; flex-wrap: wrap; gap: 6px; }
+.mandat .puce { font-size: 11.5px; padding: 8px 14px; }
+.mandat .puce[aria-pressed="true"] {
+  background: var(--primary); border-color: var(--primary); color: #fff;
+}
 .qui { color: var(--text-muted); font-size: 12.5px; text-align: right; }
 .qui b { color: var(--text); font-weight: 600; display: block; }
 

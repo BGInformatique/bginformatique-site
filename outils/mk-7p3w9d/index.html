@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Tableau de bord marketing — BG Informatique</title>
-  <link rel="stylesheet" href="css/style.css?v=20260801202923">
+  <link rel="stylesheet" href="css/style.css?v=20260802170124">
 </head>
 <body>
 
@@ -27,6 +27,11 @@
       <div class="sous">BG Informatique — outil interne</div>
     </div>
   </div>
+
+  <!-- Le mandat est le contexte de travail, pas un filtre parmi d'autres : sa
+       place est ici, à côté du titre, et le choix survit au rechargement. -->
+  <div class="mandat" id="f-client" role="group" aria-label="Mandat en cours"></div>
+
   <div class="fin">
     <a class="btn btn-ghost" href="veille.html" style="text-decoration:none">Veille</a>
     <a class="btn btn-ghost" href="jour.html" style="text-decoration:none">Ma journée</a>
@@ -102,7 +107,6 @@
 
       <input id="f-texte" class="cherche" type="search"
              placeholder="Filtrer par titre, détail, source…" autocomplete="off">
-      <div class="filtres" id="f-client"></div>
       <div class="filtres" id="f-chantier"></div>
       <div class="filtres" id="f-statut"></div>
       <div id="l-tout"></div>
@@ -172,6 +176,6 @@
   </form>
 </dialog>
 
-<script type="module" src="js/app.js?v=20260801202923"></script>
+<script type="module" src="js/app.js?v=20260802170124"></script>
 </body>
 </html>

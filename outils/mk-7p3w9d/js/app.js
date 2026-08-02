@@ -50,6 +50,7 @@ const CLE = "marketing.v1";
 const CLE_MINUTEUR = "marketing.v1.minuteur";
 const CLE_QUARANTAINE = "marketing.v1.illisible.";
 const CLE_AVANT_IMPORT = "marketing.v1.avant-import";
+const CLE_MANDAT = "marketing.v1.mandat";
 
 const RETENTION_TOMBSTONE = 90 * 24 * 3600 * 1000;
 
@@ -89,8 +90,29 @@ const VIDE = () => ({ taches: [], temps: [], tombstones: {}, config: { mandatStm
 let state = VIDE();
 let userDocRef = null;
 let dernierEcrit = null;
-let filtreClient = "", filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
+/*
+ * Le mandat n'est pas un filtre comme les autres : c'est le contexte de travail.
+ * Il vit donc en haut de la page, avec le titre, et il SURVIT au rechargement.
+ * Sans ça, chaque ouverture ramenait « tous les mandats » — les deux chantiers
+ * mélangés dans une seule liste, ce qui n'est le bon écran pour personne.
+ *
+ * Il commande aussi le mandat par défaut des nouvelles tâches (voir
+ * clientParDefaut) : travailler sous un mandat et saisir sous l'autre serait
+ * une erreur silencieuse, et elle se répare une tâche à la fois.
+ */
+let filtreClient = lireMandat(), filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
 const ouvertes = new Set();
+
+function lireMandat() {
+  try { return localStorage.getItem(CLE_MANDAT) || ""; } catch { return ""; }
+}
+
+function ecrireMandat(v) {
+  try {
+    if (v) localStorage.setItem(CLE_MANDAT, v);
+    else localStorage.removeItem(CLE_MANDAT);
+  } catch { /* stockage plein ou refusé : le choix vaut alors pour la session */ }
+}
 
 // Dernier lancement Claude par tâche (idTache -> doc lancement-*).
 let uidCourant = null;
@@ -633,8 +655,13 @@ function rendre() {
 
   /* ── filtres ── */
   const clients = [...new Set(state.taches.map((t) => t.client).filter(Boolean))].sort();
+  // Un mandat retenu d'une session précédente peut avoir disparu : import annulé,
+  // tâches supprimées, ou simple faute de frappe corrigée depuis. Sans ce
+  // garde-fou l'écran serait vide, sans qu'aucun bouton paraisse actif — on
+  // retombe alors sur « tous les mandats », qui est au moins un état lisible.
+  if (filtreClient && !clients.includes(filtreClient)) { filtreClient = ""; ecrireMandat(""); }
   boutons("f-client", [["", "Tous les mandats"], ...clients.map((c) => [c, c])],
-    filtreClient, (v) => { filtreClient = v; });
+    filtreClient, (v) => { filtreClient = v; ecrireMandat(v); });
 
   // Suggestions de saisie de la modale : la liste naît des tâches, jamais
   // d'une liste écrite dans le code (le dépôt est public).
