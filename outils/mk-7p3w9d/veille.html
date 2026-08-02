@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Veille de prospection — Tableau de bord marketing</title>
+  <link rel="stylesheet" href="css/style.css?v=20260801202923">
+  <style>
+    /* Propre à cette page : le reste vient de css/style.css, partagé avec les
+       autres écrans de l'outil et qu'on ne touche pas pour un seul usage. */
+    .v-saisie { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+                align-items:end; margin-bottom:18px }
+    .v-saisie .large { grid-column:1/-1 }
+    .v-grille { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)) }
+    .v-carte { border:1px solid var(--bord,#2a3550); border-left-width:4px; border-radius:6px;
+               padding:10px 12px; display:flex; flex-direction:column; gap:6px }
+    .v-carte.chaud { border-left-color:#e5484d }
+    .v-carte.tiede { border-left-color:#f0b429 }
+    .v-carte.froid { border-left-color:#6b7791; opacity:.75 }
+    .v-haut { display:flex; justify-content:space-between; align-items:baseline; gap:8px }
+    .v-age { font-family:var(--mono,monospace); font-size:.82rem; font-weight:600 }
+    .v-etat { font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; opacity:.8 }
+    .v-quoi { font-weight:600 }
+    .v-ou { font-size:.8rem; opacity:.75 }
+    .v-note { font-size:.85rem; opacity:.9 }
+    .v-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:2px }
+    .v-actions .btn { padding:4px 10px; font-size:.85rem }
+    .v-statut { padding:4px 6px; font-size:.85rem }
+    .v-tableau { width:100%; border-collapse:collapse; font-size:.9rem }
+    .v-tableau th { text-align:left; font-size:.75rem; text-transform:uppercase;
+                    letter-spacing:.05em; opacity:.7; padding:6px 8px }
+    .v-tableau td { padding:6px 8px; border-top:1px solid var(--bord,#2a3550) }
+    .v-tableau tr.sterile { opacity:.6 }
+    .v-entonnoir { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)) }
+    .v-vide { opacity:.7; font-size:.9rem; padding:10px 0 }
+    .v-avis { font-size:.85rem; opacity:.85; line-height:1.55; margin:6px 0 14px }
+  </style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="marque">
+    <div class="sceau">BG</div>
+    <div>
+      <h1>Veille de prospection</h1>
+      <div class="sous"><a href="./" style="color:inherit">← Retour au tableau de bord</a></div>
+    </div>
+  </div>
+  <div class="fin">
+    <span class="mono" id="etat-sync">Synchro : —</span>
+    <div class="qui" id="qui" hidden></div>
+    <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
+  </div>
+</header>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-card">
+    <h2>Connexion requise</h2>
+    <p>Connecte-toi avec ton compte Microsoft BG Informatique pour ouvrir la veille.</p>
+    <button id="btn-login" class="btn btn-lg">Se connecter avec Microsoft</button>
+    <p class="form-error" id="auth-error" hidden></p>
+  </div>
+</div>
+
+<div id="banners" class="banners" aria-live="polite"></div>
+
+<div id="app" hidden>
+
+  <!-- ── Saisie : le geste doit prendre cinq secondes, sinon la veille meurt ── -->
+  <section class="carte">
+    <div class="entete"><h2>Consigner une piste</h2></div>
+    <p class="v-avis">
+      Coller le lien de la publication, choisir la ville et le type, Entrée.
+      <strong>Aucun nom, aucun profil, aucun texte recopié</strong> — le lien suffit pour
+      y revenir, et ce qu'on n'enregistre pas n'a pas à être protégé.
+    </p>
+    <form class="v-saisie" id="f-piste">
+      <input class="champ large" id="p-lien" type="url" placeholder="Lien de la publication (https://…)">
+      <select class="champ" id="p-ville" aria-label="Ville"></select>
+      <select class="champ" id="p-type" aria-label="Type de problème"></select>
+      <input class="champ" id="p-groupe" list="l-groupes" placeholder="Groupe Facebook">
+      <select class="champ" id="p-source" aria-label="Source"></select>
+      <input class="champ large" id="p-note" maxlength="120"
+             placeholder="Note courte — sans nom (ex. « demande une recommandation, urgent »)">
+      <button class="btn" type="submit">Ajouter</button>
+    </form>
+    <datalist id="l-groupes"></datalist>
+  </section>
+
+  <!-- ── À répondre : le seul bloc qui presse ── -->
+  <section class="carte">
+    <div class="entete">
+      <h2>À répondre — <span id="u-compte">0</span></h2>
+      <span class="cpt mono">une réponse en 2 h vaut dix réponses en 24 h</span>
+    </div>
+    <div class="v-vide" id="u-vide">Rien en attente. C'est le bon état.</div>
+    <div class="v-grille" id="u-liste"></div>
+  </section>
+
+  <!-- ── En cours ── -->
+  <section class="carte">
+    <div class="entete">
+      <h2>En cours</h2>
+      <div class="filtres" id="f-statut">
+        <button class="btn btn-ghost on" data-statut="">Toutes</button>
+        <button class="btn btn-ghost" data-statut="repondu">Répondu</button>
+        <button class="btn btn-ghost" data-statut="en_discussion">En discussion</button>
+        <button class="btn btn-ghost" data-statut="rdv">RDV fixé</button>
+      </div>
+    </div>
+    <div class="v-vide" id="c-vide">Aucune piste en cours.</div>
+    <div class="v-grille" id="c-liste"></div>
+  </section>
+
+  <!-- ── Entonnoir ── -->
+  <section class="carte">
+    <div class="entete">
+      <h2>Entonnoir — 4 dernières semaines</h2>
+      <button class="btn btn-ghost" id="btn-purge" hidden></button>
+    </div>
+    <div class="v-entonnoir">
+      <div class="tuile"><div class="val" id="e-repere">0</div><div class="note">repérées</div></div>
+      <div class="tuile"><div class="val" id="e-repondu">0</div><div class="note">répondues · <span class="mono" id="e-t1">—</span></div></div>
+      <div class="tuile"><div class="val" id="e-acquis">0</div><div class="note">en échange · <span class="mono" id="e-t2">—</span></div></div>
+      <div class="tuile"><div class="val" id="e-clients">0</div><div class="note">clients · <span class="mono" id="e-t3">—</span></div></div>
+    </div>
+    <p class="v-avis">
+      Le taux qui compte le plus tôt est le premier : <em>repérées → répondues</em>.
+      C'est le seul entièrement sous contrôle. S'il descend, c'est qu'on repère plus
+      qu'on ne peut traiter — il faut alors surveiller moins de groupes, pas plus.
+    </p>
+  </section>
+
+  <!-- ── Groupes surveillés ── -->
+  <section class="carte">
+    <div class="entete"><h2>Groupes surveillés</h2></div>
+    <p class="v-avis">
+      12 à 20 groupes, pas plus : au-delà, le volume de notifications devient ingérable
+      et la veille est abandonnée en deux semaines. Dans chaque groupe :
+      ⋯ → Suivre le groupe → <strong>Toutes les publications</strong>.
+      Un groupe suivi depuis six semaines sans un seul échange est signalé « à quitter ».
+    </p>
+    <form class="v-saisie" id="f-groupe">
+      <input class="champ" id="g-nom" placeholder="Nom du groupe Facebook">
+      <select class="champ" id="g-ville" aria-label="Ville du groupe"></select>
+      <button class="btn" type="submit">Suivre</button>
+    </form>
+    <div class="v-vide" id="g-vide">Aucun groupe suivi. Commencer par en ajouter une douzaine.</div>
+    <table class="v-tableau">
+      <thead><tr><th>Groupe</th><th>Ville</th><th>Repérées</th><th>Échanges</th><th>Clients</th><th></th></tr></thead>
+      <tbody id="g-liste"></tbody>
+    </table>
+  </section>
+
+  <section class="carte">
+    <div class="entete"><h2>Ce que cette page ne fait pas</h2></div>
+    <p class="v-avis">
+      Elle ne va rien chercher sur Facebook, et ce n'est pas une limite technique qu'on
+      lèvera plus tard : aucune API ne permet de chercher des publications publiques, et
+      le grattage automatisé est interdit par les conditions d'utilisation — le risque
+      étant le blocage du compte personnel, donc la perte des groupes eux-mêmes.
+      Le repérage se fait par les notifications de groupe, 30 minutes par jour ouvrable.
+      Ce que l'outil apporte : ne rien échapper, relancer au bon moment, et savoir quel
+      groupe rapporte.
+    </p>
+  </section>
+
+</div>
+
+<script type="module" src="js/veille.js?v=20260801202923"></script>
+</body>
+</html>

@@ -35,7 +35,7 @@ trap 'rm -rf "$tmp"' EXIT
 # trouve jamais sa borne de fin et supprime tout jusqu'au bas du fichier. Le
 # banc affichait alors « 20 lignes » et ne vérifiait plus rien. On suit donc
 # l'instruction jusqu'à son point-virgule, ligne par ligne.
-for JS in "$ICI/../js/app.js" "$ICI/../js/jour.js" "$ICI/../js/linkedin.js"; do
+for JS in "$ICI/../js/app.js" "$ICI/../js/jour.js" "$ICI/../js/linkedin.js" "$ICI/../js/veille.js"; do
   [ -f "$JS" ] || continue
   echo "── Syntaxe de js/$(basename "$JS")"
   awk '
@@ -86,6 +86,16 @@ echo
 if ! gjs "$ICI/fusion.js"; then
   echo "  ✗ Banc échoué à l'étape fusion." >&2
   exit 1
+fi
+
+# La veille a sa PROPRE fusion, sur deux listes plutôt qu'une — un bug y perd
+# des pistes aussi silencieusement. Elle porte aussi le garde-fou Loi 25, qui
+# n'est une promesse que tant que ce banc passe.
+if [ -f "$ICI/../js/veille.js" ]; then
+  if ! gjs "$ICI/fusion-veille.js"; then
+    echo "  ✗ Banc échoué à l'étape veille." >&2
+    exit 1
+  fi
 fi
 
 echo "✅ Banc d'essai du tableau de bord marketing : tout passe."
