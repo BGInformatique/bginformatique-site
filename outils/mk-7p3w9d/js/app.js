@@ -39,6 +39,10 @@ import {
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
+import {
+  lireMandat, ecrireMandat, rendreSelecteur, surChangementDeMandat,
+  noterMandatExterne, noterMandats, appartientAuMandat,
+} from "./mandat.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -50,7 +54,6 @@ const CLE = "marketing.v1";
 const CLE_MINUTEUR = "marketing.v1.minuteur";
 const CLE_QUARANTAINE = "marketing.v1.illisible.";
 const CLE_AVANT_IMPORT = "marketing.v1.avant-import";
-const CLE_MANDAT = "marketing.v1.mandat";
 
 const RETENTION_TOMBSTONE = 90 * 24 * 3600 * 1000;
 
@@ -103,16 +106,9 @@ let dernierEcrit = null;
 let filtreClient = lireMandat(), filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
 const ouvertes = new Set();
 
-function lireMandat() {
-  try { return localStorage.getItem(CLE_MANDAT) || ""; } catch { return ""; }
-}
-
-function ecrireMandat(v) {
-  try {
-    if (v) localStorage.setItem(CLE_MANDAT, v);
-    else localStorage.removeItem(CLE_MANDAT);
-  } catch { /* stockage plein ou refusé : le choix vaut alors pour la session */ }
-}
+// Un autre onglet a changé de mandat : on suit, sinon deux onglets affichent
+// deux mandats en croyant tous les deux montrer « le » mandat courant.
+surChangementDeMandat((v) => { filtreClient = v; rendre(); });
 
 // Dernier lancement Claude par tâche (idTache -> doc lancement-*).
 let uidCourant = null;
@@ -513,8 +509,38 @@ function remplir(cible, taches, contexte, vide) {
 
 function rendreProspection() {
   const liste = (prospection && prospection.prospects) || [];
+  /*
+   * Chaque mandat a sa prospection. Le miroir, lui, est écrit par le
+   * prospecteur de BG001 dans un document unique — un processus qu'on ne voit
+   * pas d'ici et qu'on ne peut pas faire changer de format unilatéralement.
+   *
+   * On filtre donc à deux niveaux : le mandat porté par le prospect s'il en
+   * porte un (ce que le prospecteur pourra ajouter quand il voudra), sinon
+   * l'appartenance du document entier. Le jour où le prospecteur écrit un
+   * `mandat` par prospect, le cloisonnement devient exact sans toucher à cette
+   * page.
+   *
+   * La section reste VISIBLE quand elle est vide pour le mandat courant : une
+   * section qui disparaît se cherche, et on finit par croire l'outil cassé.
+   */
+  const proprietaire = (prospection && prospection.mandat) || state.config.mandatStme || "";
+  const sienne = (p) => p.mandat
+    ? appartientAuMandat(filtreClient, p.mandat)
+    : appartientAuMandat(filtreClient, proprietaire);
+  const miens = liste.filter(sienne);
+
   $("prospection").hidden = !liste.length;
   if (!liste.length) return;
+  $("p-vide").hidden = miens.length > 0;
+  $("p-liste").hidden = !miens.length;
+  if (!miens.length) {
+    $("p-vide").textContent =
+      `Aucun prospect pour ce mandat. Le miroir du prospecteur de BG001 en porte ` +
+      `${liste.length} pour « ${proprietaire || "un autre mandat"} ».`;
+    $("p-maj").textContent = "";
+    $("p-candidats").hidden = true;
+    return;
+  }
   const signaux = (prospection && prospection.signaux) || {};
   $("p-maj").textContent = prospection.majLe
     ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} — ` +
@@ -522,7 +548,7 @@ function rendreProspection() {
     : "";
   const cible = $("p-liste");
   cible.innerHTML = "";
-  for (const p of liste) {
+  for (const p of miens) {
     // Ce que la page sait de plus frais que le miroir hebdomadaire : un signal
     // déposé ici, ou la tâche de relance déjà marquée faite (envoi confirmé).
     const t = p.tacheId ? state.taches.find((x) => x.id === p.tacheId) : null;
@@ -660,8 +686,13 @@ function rendre() {
   // garde-fou l'écran serait vide, sans qu'aucun bouton paraisse actif — on
   // retombe alors sur « tous les mandats », qui est au moins un état lisible.
   if (filtreClient && !clients.includes(filtreClient)) { filtreClient = ""; ecrireMandat(""); }
-  boutons("f-client", [["", "Tous les mandats"], ...clients.map((c) => [c, c])],
-    filtreClient, (v) => { filtreClient = v; ecrireMandat(v); });
+  rendreSelecteur("f-client", clients, filtreClient, (v) => { filtreClient = v; rendre(); });
+
+  // Ce tableau de bord est le seul écran qui lit `state` : il dépose donc, pour
+  // les autres, le mandat auquel appartiennent les documents écrits par les
+  // processus de BG001 (prospection, lot LinkedIn). Voir js/mandat.js.
+  noterMandatExterne(state.config.mandatStme || "");
+  noterMandats(clients);
 
   // Suggestions de saisie de la modale : la liste naît des tâches, jamais
   // d'une liste écrite dans le code (le dépôt est public).
@@ -723,6 +754,16 @@ function ouvrirModale(t) {
   $("m-client").value = (t && t.client) || filtreClient || clientParDefaut();
   $("m-chantier").value = (t && t.chantier) || "Pilotage";
   $("m-stme").value = (t && t.stme) || "";
+  /*
+   * La STME est le découpage du plan V5 d'UN mandat — celui de `mandatStme`.
+   * Sous un autre mandat le champ n'a pas de sens : le proposer, c'est inviter
+   * à ranger une tâche dans le plan d'une autre entreprise. On le masque, sans
+   * effacer la valeur d'une tâche qui en porterait déjà une.
+   */
+  const mandatDeLaTache = (t && t.client) || filtreClient || clientParDefaut();
+  const stmePertinente = !state.config.mandatStme ||
+    mandatDeLaTache === state.config.mandatStme || Boolean(t && t.stme);
+  selStme.closest(".champ").hidden = !stmePertinente;
   $("m-prio").value = (t && t.priorite) || "moyenne";
   $("m-statut").value = (t && t.statut) || "a_faire";
   $("m-echeance").value = (t && t.echeance) || "";

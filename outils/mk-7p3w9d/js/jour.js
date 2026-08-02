@@ -28,6 +28,10 @@ import {
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
+import {
+  lireMandat, rendreSelecteur, surChangementDeMandat,
+  mandatExterne, appartientAuMandat,
+} from "./mandat.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -70,8 +74,26 @@ function section(titre, sousTitre, items, urgent) {
     (sousTitre ? `<div class="note">${sousTitre}</div>` : "") + items.join("") + "</div>";
 }
 
+/*
+ * Le mandat courant, partagé avec le tableau de bord. « Ma journée » mélangeait
+ * les deux mandats : la journée d'un mandat n'est pas la journée de l'autre, et
+ * une échéance vue au mauvais endroit se traite au mauvais endroit.
+ */
+let mandat = lireMandat();
+surChangementDeMandat((v) => { mandat = v; rendre(); });
+
 function rendre() {
   if (!state) return;
+
+  const mandats = [...new Set((state.taches || []).map((t) => t.client).filter(Boolean))].sort();
+  if (mandat && !mandats.includes(mandat)) mandat = "";
+  rendreSelecteur("f-mandat", mandats, mandat, (v) => { mandat = v; rendre(); });
+
+  // Les rituels et la publication du jour appartiennent au mandat servi par les
+  // processus de BG001 — prospecteur, recherchiste, lot LinkedIn. Sous un autre
+  // mandat, ils n'ont rien à faire dans la journée.
+  const sien = appartientAuMandat(mandat, mandatExterne());
+
   const auj = jourISO();
   const d = new Date();
   const js = d.getDay();                       // 0 = dimanche
@@ -80,7 +102,9 @@ function rendre() {
   $("j-date").textContent = "// " +
     d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-  const actives = (state.taches || []).filter((t) => t.statut !== "fait" && t.statut !== "reporte");
+  const actives = (state.taches || [])
+    .filter((t) => !mandat || t.client === mandat)
+    .filter((t) => t.statut !== "fait" && t.statut !== "reporte");
   const places = new Set();
   const prendre = (t) => { places.add(t.id); return t; };
   const libres = (f) => actives.filter((t) => !places.has(t.id) && f(t));
@@ -99,17 +123,17 @@ function rendre() {
   /* ── aujourd'hui ── */
   const jour = [];
   // Rituels de la semaine — dans l'ordre où la journée se déroule.
-  if (js === 1) jour.push(item("RITUEL", "client",
+  if (sien && js === 1) jour.push(item("RITUEL", "client",
     "Cycle du prospecteur ce matin : relire ses nouveaux brouillons et les envoyer", "./"));
-  if (js === 4) jour.push(item("RITUEL", "client",
+  if (sien && js === 4) jour.push(item("RITUEL", "client",
     "Le recherchiste est passé : trier ses candidats (accepter / rejeter)", "./"));
-  if (js === 5) jour.push(item("RITUEL", "temps",
+  if (sien && js === 5) jour.push(item("RITUEL", "temps",
     "Vendredi : relever les statistiques LinkedIn et faire le point de la semaine",
     versTaches("statistiques LinkedIn")));
   // La publication LinkedIn du jour ouvrable.
   const posts = ((lot && lot.posts) || []).slice().sort((a, b) => (a.n || 0) - (b.n || 0));
   const prochainePub = posts.find((p) => p.statutPub !== "publie");
-  if (ouvrable && prochainePub) {
+  if (sien && ouvrable && prochainePub) {
     jour.push(item("LINKEDIN", "en_cours",
       `Publier la publication ${prochainePub.n} — ${prochainePub.sujet || ""}`, "linkedin.html"));
   }

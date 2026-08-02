@@ -28,6 +28,10 @@ import {
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
+import {
+  lireMandat, lireMandats, rendreSelecteur, surChangementDeMandat,
+  mandatExterne, appartientAuMandat,
+} from "./mandat.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -53,9 +57,44 @@ function avis(message, erreur) {
 
 /* ═══════════════════════════  rendu  ═══════════════════════════════════ */
 
+/*
+ * Chaque mandat a son lot. Le document, lui, est écrit par le lanceur de BG001
+ * — un processus qu'on ne voit pas d'ici et à qui on ne va pas imposer un
+ * changement de format unilatéralement.
+ *
+ * On filtre donc à deux niveaux : le mandat porté par la publication si elle en
+ * porte un (ce que le lanceur pourra ajouter quand il voudra), sinon
+ * l'appartenance du document entier. Le jour où le lanceur écrit un `mandat`
+ * par publication, le cloisonnement devient exact sans toucher à cette page.
+ *
+ * Publier au nom de la mauvaise entreprise est l'erreur la plus coûteuse que
+ * cette page puisse causer : en cas de doute, on n'affiche pas.
+ */
+let mandat = lireMandat();
+surChangementDeMandat((v) => { mandat = v; rendre(); });
+
 function rendre() {
-  if (!lot || !Array.isArray(lot.posts)) return;
-  const posts = [...lot.posts].sort((a, b) => (a.n || 0) - (b.n || 0));
+  rendreSelecteur("f-mandat", lireMandats(), mandat, (v) => { mandat = v; rendre(); });
+
+  const proprietaire = (lot && lot.mandat) || mandatExterne();
+  const tous = (lot && Array.isArray(lot.posts)) ? lot.posts : [];
+  const posts = tous
+    .filter((p) => p.mandat
+      ? appartientAuMandat(mandat, p.mandat)
+      : appartientAuMandat(mandat, proprietaire))
+    .sort((a, b) => (a.n || 0) - (b.n || 0));
+
+  // La section existe pour tous les mandats, même vide : une section qui
+  // disparaît se cherche, et on finit par croire l'outil cassé.
+  $("hors-mandat").hidden = posts.length > 0;
+  $("app-lot").hidden = !posts.length;
+  if (!posts.length) {
+    $("hors-mandat").textContent = tous.length
+      ? `Aucune publication pour ce mandat. Le lot en ligne en porte ${tous.length} ` +
+        `pour « ${proprietaire || "un autre mandat"} ».`
+      : "Aucun lot publié pour l'instant. Le lanceur de BG001 en dépose un quand il en produit.";
+    return;
+  }
   const faites = posts.filter((p) => p.statutPub === "publie").length;
 
   $("lot-titre").textContent = "// " + (lot.titre || "Lot LinkedIn");

@@ -199,6 +199,20 @@ const HIER = T - 24 * 3600 * 1000;
 }
 
 {
+  // Le mandat cloisonne les vues : s'il se perd à la lecture, les pistes d'un
+  // mandat réapparaissent sous l'autre sans que rien ne le signale.
+  const n = normaliser({
+    pistes: [{ id: 'p1', maj: 1, mandat: 'Mandat A' }, { id: 'p2', maj: 1 }],
+    groupes: [{ id: 'g1', nom: 'X', maj: 1, mandat: 'Mandat A' }],
+  });
+  verifier('le mandat d\'une piste est conservé', n.pistes[0].mandat === 'Mandat A');
+  verifier('une piste sans mandat en reçoit un vide, pas undefined',
+           n.pistes[1].mandat === '');
+  verifier('le mandat d\'un groupe est conservé aussi',
+           n.groupes[0].mandat === 'Mandat A');
+}
+
+{
   const n = normaliser({ pistes: [{ id: 'p1', maj: 1, statut: 'inventé',
                                     type: 'inventé', source: 'inventé' }] });
   const p = n.pistes[0];

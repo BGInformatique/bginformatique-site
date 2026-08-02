@@ -286,3 +286,58 @@ Une première version tournait sur un serveur Python local, dans le dossier d'un
 client. Elle est conservée hors ligne dans
 `~/Bureau/BG Informatique/Tableau_de_Bord/` — même modèle de données, sans compte ni
 synchronisation. **C'est cette version-ci qui fait foi.**
+
+---
+
+## Cloisonnement par mandat
+
+L'outil pilote plusieurs mandats. Le mandat est un **contexte**, pas un filtre : il vit
+en haut de chaque page, il survit au rechargement, et il se propage d'un onglet à
+l'autre (`js/mandat.js`, `localStorage` sous `marketing.v1.mandat`). Chaque mandat a
+**chacune des sections**, avec ses propres données.
+
+| Section | Document | Cloisonnement |
+|---|---|---|
+| Tâches, temps, compteurs | `marketing/state` | Exact — chaque tâche porte un `client` |
+| Veille de prospection | `marketing/veille` | Exact — chaque piste et chaque groupe portent un `mandat` |
+| Miroir de prospection | `marketing/prospection` | **Approché** — voir le contrat ci-dessous |
+| Lot LinkedIn | `marketing/linkedin-lot` | **Approché** — voir le contrat ci-dessous |
+
+### Le contrat attendu des processus de BG001
+
+`marketing/prospection` et `marketing/linkedin-lot` sont écrits par le prospecteur et le
+lanceur de BG001, hors de ce dépôt. L'outil web ne peut pas les cloisonner exactement
+tant qu'ils ne disent pas à quel mandat chaque enregistrement appartient.
+
+En attendant, la page filtre sur l'appartenance du **document entier**, déduite de
+`config.mandatStme`. C'est suffisant tant qu'un seul mandat est prospecté, et faux dès
+qu'il y en a deux.
+
+**Pour rendre le cloisonnement exact, il suffit d'un champ — aucun changement de chemin,
+aucune règle Firestore à republier :**
+
+```jsonc
+// marketing/prospection
+{ "mandat": "…",            // facultatif : appartenance du document entier
+  "prospects": [ { "id": "…", "mandat": "…", … } ] }   // ← le champ qui compte
+
+// marketing/linkedin-lot
+{ "mandat": "…",
+  "posts": [ { "n": 1, "mandat": "…", … } ] }          // ← idem
+```
+
+La page lit `enregistrement.mandat` en priorité et retombe sur celui du document.
+**Le jour où le champ apparaît, le cloisonnement devient exact sans toucher au code
+web** — et tant qu'il n'apparaît pas, rien ne casse.
+
+### Deux règles de conduite dans le code
+
+- **Une section vide reste visible.** Cacher une section parce qu'elle n'a rien pour le
+  mandat courant fait chercher une fonctionnalité qui existe pourtant, et donne
+  l'impression que l'outil est cassé. On affiche l'état vide, et on dit où sont les
+  données.
+- **En cas d'appartenance inconnue, on montre.** Cacher à tort coûte plus cher que
+  montrer à tort — sauf sur le lot LinkedIn, où publier au nom de la mauvaise entreprise
+  est l'erreur la plus coûteuse : là, un doute suffit à ne rien afficher.
+
+Le banc `tests/mandat.js` fige cette table de vérité.

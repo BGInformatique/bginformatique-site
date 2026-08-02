@@ -35,13 +35,18 @@ trap 'rm -rf "$tmp"' EXIT
 # trouve jamais sa borne de fin et supprime tout jusqu'au bas du fichier. Le
 # banc affichait alors « 20 lignes » et ne vérifiait plus rien. On suit donc
 # l'instruction jusqu'à son point-virgule, ligne par ligne.
-for JS in "$ICI/../js/app.js" "$ICI/../js/jour.js" "$ICI/../js/linkedin.js" "$ICI/../js/veille.js"; do
+for JS in "$ICI/../js/app.js" "$ICI/../js/jour.js" "$ICI/../js/linkedin.js" \
+         "$ICI/../js/veille.js" "$ICI/../js/mandat.js"; do
   [ -f "$JS" ] || continue
   echo "── Syntaxe de js/$(basename "$JS")"
+  # Le mot-clé « export » est retiré, pas la ligne : « export function x() »
+  # devient « function x() », donc le corps de la fonction reste vérifié.
+  # Supprimer la ligne entière, comme pour les imports, laisserait le corps
+  # orphelin et le banc passerait au vert sur du code qui ne compile pas.
   awk '
     /^import[[:space:]]/ { dans = 1 }
     dans { if (/;[[:space:]]*$/) dans = 0; next }
-    { print }
+    { sub(/^export[[:space:]]+/, ""); print }
   ' "$JS" > "$tmp/corps.js"
 
   lignes_js=$(wc -l < "$JS")
@@ -86,6 +91,16 @@ echo
 if ! gjs "$ICI/fusion.js"; then
   echo "  ✗ Banc échoué à l'étape fusion." >&2
   exit 1
+fi
+
+# Le cloisonnement par mandat : trois lignes qui décident si une section
+# s'affiche. Une erreur ici montre les prospects d'un mandat pendant qu'on
+# travaille sur l'autre — silencieusement.
+if [ -f "$ICI/../js/mandat.js" ]; then
+  if ! gjs "$ICI/mandat.js"; then
+    echo "  ✗ Banc échoué à l'étape mandat." >&2
+    exit 1
+  fi
 fi
 
 # La veille a sa PROPRE fusion, sur deux listes plutôt qu'une — un bug y perd

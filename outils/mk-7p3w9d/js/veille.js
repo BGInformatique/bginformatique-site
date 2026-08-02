@@ -48,6 +48,9 @@ import {
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
+import {
+  lireMandat, lireMandats, rendreSelecteur, surChangementDeMandat,
+} from "./mandat.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -117,6 +120,20 @@ let dernierEcrit = null;
 let desabonner = null;
 let filtreStatut = "";
 
+/*
+ * Le mandat courant, partagé avec les autres écrans. Une piste appartient au
+ * mandat sous lequel elle a été repérée : la veille de BG pour elle-même et
+ * celle qu'on ferait un jour pour un client ne se mélangent pas, pas plus que
+ * leurs entonnoirs ou leur rendement par groupe.
+ *
+ * Les enregistrements d'avant ce champ n'ont pas de mandat. Ils restent
+ * visibles sous « Tous les mandats » et sous celui qu'on leur donnera en les
+ * rouvrant — on ne devine pas à leur place.
+ */
+let mandatCourant = lireMandat();
+surChangementDeMandat((v) => { mandatCourant = v; rendre(); });
+const duMandat = (x) => !mandatCourant || x.mandat === mandatCourant;
+
 function VIDE() {
   return { pistes: [], groupes: [], tombstones: {}, updatedAt: 0 };
 }
@@ -136,6 +153,7 @@ function normaliser(brut) {
     p.statut = STATUTS[p.statut] ? p.statut : "repere";
     p.source = SOURCES[p.source] ? p.source : "facebook";
     p.type = TYPES[p.type] ? p.type : "autre";
+    p.mandat = typeof p.mandat === "string" ? p.mandat : "";
     // Garde-fou : un import d'une version future ne doit pas réintroduire un
     // champ nominatif. On le retire à la lecture plutôt que de faire confiance.
     delete p.nom; delete p.profil; delete p.texte;
@@ -143,6 +161,7 @@ function normaliser(brut) {
   for (const g of s.groupes) {
     g.maj = Number(g.maj) || 0;
     g.cree = Number(g.cree) || g.maj;
+    g.mandat = typeof g.mandat === "string" ? g.mandat : "";
   }
   return s;
 }
@@ -263,7 +282,8 @@ function avis(message, erreur) {
 function ajouterPiste(d) {
   state.pistes.push({
     id: nouvelId(), source: "facebook", groupe: "", ville: "", type: "autre",
-    lien: "", statut: "repere", note: "", cree: maintenant(), ...d,
+    lien: "", statut: "repere", note: "", mandat: mandatCourant,
+    cree: maintenant(), ...d,
     maj: maintenant(),
   });
   enregistrer();
@@ -285,7 +305,8 @@ function supprimerPiste(id) {
 function ajouterGroupe(nom, ville) {
   if (!nom.trim()) return;
   state.groupes.push({
-    id: nouvelId(), nom: nom.trim(), ville, cree: maintenant(), maj: maintenant(),
+    id: nouvelId(), nom: nom.trim(), ville, mandat: mandatCourant,
+    cree: maintenant(), maj: maintenant(),
   });
   enregistrer();
 }
@@ -311,7 +332,9 @@ function purger() {
   if (!cibles.length) return;
   if (!confirm(`Effacer ${cibles.length} piste(s) non converties de plus de 90 jours ?\n\n` +
                `C'est la purge prévue : on ne conserve pas les renseignements ` +
-               `personnels de gens qui ne sont jamais devenus clients.`)) return;
+               `personnels de gens qui ne sont jamais devenus clients.\n\n` +
+               `Elle porte sur TOUS les mandats, pas seulement celui affiché : ` +
+               `une obligation de conservation ne dépend pas de l'onglet ouvert.`)) return;
   const ids = new Set(cibles.map((p) => p.id));
   state.pistes = state.pistes.filter((p) => !ids.has(p.id));
   for (const id of ids) state.tombstones[id] = maintenant();
@@ -355,11 +378,11 @@ function aAbandonner(p) {
  */
 function rendementGroupes() {
   const parNom = new Map();
-  for (const g of state.groupes) {
+  for (const g of state.groupes.filter(duMandat)) {
     parNom.set(g.nom, { nom: g.nom, ville: g.ville, cree: g.cree, id: g.id,
                         repere: 0, acquis: 0, clients: 0 });
   }
-  for (const p of state.pistes) {
+  for (const p of state.pistes.filter(duMandat)) {
     if (!p.groupe) continue;
     if (!parNom.has(p.groupe)) {
       parNom.set(p.groupe, { nom: p.groupe, ville: "", cree: p.cree, id: null,
@@ -376,6 +399,8 @@ function rendementGroupes() {
 /* ═══════════════════════════  rendu  ═══════════════════════════════════ */
 
 function rendre() {
+  rendreSelecteur("f-mandat", lireMandats(), mandatCourant,
+    (v) => { mandatCourant = v; rendre(); });
   rendreEntonnoir();
   rendreUrgent();
   rendreEnCours();
@@ -385,7 +410,7 @@ function rendre() {
 
 function rendreEntonnoir() {
   const depuis = maintenant() - 4 * SEMAINE;
-  const recentes = state.pistes.filter((p) => p.cree >= depuis);
+  const recentes = state.pistes.filter(duMandat).filter((p) => p.cree >= depuis);
   const n = (f) => recentes.filter(f).length;
   const repere = recentes.length;
   const repondu = n((p) => p.statut !== "repere" && p.statut !== "hors_zone");
@@ -408,6 +433,7 @@ function rendreEntonnoir() {
 
 function rendreUrgent() {
   const liste = state.pistes
+    .filter(duMandat)
     .filter((p) => p.statut === "repere")
     .sort((a, b) => a.cree - b.cree);
   $("u-compte").textContent = liste.length;
@@ -434,6 +460,7 @@ function rendreUrgent() {
 
 function rendreEnCours() {
   const liste = state.pistes
+    .filter(duMandat)
     .filter((p) => !CLOS.includes(p.statut) && p.statut !== "repere")
     .filter((p) => !filtreStatut || p.statut === filtreStatut)
     .sort((a, b) => a.maj - b.maj);
@@ -480,7 +507,7 @@ function rendreGroupes() {
 }
 
 function remplirListes() {
-  const noms = [...new Set(state.groupes.map((g) => g.nom))].sort();
+  const noms = [...new Set(state.groupes.filter(duMandat).map((g) => g.nom))].sort();
   $("l-groupes").innerHTML = noms.map((n) => `<option value="${ech(n)}">`).join("");
 }
 
