@@ -263,4 +263,14 @@
     <priority>0.6</priority>
   </url>
 
+  <url>
+    <loc>https://bginformatique.ca/residentiel/blogue.html</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://bginformatique.ca/residentiel/blogue-faux-soutien-technique.html</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
 </urlset>
