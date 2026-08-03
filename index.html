@@ -339,5 +339,21 @@
      « entreprises » et combien poussent la porte « résidentiel ». -->
 <script data-goatcounter="https://bginformatique.goatcounter.com/count"
         async src="https://gc.zgo.at/count.js"></script>
+
+<!-- Suivi du choix d'espace : quelle porte est poussée depuis cette page.
+     Les pages vues de /entreprises/ et /residentiel/ ne répondent pas à la
+     question — elles reçoivent aussi le trafic direct (recherche, liens).
+     Seul le clic mesuré ici isole l'arbitrage fait devant l'écran de choix. -->
+<script>
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a.door');
+    if (!a || !window.goatcounter || !window.goatcounter.count) return;
+    window.goatcounter.count({
+      path: a.classList.contains('door--left') ? 'choix/entreprises' : 'choix/residentiel',
+      title: 'Choix d\'espace',
+      event: true
+    });
+  });
+</script>
 </body>
 </html>
