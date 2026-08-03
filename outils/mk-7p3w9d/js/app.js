@@ -448,7 +448,8 @@ function carte(t, contexte) {
     <div class="outils">
       ${t.statut !== "fait" && brouillonDe(t) ? `<a class="ic ic-mail"
         href="${ech(lienCourriel((prospection && (prospection.prospects || []).find((p) => p.tacheId === t.id) || {}).courriel, brouillonDe(t)))}"
-        title="Ouvrir un courriel avec le brouillon">✉</a>` : ""}
+        title="Ouvrir un courriel avec le brouillon">✉</a>
+      <button class="ic" data-copier-brouillon title="Copier le brouillon (pour LinkedIn ou ailleurs)">⧉</button>` : ""}
       <button class="ic ${t.statut === "fait" ? "on" : ""}" data-fait title="${t.statut === "fait" ? "Remettre à faire" : "Marquer faite"}">
         <svg><use href="#i-coche"></use></svg></button>
       <button class="ic ${actif ? "on" : ""}" data-chrono title="${actif ? "Arrêter le minuteur" : "Démarrer le minuteur"}">
@@ -467,6 +468,16 @@ function carte(t, contexte) {
   el.querySelector("[data-bascule]").onclick = () => {
     ouvertes.has(t.id) ? ouvertes.delete(t.id) : ouvertes.add(t.id);
     rendre();
+  };
+  const bCopie = el.querySelector("[data-copier-brouillon]");
+  if (bCopie) bCopie.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(brouillonDe(t));
+      bCopie.textContent = "✓";
+      setTimeout(() => { bCopie.textContent = "⧉"; }, 2000);
+    } catch {
+      avis("Copie refusée par le navigateur — copier depuis le détail de la tâche.", true);
+    }
   };
   el.querySelector("[data-fait]").onclick = () => {
     if (t.statut === "fait") {
@@ -595,8 +606,9 @@ function rendreProspection() {
         <td class="p-c-num">${p.relances || 0}</td>
         <td class="p-c-date${retard ? " p-retard" : ""}">${ech(p.prochaine || "—")}</td>
         <td class="p-c-note">${ech(p.note || "")}</td>
-        <td>${brouillon ? `<a class="p-act" href="${ech(lienCourriel(p.courriel, brouillon))}"
-          title="Ouvrir un courriel avec le brouillon${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</a>` : ""}</td>
+        <td class="p-c-dec">${brouillon ? `<a class="p-act" href="${ech(lienCourriel(p.courriel, brouillon))}"
+          title="Ouvrir un courriel avec le brouillon${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</a> ·
+          <button type="button" class="p-act" data-cp title="Copier le brouillon (pour LinkedIn ou ailleurs)">copier</button>` : ""}</td>
         <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select></td>
       </tr>`;
     }).join("") + "</tbody>";
@@ -604,8 +616,19 @@ function rendreProspection() {
   $("p-liste").querySelectorAll("tr[data-p]").forEach((tr) => {
     const p = parId.get(tr.dataset.p);
     if (!p) return;
+    const bCp = tr.querySelector("[data-cp]");
+    if (bCp) bCp.onclick = async () => {
+      const t = p.tacheId ? state.taches.find((x) => x.id === p.tacheId) : null;
+      try {
+        await navigator.clipboard.writeText(brouillonDe(t));
+        bCp.textContent = "copié ✓";
+        setTimeout(() => { bCp.textContent = "copier"; }, 2000);
+      } catch {
+        avis("Copie refusée par le navigateur — ouvrir la tâche et copier à la main.", true);
+      }
+    };
     tr.onclick = (ev) => {
-      if (ev.target.closest("select") || ev.target.closest("a")) return;
+      if (ev.target.closest("select") || ev.target.closest("a") || ev.target.closest("button")) return;
       filtreTexte = p.prospect.toLowerCase();
       $("f-texte").value = p.prospect;
       filtreChantier = "";
