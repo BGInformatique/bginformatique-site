@@ -104,6 +104,7 @@ let dernierEcrit = null;
  * une erreur silencieuse, et elle se répare une tâche à la fois.
  */
 let filtreClient = lireMandat(), filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
+let pageInv = 0;   // lot courant de l'inventaire de prospection (20 par lot)
 const ouvertes = new Set();
 
 // Un autre onglet a changé de mandat : on suit, sinon deux onglets affichent
@@ -597,46 +598,92 @@ function rendreProspection() {
     };
   });
 
-  /* Candidats du recherchiste : rien n'entre dans la cadence sans un
-     « accepter » explicite ; un « rejeter » est définitif (jamais reproposé). */
+  /* Inventaire : le bassin complet de prospects potentiels, cadence incluse,
+     par pages de 20. Candidat → accepter/rejeter ; répertorié → cadencer ;
+     rien n'entre dans la cadence sans un geste explicite, et un rejet est
+     définitif (jamais reproposé). */
+  const inv = ((prospection && prospection.inventaire) || []).slice();
   const cands = (prospection && prospection.candidats) || [];
   const decisions = (prospection && prospection.candidatures) || {};
   const ajouts = (prospection && prospection.ajouts) || {};
-  $("p-candidats").hidden = !cands.length && !Object.keys(ajouts).length;
-  const parCand = new Map(cands.map((c) => [c.id, c]));
+  $("p-candidats").hidden = !inv.length;
+  if (!inv.length) return;
+
+  const infoCand = new Map(cands.map((c) => [c.id, c]));
+  const cleAjout = (nom) => nom.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "prospect";
+  const RANG_INV = { en_cadence: 0, candidat: 1, repertorie: 2, rejete: 3 };
+  const LIB_INV = { en_cadence: "en cadence", candidat: "candidat",
+    repertorie: "répertorié", rejete: "rejetée" };
+  inv.sort((a, b) => (RANG_INV[a.statut] ?? 9) - (RANG_INV[b.statut] ?? 9) ||
+    (a.nom || "").localeCompare(b.nom || ""));
+
+  const pages = Math.max(1, Math.ceil(inv.length / 20));
+  if (pageInv >= pages) pageInv = pages - 1;
+  const visibles = inv.slice(pageInv * 20, pageInv * 20 + 20);
+  $("p-inv-n").textContent =
+    `${inv.length} prospects potentiels · lot ${pageInv + 1} de ${pages}`;
+
   $("p-cand-liste").innerHTML =
-    `<thead><tr><th>Candidat</th><th>Secteur</th><th>Ville</th><th>Taille</th>` +
-    `<th>Angle</th><th>Src</th><th>Décision</th></tr></thead><tbody>` +
-    cands.map((c) => {
-      const d = decisions[c.id] && decisions[c.id].decision;
-      return `<tr>
-        <td class="p-c-nom">${ech(c.nom)}</td>
-        <td>${ech(c.secteur || "")}</td>
-        <td>${ech(c.ville || "")}</td>
-        <td class="p-c-note">${ech(c.taille || "")}</td>
-        <td class="p-c-note">${ech(c.angle || "")}</td>
-        <td>${/^https?:\/\//.test(c.site || "")
-          ? `<a class="p-lien" href="${ech(c.site)}" target="_blank" rel="noopener noreferrer">site</a>` : ""}${
-          /^https?:\/\//.test(c.source || "")
-          ? ` <a class="p-lien" href="${ech(c.source)}" target="_blank" rel="noopener noreferrer">src</a>` : ""}</td>
-        <td class="p-c-dec">${d
-          ? (d === "accepte" ? "acceptée — prochain cycle" : "rejetée")
-          : `<button type="button" class="p-act" data-c="${ech(c.id)}" data-d="accepte">accepter</button> ·
-             <button type="button" class="p-act" data-c="${ech(c.id)}" data-d="rejete">rejeter</button>`}</td>
-      </tr>`;
-    }).join("") +
-    Object.values(ajouts).map((a) => `<tr>
-      <td class="p-c-nom">${ech(a.nom || "")}</td>
-      <td colspan="5" class="p-c-note">ajout manuel</td>
-      <td class="p-c-dec">acceptée — prochain cycle</td></tr>`).join("") +
-    "</tbody>";
+    `<thead><tr><th>Prospect</th><th>Secteur</th><th>Ville</th><th>Origine</th>` +
+    `<th>Statut</th><th>Lien</th><th>Action</th></tr></thead><tbody>` +
+    visibles.map((r) => {
+      const c = infoCand.get(r.id);
+      const dec = decisions[r.id] && decisions[r.id].decision;
+      const cadencee = ajouts[cleAjout(r.nom || "")] || ajouts[r.id];
+      let action = "";
+      if (r.statut === "candidat") {
+        action = dec
+          ? (dec === "accepte" ? "acceptée — prochain cycle" : "rejetée — prochain cycle")
+          : `<button type="button" class="p-act" data-c="${ech(r.id)}" data-d="accepte">accepter</button> ·
+             <button type="button" class="p-act" data-c="${ech(r.id)}" data-d="rejete">rejeter</button>`;
+      } else if (r.statut === "repertorie") {
+        action = cadencee ? "cadencée — prochain cycle"
+          : `<button type="button" class="p-act" data-n="${ech(r.nom)}">cadencer</button>`;
+      } else if (r.statut === "en_cadence") {
+        action = "—";
+      }
+      const liens = [];
+      if (/^https?:\/\//.test(r.lien || "")) {
+        liens.push(`<a class="p-lien" href="${ech(r.lien)}" target="_blank" rel="noopener noreferrer">site</a>`);
+      }
+      if (c && /^https?:\/\//.test(c.source || "")) {
+        liens.push(`<a class="p-lien" href="${ech(c.source)}" target="_blank" rel="noopener noreferrer">src</a>`);
+      }
+      const infobulle = (c && c.angle) || r.note || "";
+      return `<tr${infobulle ? ` title="${ech(infobulle)}"` : ""}>
+        <td class="p-c-nom">${ech(r.nom)}</td>
+        <td>${ech(r.secteur || "")}</td>
+        <td>${ech(r.ville || "")}</td>
+        <td class="p-c-note">${ech(r.origine || "")}</td>
+        <td class="p-c-note">${LIB_INV[r.statut] || ech(r.statut)}</td>
+        <td>${liens.join(" ")}</td>
+        <td class="p-c-dec">${action}</td></tr>`;
+    }).join("") + "</tbody>";
+
+  $("p-pages").innerHTML = pages > 1 ? Array.from({ length: pages }, (_, i) =>
+    `<button class="puce" data-pg="${i}" aria-pressed="${i === pageInv}">` +
+    `${i * 20 + 1}–${Math.min(inv.length, (i + 1) * 20)}</button>`).join("") : "";
+  $("p-pages").querySelectorAll("[data-pg]").forEach((b) => {
+    b.onclick = () => { pageInv = Number(b.dataset.pg); rendreProspection(); };
+  });
+
   $("p-cand-liste").querySelectorAll("[data-c]").forEach((b) => {
     b.onclick = () => {
-      if (!uidCourant || !parCand.has(b.dataset.c)) return;
+      if (!uidCourant) return;
       setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
         { candidatures: { [b.dataset.c]: { decision: b.dataset.d, maj: maintenant() } } },
         { merge: true })
         .catch((e) => avis("Décision refusée : " + e.message, true));
+    };
+  });
+  $("p-cand-liste").querySelectorAll("[data-n]").forEach((b) => {
+    b.onclick = () => {
+      if (!uidCourant) return;
+      const nom = b.dataset.n;
+      setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+        { ajouts: { [cleAjout(nom)]: { nom, maj: maintenant() } } }, { merge: true })
+        .catch((e) => avis("Mise en cadence refusée : " + e.message, true));
     };
   });
 }
