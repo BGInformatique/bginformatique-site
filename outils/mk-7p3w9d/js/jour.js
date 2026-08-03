@@ -133,7 +133,13 @@ function rendre() {
   // La publication LinkedIn du jour ouvrable.
   const posts = ((lot && lot.posts) || []).slice().sort((a, b) => (a.n || 0) - (b.n || 0));
   const prochainePub = posts.find((p) => p.statutPub !== "publie");
-  if (sien && ouvrable && prochainePub) {
+  // Pour LinkedIn on exige un propriétaire CONNU, là où le reste se contente
+  // de « appartient ou appartenance inconnue » : publier au nom de la mauvaise
+  // entreprise est l'erreur la plus coûteuse de l'outil. Sur un appareil neuf,
+  // qui n'a pas encore ouvert le tableau de bord, l'appartenance est inconnue —
+  // et la publication d'un mandat apparaîtrait dans la journée de l'autre.
+  const linkedinSien = Boolean(mandatExterne()) && sien;
+  if (linkedinSien && ouvrable && prochainePub) {
     jour.push(item("LINKEDIN", "en_cours",
       `Publier la publication ${prochainePub.n} — ${prochainePub.sujet || ""}`, "linkedin.html"));
   }

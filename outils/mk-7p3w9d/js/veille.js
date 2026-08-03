@@ -72,14 +72,71 @@ const SEMAINE = 7 * JOUR;
  * Le corridor exo Saint-Jérôme ↔ Montmorency. C'est de la géographie, pas une
  * donnée de mandat : sa place est bien dans le dépôt public.
  *
- * ⚠️ Liste à confirmer sur l'horaire exo courant — les circuits changent, et
- * une zone de service annoncée doit correspondre à un trajet réel. Le premier
- * client hors zone devient un avis trois étoiles.
+ * Vérifié auprès d'exo les 2 et 3 août 2026.
+ *
+ * La zone n'est PAS un corridor entre deux points : c'est une étoile. La 709
+ * relie Saint-Jérôme à Montmorency (61 arrêts, ~70 min, tous les jours) en
+ * passant par le TERMINUS SAINTE-THÉRÈSE — d'où repartent quinze autres lignes.
+ * C'est ce carrefour, et non le trajet lui-même, qui définit ce qui est
+ * atteignable :
+ *
+ *     240, 241 → Boisbriand          246, 247 → Blainville
+ *     242      → Rosemère et Laval   249      → Lorraine et Terrebonne
+ *     243      → Mirabel             250      → Sainte-Anne-des-Plaines
+ *     251, 252 → Sainte-Thérèse      405, 600, 605 → Deux-Montagnes, St-Eustache
+ *     709      → Saint-Jérôme        509 → même trajet, express aux heures de pointe
+ *
+ * Attention aux numéros : le réseau des Laurentides nord a été renuméroté le
+ * 23 juin 2025. Les anciens numéros à un ou deux chiffres qui traînent encore
+ * dans les applications tierces ne valent plus rien.
+ *
+ * S'y ajoute le TRAIN. La ligne exo2, renumérotée « ligne 12 », relie
+ * Saint-Jérôme à Lucien-L'Allier au centre-ville de Montréal : 14 gares sur
+ * 62,8 km. Cinq d'entre elles sont déjà dans la zone d'autobus (Saint-Jérôme,
+ * Mirabel, Blainville, Sainte-Thérèse, Rosemère) ; les neuf autres l'étendent
+ * jusqu'à Laval, Montréal-Ouest et le centre-ville.
+ *
+ * ⚠️ Atteignable ne veut pas dire rentable. C'est un train de banlieue, pas un
+ * métro : la fréquence est faible hors pointe, et un aller-retour au
+ * centre-ville occupe une demi-journée pour une intervention d'une heure. La
+ * zone étendue sert à consigner une piste sans la jeter, pas à promettre un
+ * déplacement. La promesse publique de déplacement reste la zone d'autobus.
+ *
+ * Ce que la première liste, écrite de mémoire, avait faux :
+ *   - Sainte-Anne-des-Plaines manquait, alors qu'une ligne y va directement.
+ *   - Prévost, Saint-Hippolyte et Piedmont ne sont PAS desservis. Les annoncer
+ *     aurait été une promesse de déplacement fausse.
+ *   - La zone était trop étroite : Terrebonne, Deux-Montagnes et Saint-Eustache
+ *     sont atteignables depuis Sainte-Thérèse, et n'y figuraient pas.
+ *
+ * ⚠️ Changement de service annoncé par exo le 24 août 2026 (retour à l'horaire
+ * régulier après l'été, sur la couronne nord). À revérifier ce jour-là.
  */
 const VILLES = [
-  "Saint-Jérôme", "Mirabel (Saint-Janvier)", "Blainville", "Sainte-Thérèse",
-  "Boisbriand", "Rosemère", "Bois-des-Filion", "Lorraine",
-  "Laval (Sainte-Rose)", "Laval (Vimont)", "Laval (Montmorency)", "Hors corridor",
+  // ── Zone principale : autobus depuis le terminus Sainte-Thérèse ──────────
+  "Saint-Jérôme",                  // 709 — terminus nord
+  "Sainte-Thérèse",                // 251, 252 — le carrefour
+  "Sainte-Anne-des-Plaines",       // 250
+  "Blainville",                    // 246, 247 · aussi une gare
+  "Boisbriand",                    // 240, 241
+  "Rosemère",                      // 242 · aussi une gare
+  "Lorraine",                      // 249
+  "Terrebonne",                    // 249, et 23 du secteur Terrebonne-Mascouche
+  "Mirabel",                       // 243 · aussi une gare (ouverte en 2021)
+  "Deux-Montagnes",                // 405, 600, 605 (express)
+  "Saint-Eustache",                // 405, 600, 605 (express)
+  "Bois-des-Filion",               // adjacent à Lorraine : desserte à valider
+  "Laval (Montmorency)",           // 709 — terminus sud ; 242 via Rosemère
+  // ── Zone étendue : train exo2, renuméroté « ligne 12 » ───────────────────
+  "Laval (Sainte-Rose)",
+  "Laval (Vimont)",
+  "Laval (De la Concorde)",        // correspondance métro ligne orange
+  "Montréal (Ahuntsic–Chabanel)",  // gares Bois-de-Boulogne et Chabanel
+  "Montréal (Parc–Villeray)",      // gare Parc
+  "Montréal (Vendôme–NDG)",        // gare Vendôme, correspondance métro
+  "Montréal-Ouest",
+  "Montréal (centre-ville)",       // Lucien-L'Allier — terminus sud
+  "Hors zone",
 ];
 
 const TYPES = {

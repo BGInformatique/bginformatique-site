@@ -19,7 +19,7 @@ BASE="https://bginformatique.ca/outils/mk-7p3w9d"
 DOSSIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FICHIERS=("index.html" "jour.html" "linkedin.html" "veille.html"
           "js/app.js" "js/jour.js" "js/linkedin.js" "js/veille.js"
-          "js/firebase-config.js" "css/style.css")
+          "js/mandat.js" "js/firebase-config.js" "css/style.css")
 
 echo "Comparaison de $DOSSIER"
 echo "               avec $BASE"
