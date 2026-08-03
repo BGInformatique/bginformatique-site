@@ -11,12 +11,12 @@
  * publications publiques (Public Feed et Keyword Insights sont réservées à des
  * partenaires médias approuvés), et le grattage automatisé est interdit par les
  * conditions d'utilisation — le risque étant le blocage définitif du compte
- * personnel, donc la perte des groupes eux-mêmes. Le repérage reste humain :
- * notifications de groupe, 30 minutes par jour ouvrable.
+ * personnel. Le repérage reste humain : on lit son propre fil Favoris, 30 minutes
+ * par jour ouvrable — ce que Facebook n'interdit évidemment pas.
  *
  * Ce que la page apporte : la consignation en cinq secondes, l'ordre de
  * réponse par âge (une réponse en 2 h vaut dix réponses en 24 h), les relances
- * dues, et le rendement par groupe — qui dit lesquels quitter.
+ * dues, et le rendement par page — qui dit lesquelles cesser de suivre.
  *
  * Données personnelles — décision de conception, pas de discipline
  * ---------------------------------------------------------------
@@ -429,7 +429,7 @@ function aAbandonner(p) {
 }
 
 /*
- * Rendement d'un groupe. Le chiffre qui compte n'est pas le nombre de pistes
+ * Rendement d'une page. Le chiffre qui compte n'est pas le nombre de pistes
  * repérées — c'est le nombre qui a produit un échange. Un groupe très actif
  * dont personne ne répond jamais coûte du temps sans rien rendre.
  */
@@ -548,7 +548,7 @@ function rendreGroupes() {
   const r = rendementGroupes();
   $("g-vide").hidden = r.length > 0;
   $("g-liste").innerHTML = r.map((g) => {
-    // Six semaines sans un seul échange : le groupe coûte du temps et ne rend
+    // Six semaines sans un seul échange : la page coûte du temps et ne rend
     // rien. On le signale plutôt que de laisser la veille s'alourdir.
     const vieux = g.cree && maintenant() - g.cree > 6 * SEMAINE;
     const strile = vieux && g.acquis === 0;

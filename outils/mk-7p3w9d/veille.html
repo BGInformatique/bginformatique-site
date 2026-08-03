@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Veille de prospection — Tableau de bord marketing</title>
-  <link rel="stylesheet" href="css/style.css?v=20260803120530">
+  <link rel="stylesheet" href="css/style.css?v=20260803130537">
   <style>
     /* Propre à cette page : le reste vient de css/style.css, partagé avec les
        autres écrans de l'outil et qu'on ne touche pas pour un seul usage. */
@@ -83,7 +83,7 @@
       <input class="champ large" id="p-lien" type="url" placeholder="Lien de la publication (https://…)">
       <select class="champ" id="p-ville" aria-label="Ville"></select>
       <select class="champ" id="p-type" aria-label="Type de problème"></select>
-      <input class="champ" id="p-groupe" list="l-groupes" placeholder="Groupe Facebook">
+      <input class="champ" id="p-groupe" list="l-groupes" placeholder="Page Facebook">
       <select class="champ" id="p-source" aria-label="Source"></select>
       <input class="champ large" id="p-note" maxlength="120"
              placeholder="Note courte — sans nom (ex. « demande une recommandation, urgent »)">
@@ -138,21 +138,24 @@
 
   <!-- ── Groupes surveillés ── -->
   <section class="carte">
-    <div class="entete"><h2>Groupes surveillés</h2></div>
+    <div class="entete"><h2>Pages suivies</h2></div>
     <p class="v-avis">
-      12 à 20 groupes, pas plus : au-delà, le volume de notifications devient ingérable
-      et la veille est abandonnée en deux semaines. Dans chaque groupe :
-      ⋯ → Suivre le groupe → <strong>Toutes les publications</strong>.
-      Un groupe suivi depuis six semaines sans un seul échange est signalé « à quitter ».
+      Ce sont des <strong>pages</strong> — Spotted, babillards, petites annonces — pas des
+      groupes : rien à demander, rien à faire approuver. Sur chacune : ⋯ →
+      <strong>Ajouter aux favoris</strong>. Facebook garde alors un fil Favoris séparé et
+      chronologique, sans algorithme — c'est là que la veille se fait, pas dans le fil
+      principal. 12 à 20 pages, pas plus : au-delà, le fil Favoris redevient aussi bruyant
+      que le fil normal. Une page suivie depuis six semaines sans un seul échange est
+      signalée « à quitter ».
     </p>
     <form class="v-saisie" id="f-groupe">
-      <input class="champ" id="g-nom" placeholder="Nom du groupe Facebook">
-      <select class="champ" id="g-ville" aria-label="Ville du groupe"></select>
+      <input class="champ" id="g-nom" placeholder="Nom de la page Facebook">
+      <select class="champ" id="g-ville" aria-label="Ville de la page"></select>
       <button class="btn" type="submit">Suivre</button>
     </form>
-    <div class="v-vide" id="g-vide">Aucun groupe suivi. Commencer par en ajouter une douzaine.</div>
+    <div class="v-vide" id="g-vide">Aucune page suivie. Commencer par en ajouter une douzaine.</div>
     <table class="v-tableau">
-      <thead><tr><th>Groupe</th><th>Ville</th><th>Repérées</th><th>Échanges</th><th>Clients</th><th></th></tr></thead>
+      <thead><tr><th>Page</th><th>Ville</th><th>Repérées</th><th>Échanges</th><th>Clients</th><th></th></tr></thead>
       <tbody id="g-liste"></tbody>
     </table>
   </section>
@@ -162,9 +165,9 @@
     <p class="v-avis">
       Elle ne va rien chercher sur Facebook, et ce n'est pas une limite technique qu'on
       lèvera plus tard : aucune API ne permet de chercher des publications publiques, et
-      le grattage automatisé est interdit par les conditions d'utilisation — le risque
-      étant le blocage du compte personnel, donc la perte des groupes eux-mêmes.
-      Le repérage se fait par les notifications de groupe, 30 minutes par jour ouvrable.
+      le grattage automatisé est interdit par les conditions d'utilisation. Le repérage se
+      fait à l'œil, dans le fil Favoris, 30 minutes par jour ouvrable — un humain qui lit
+      son propre fil ne pose aucun problème.
       Ce que l'outil apporte : ne rien échapper, relancer au bon moment, et savoir quel
       groupe rapporte.
     </p>
@@ -172,6 +175,6 @@
 
 </div>
 
-<script type="module" src="js/veille.js?v=20260803120530"></script>
+<script type="module" src="js/veille.js?v=20260803130537"></script>
 </body>
 </html>
