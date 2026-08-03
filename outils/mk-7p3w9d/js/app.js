@@ -446,6 +446,9 @@ function carte(t, contexte) {
       <div class="etiq">${pil.join("")}</div>
     </div>
     <div class="outils">
+      ${t.statut !== "fait" && brouillonDe(t) ? `<a class="ic ic-mail"
+        href="${ech(lienCourriel((prospection && (prospection.prospects || []).find((p) => p.tacheId === t.id) || {}).courriel, brouillonDe(t)))}"
+        title="Ouvrir un courriel avec le brouillon">✉</a>` : ""}
       <button class="ic ${t.statut === "fait" ? "on" : ""}" data-fait title="${t.statut === "fait" ? "Remettre à faire" : "Marquer faite"}">
         <svg><use href="#i-coche"></use></svg></button>
       <button class="ic ${actif ? "on" : ""}" data-chrono title="${actif ? "Arrêter le minuteur" : "Démarrer le minuteur"}">
@@ -503,6 +506,24 @@ function remplir(cible, taches, contexte, vide) {
   cible.appendChild(env);
 }
 
+/*
+ * « Écrire » : un lien mailto ouvre le logiciel de courriel du poste avec un
+ * nouveau message prérempli — destinataire (si connu) et brouillon dans le
+ * corps. L'envoi reste un geste : relire, ajuster, envoyer, puis marquer la
+ * tâche faite. Le brouillon vit dans le détail de la tâche du prospecteur.
+ */
+function brouillonDe(t) {
+  const m = /Brouillon prêt[^:]*:\n\n([\s\S]*?)\n\nMarquer cette tâche/
+    .exec((t && t.detail) || "");
+  return m ? m[1].trim() : "";
+}
+
+function lienCourriel(courriel, brouillon) {
+  const dest = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(courriel || "") ? courriel : "";
+  return `mailto:${dest}?subject=${encodeURIComponent("MSI Bureautique")}` +
+    `&body=${encodeURIComponent(brouillon)}`;
+}
+
 function rendreProspection() {
   const liste = (prospection && prospection.prospects) || [];
   /*
@@ -554,7 +575,7 @@ function rendreProspection() {
   const parId = new Map(miens.map((p) => [p.id, p]));
   $("p-liste").innerHTML =
     `<thead><tr><th>Prospect</th><th>État</th><th>Rel.</th><th>Prochaine</th>` +
-    `<th>Note</th><th></th></tr></thead><tbody>` +
+    `<th>Note</th><th></th><th></th></tr></thead><tbody>` +
     miens.map((p) => {
       // Ce que la page sait de plus frais que le miroir hebdomadaire : un signal
       // déposé ici, ou la tâche de relance déjà marquée faite (envoi confirmé).
@@ -567,12 +588,15 @@ function rendreProspection() {
       const enCadence = !sig && !envoye &&
         ["a_contacter", "contacte_sans_reponse", "relance_envoyee"].includes(p.statut);
       const retard = enCadence && p.prochaine && p.prochaine < auj;
+      const brouillon = !envoye && !sig ? brouillonDe(t) : "";
       return `<tr data-p="${ech(p.id)}">
         <td class="p-c-nom">${ech(p.prospect)}</td>
         <td>${ech(etat)}</td>
         <td class="p-c-num">${p.relances || 0}</td>
         <td class="p-c-date${retard ? " p-retard" : ""}">${ech(p.prochaine || "—")}</td>
         <td class="p-c-note">${ech(p.note || "")}</td>
+        <td>${brouillon ? `<a class="p-act" href="${ech(lienCourriel(p.courriel, brouillon))}"
+          title="Ouvrir un courriel avec le brouillon${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</a>` : ""}</td>
         <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select></td>
       </tr>`;
     }).join("") + "</tbody>";
@@ -581,7 +605,7 @@ function rendreProspection() {
     const p = parId.get(tr.dataset.p);
     if (!p) return;
     tr.onclick = (ev) => {
-      if (ev.target.closest("select")) return;
+      if (ev.target.closest("select") || ev.target.closest("a")) return;
       filtreTexte = p.prospect.toLowerCase();
       $("f-texte").value = p.prospect;
       filtreChantier = "";

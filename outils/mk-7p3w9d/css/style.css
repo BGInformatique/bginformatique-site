@@ -272,6 +272,7 @@ main { padding: 16px 22px 60px; display: grid; gap: 16px; grid-template-columns:
 .ic:hover { background: var(--surface); color: var(--text); }
 .ic.on { background: var(--primary); color: #fff; }
 .ic svg { width: 15px; height: 15px; fill: currentColor; }
+a.ic { text-decoration: none; font-size: 14px; line-height: 1; }
 
 /* ── filtres, ajout, vide ─────────────────────────────── */
 .filtres { display: flex; flex-wrap: wrap; gap: 5px; }
