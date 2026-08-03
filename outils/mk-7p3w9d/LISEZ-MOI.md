@@ -108,7 +108,9 @@ page « Lot LinkedIn », tâches déposées chaque lundi par le prospecteur.
 
 ## Volet Prospection (1er août 2026)
 
-En tête de page, une carte par prospect : état de la cadence, relances faites,
+En tête de page, une liste serrée — une **ligne** par prospect (tableau dense,
+texte brut, demandé le 3 août : utilité d'abord, pas de décor) : état de la
+cadence, relances faites,
 prochaine action. Les données viennent du **miroir** que le prospecteur de
 BG001 publie dans `users/<uid>/marketing/prospection` (même sous-collection,
 donc mêmes règles que `state` — rien à republier en console ; aucun nom de

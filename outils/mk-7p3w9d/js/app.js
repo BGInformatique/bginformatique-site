@@ -127,11 +127,6 @@ const LIB_PROSP = {
   rdv_fixe: "RDV fixé", dormant: "Dormant", client: "Client",
   abandonne: "Abandonné",
 };
-const CLASSE_PROSP = {
-  contact_prepare: "en_cours", relance_preparee: "en_cours",
-  repondu: "fait", rdv_fixe: "fait", client: "fait",
-  dormant: "reporte", abandonne: "bloque",
-};
 
 function normaliser(brut) {
   const s = VIDE();
@@ -543,39 +538,48 @@ function rendreProspection() {
   }
   const signaux = (prospection && prospection.signaux) || {};
   $("p-maj").textContent = prospection.majLe
-    ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} — ` +
-      "cliquer un prospect pour voir ses tâches"
+    ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} · clic = tâches du prospect`
     : "";
-  const cible = $("p-liste");
-  cible.innerHTML = "";
-  for (const p of miens) {
-    // Ce que la page sait de plus frais que le miroir hebdomadaire : un signal
-    // déposé ici, ou la tâche de relance déjà marquée faite (envoi confirmé).
-    const t = p.tacheId ? state.taches.find((x) => x.id === p.tacheId) : null;
-    const envoye = t && t.statut === "fait";
-    const sig = signaux[p.id] && signaux[p.id].statut;
-    const statut = sig || (envoye ? "relance_envoyee" : p.statut);
-    const el = document.createElement("div");
-    el.className = "p-carte";
-    el.innerHTML = `
-      <div class="p-nom">${ech(p.prospect)}</div>
-      <div class="etiq">
-        <span class="pil ${CLASSE_PROSP[statut] || ""}">${LIB_PROSP[statut] || ech(statut)}</span>
-        ${p.relances ? `<span class="pil">${p.relances} relance${p.relances > 1 ? "s" : ""}</span>` : ""}
-      </div>
-      <div class="p-note">${sig ? "signalé — le journal suivra au prochain cycle"
-        : envoye ? "envoi noté — journal à jour au prochain cycle"
-        : p.prochaine ? "prochaine action : " + ech(p.prochaine) : ""}</div>
-      <select class="p-sig" title="Signaler un changement d'état au prospecteur">
-        <option value="">signaler…</option>
-        <option value="repondu">a répondu</option>
-        <option value="rdv_fixe">rendez-vous fixé</option>
-        <option value="client">devenu client</option>
-        <option value="dormant">mettre en dormance</option>
-        <option value="a_contacter">réactiver la cadence</option>
-      </select>`;
-    if (p.note) el.title = p.note;
-    el.onclick = (ev) => {
+
+  /* Liste serrée, sans décor : une ligne par prospect, l'état en texte brut.
+     Seule couleur : une échéance dépassée — c'est une information, pas un style. */
+  const auj = jourISO();
+  const SIGNAL_OPTIONS = `<option value="">signaler…</option>
+    <option value="repondu">a répondu</option>
+    <option value="rdv_fixe">rendez-vous fixé</option>
+    <option value="client">devenu client</option>
+    <option value="dormant">mettre en dormance</option>
+    <option value="a_contacter">réactiver la cadence</option>`;
+  const parId = new Map(miens.map((p) => [p.id, p]));
+  $("p-liste").innerHTML =
+    `<thead><tr><th>Prospect</th><th>État</th><th>Rel.</th><th>Prochaine</th>` +
+    `<th>Note</th><th></th></tr></thead><tbody>` +
+    miens.map((p) => {
+      // Ce que la page sait de plus frais que le miroir hebdomadaire : un signal
+      // déposé ici, ou la tâche de relance déjà marquée faite (envoi confirmé).
+      const t = p.tacheId ? state.taches.find((x) => x.id === p.tacheId) : null;
+      const envoye = t && t.statut === "fait";
+      const sig = signaux[p.id] && signaux[p.id].statut;
+      const etat = sig ? `${LIB_PROSP[sig] || sig} (signalé)`
+        : envoye ? "Relance envoyée (à consigner)"
+        : (LIB_PROSP[p.statut] || p.statut);
+      const enCadence = !sig && !envoye &&
+        ["a_contacter", "contacte_sans_reponse", "relance_envoyee"].includes(p.statut);
+      const retard = enCadence && p.prochaine && p.prochaine < auj;
+      return `<tr data-p="${ech(p.id)}">
+        <td class="p-c-nom">${ech(p.prospect)}</td>
+        <td>${ech(etat)}</td>
+        <td class="p-c-num">${p.relances || 0}</td>
+        <td class="p-c-date${retard ? " p-retard" : ""}">${ech(p.prochaine || "—")}</td>
+        <td class="p-c-note">${ech(p.note || "")}</td>
+        <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select></td>
+      </tr>`;
+    }).join("") + "</tbody>";
+
+  $("p-liste").querySelectorAll("tr[data-p]").forEach((tr) => {
+    const p = parId.get(tr.dataset.p);
+    if (!p) return;
+    tr.onclick = (ev) => {
       if (ev.target.closest("select")) return;
       filtreTexte = p.prospect.toLowerCase();
       $("f-texte").value = p.prospect;
@@ -584,63 +588,57 @@ function rendreProspection() {
       rendre();
       $("l-tout").scrollIntoView({ behavior: "smooth" });
     };
-    el.querySelector(".p-sig").onchange = (ev) => {
+    tr.querySelector(".p-sig").onchange = (ev) => {
       const v = ev.target.value;
       if (!v || !uidCourant) return;
       setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
         { signaux: { [p.id]: { statut: v, maj: maintenant() } } }, { merge: true })
         .catch((e) => avis("Signal refusé : " + e.message, true));
     };
-    cible.appendChild(el);
-  }
+  });
 
   /* Candidats du recherchiste : rien n'entre dans la cadence sans un
-     Accepter explicite ; un Rejeter est définitif (jamais reproposé). */
+     « accepter » explicite ; un « rejeter » est définitif (jamais reproposé). */
   const cands = (prospection && prospection.candidats) || [];
   const decisions = (prospection && prospection.candidatures) || {};
   const ajouts = (prospection && prospection.ajouts) || {};
   $("p-candidats").hidden = !cands.length && !Object.keys(ajouts).length;
-  const zc = $("p-cand-liste");
-  zc.innerHTML = "";
-  for (const c of cands) {
-    const d = decisions[c.id] && decisions[c.id].decision;
-    const el = document.createElement("div");
-    el.className = "p-carte p-cand-carte";
-    el.innerHTML = `
-      <div class="p-nom">${ech(c.nom)}</div>
-      <div class="etiq">
-        ${c.secteur ? `<span class="pil">${ech(c.secteur)}</span>` : ""}
-        ${c.ville ? `<span class="pil">${ech(c.ville)}</span>` : ""}
-        ${c.taille ? `<span class="pil">${ech(c.taille)}</span>` : ""}
-      </div>
-      <div class="p-note">${ech(c.angle || "")}</div>
-      ${/^https?:\/\//.test(c.site || "") ? `<a class="p-lien" href="${ech(c.site)}"
-        target="_blank" rel="noopener noreferrer">${ech(c.site)}</a>` : ""}
-      ${d ? `<div class="p-note">${d === "accepte"
-          ? "accepté — en cadence au prochain cycle"
-          : "rejeté — ne sera plus proposé"}</div>`
-        : `<div class="p-actions">
-             <button type="button" class="btn p-btn" data-d="accepte">Accepter</button>
-             <button type="button" class="btn btn-ghost p-btn" data-d="rejete">Rejeter</button>
-           </div>`}`;
-    el.querySelectorAll("[data-d]").forEach((b) => {
-      b.onclick = () => {
-        if (!uidCourant) return;
-        setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
-          { candidatures: { [c.id]: { decision: b.dataset.d, maj: maintenant() } } },
-          { merge: true })
-          .catch((e) => avis("Décision refusée : " + e.message, true));
-      };
-    });
-    zc.appendChild(el);
-  }
-  for (const a of Object.values(ajouts)) {
-    const el = document.createElement("div");
-    el.className = "p-carte p-cand-carte";
-    el.innerHTML = `<div class="p-nom">${ech(a.nom || "")}</div>
-      <div class="p-note">ajout manuel — en cadence au prochain cycle</div>`;
-    zc.appendChild(el);
-  }
+  const parCand = new Map(cands.map((c) => [c.id, c]));
+  $("p-cand-liste").innerHTML =
+    `<thead><tr><th>Candidat</th><th>Secteur</th><th>Ville</th><th>Taille</th>` +
+    `<th>Angle</th><th>Src</th><th>Décision</th></tr></thead><tbody>` +
+    cands.map((c) => {
+      const d = decisions[c.id] && decisions[c.id].decision;
+      return `<tr>
+        <td class="p-c-nom">${ech(c.nom)}</td>
+        <td>${ech(c.secteur || "")}</td>
+        <td>${ech(c.ville || "")}</td>
+        <td class="p-c-note">${ech(c.taille || "")}</td>
+        <td class="p-c-note">${ech(c.angle || "")}</td>
+        <td>${/^https?:\/\//.test(c.site || "")
+          ? `<a class="p-lien" href="${ech(c.site)}" target="_blank" rel="noopener noreferrer">site</a>` : ""}${
+          /^https?:\/\//.test(c.source || "")
+          ? ` <a class="p-lien" href="${ech(c.source)}" target="_blank" rel="noopener noreferrer">src</a>` : ""}</td>
+        <td class="p-c-dec">${d
+          ? (d === "accepte" ? "acceptée — prochain cycle" : "rejetée")
+          : `<button type="button" class="p-act" data-c="${ech(c.id)}" data-d="accepte">accepter</button> ·
+             <button type="button" class="p-act" data-c="${ech(c.id)}" data-d="rejete">rejeter</button>`}</td>
+      </tr>`;
+    }).join("") +
+    Object.values(ajouts).map((a) => `<tr>
+      <td class="p-c-nom">${ech(a.nom || "")}</td>
+      <td colspan="5" class="p-c-note">ajout manuel</td>
+      <td class="p-c-dec">acceptée — prochain cycle</td></tr>`).join("") +
+    "</tbody>";
+  $("p-cand-liste").querySelectorAll("[data-c]").forEach((b) => {
+    b.onclick = () => {
+      if (!uidCourant || !parCand.has(b.dataset.c)) return;
+      setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+        { candidatures: { [b.dataset.c]: { decision: b.dataset.d, maj: maintenant() } } },
+        { merge: true })
+        .catch((e) => avis("Décision refusée : " + e.message, true));
+    };
+  });
 }
 
 function boutons(cible, entrees, courant, action) {
