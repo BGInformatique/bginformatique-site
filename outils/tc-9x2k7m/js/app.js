@@ -423,12 +423,6 @@ function fmtDuration(minutes) {
   return `${h} h ${pad(m)}`;
 }
 
-// Un écart peut être négatif (plus de billets inscrits que de temps punché).
-function fmtSigned(minutes) {
-  if (minutes === 0) return "0 min";
-  return (minutes < 0 ? "−" : "+") + fmtDuration(Math.abs(minutes));
-}
-
 function fmtDecimalHours(minutes) {
   return (minutes / 60).toFixed(2).replace(".", ",");
 }
@@ -818,8 +812,8 @@ function renderInterventionLive() {
     els.interventionLabel.textContent = "Intervention en cours";
     els.interventionDetail.textContent =
       `Démarrée à ${timeHM(start)}${veille ? ` (${dateISO(start)})` : ""}` +
-      // Rappel discret : une intervention chronométrée hors punch creuse
-      // l'écart entre temps travaillé et temps ventilé.
+      // Rappel discret : du temps facturé à un client sans que la journée
+      // soit punchée, c'est presque toujours un punch in oublié.
       (state.activePunch ? "" : " · aucun punch en cours");
     updateInterventionTimer();
   } else {
@@ -1526,7 +1520,6 @@ function renderPunchTable() {
       const count = dayCounts.get(day);
       const punche = dayTotals.get(day);
       const ventile = interventionsDuJour.get(day) || 0;
-      const ecart = punche - ventile;
 
       const trDay = document.createElement("tr");
       trDay.className = "day-row";
@@ -1538,11 +1531,7 @@ function renderPunchTable() {
       trDay.innerHTML = `
         <td colspan="2"><span class="chevron">${expanded ? "▾" : "▸"}</span>${escapeHtml(dayLabel(start))} · ${count} période${count > 1 ? "s" : ""}</td>
         <td>Total : ${fmtDuration(punche)}</td>
-        <td class="${ecart > 0 ? "gap-warn" : ""}">${
-          ventile === 0
-            ? "Aucun billet inscrit"
-            : `Ventilé : ${fmtDuration(ventile)} · écart ${fmtSigned(ecart)}`
-        }</td>`;
+        <td>${ventile === 0 ? "Aucun billet inscrit" : `Ventilé : ${fmtDuration(ventile)}`}</td>`;
       els.punchTbody.appendChild(trDay);
     }
 
@@ -1564,14 +1553,12 @@ function renderPunchTable() {
   }
 
   const ventileTotal = periodInterventions().reduce((n, i) => n + minutesBetween(i.start, i.end), 0);
-  const ecart = total - ventileTotal;
   els.punchTotal.innerHTML =
     rows.length === 0
       ? ""
       : `${rows.length} période${rows.length > 1 ? "s" : ""} — total travaillé : ` +
         `<strong>${fmtDuration(total)}</strong> (${fmtDecimalHours(total)} h) · ` +
-        `ventilé en interventions : <strong>${fmtDuration(ventileTotal)}</strong> · ` +
-        `écart : <strong class="${ecart > 0 ? "gap-warn" : ""}">${fmtSigned(ecart)}</strong>`;
+        `ventilé en interventions : <strong>${fmtDuration(ventileTotal)}</strong>`;
 }
 
 function renderClientFilter() {
@@ -1979,7 +1966,7 @@ function generateWeeklyReport() {
         <table>
           <thead><tr><th>Date</th><th>Début</th><th>Fin</th><th>Durée</th></tr></thead>
           <tbody>${punchRows}</tbody>
-          <tfoot><tr><td colspan="3">Total de la semaine — ventilé en interventions : ${fmtDuration(ventileMin)}, écart ${fmtSigned(punchMin - ventileMin)}</td><td>${fmtDuration(punchMin)} (${fmtDecimalHours(punchMin)} h)</td></tr></tfoot>
+          <tfoot><tr><td colspan="3">Total de la semaine — ventilé en interventions : ${fmtDuration(ventileMin)}</td><td>${fmtDuration(punchMin)} (${fmtDecimalHours(punchMin)} h)</td></tr></tfoot>
         </table>
       </section>`;
     })
