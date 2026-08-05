@@ -138,12 +138,6 @@ async function sectionA() {
     egal(tc.fmtDuration(605), "10 h 05");
   });
 
-  await test("fmtSigned : zéro, positif, négatif (vrai signe moins)", () => {
-    egal(tc.fmtSigned(0), "0 min");
-    egal(tc.fmtSigned(90), "+1 h 30");
-    egal(tc.fmtSigned(-45), "−45 min");
-  });
-
   await test("fmtDecimalHours : virgule décimale", () => {
     egal(tc.fmtDecimalHours(90), "1,50");
     egal(tc.fmtDecimalHours(100), "1,67");
@@ -1048,11 +1042,14 @@ async function sectionM() {
     egal(tc.els.punchTbody.querySelectorAll("tr").length, 4, "hier déplié au clic");
   });
 
-  await test("écart punché/ventilé : signalé en alerte dans la ligne du jour", async () => {
+  await test("temps ventilé affiché, sans aucun écart", async () => {
+    // La feuille de temps dit ce qui a été punché et ce qui a été ventilé.
+    // L'écart entre les deux n'y figure plus : demandé, et retiré partout.
     await semer();
-    const alerte = tc.els.punchTbody.querySelector("tr.day-row td.gap-warn");
-    vrai(alerte, "cellule .gap-warn présente");
-    contient(alerte.textContent, "écart +30 min");
+    contient(tc.els.punchTbody.textContent, "Ventilé : 30 min");
+    absent(tc.els.punchTbody.textContent, "écart", "aucun écart dans les lignes de jour");
+    absent(tc.els.punchTotal.textContent, "écart", "aucun écart dans le total");
+    egal(tc.els.punchTbody.querySelector(".gap-warn"), null, "plus de mise en alerte");
     contient(tc.els.punchTbody.textContent, "Aucun billet inscrit", "journée sans intervention signalée");
     contient(tc.els.punchTotal.textContent, "2 périodes");
   });
@@ -1251,6 +1248,8 @@ async function sectionO() {
     contient(html, "Client &lt;script&gt;", "client hostile échappé");
     absent(html, "<script>Client", "aucune balise injectée");
     contient(html, "note &amp; rappel", "note de vérification incluse et échappée");
+    contient(html, "ventilé en interventions : 1 h 00", "temps ventilé de la semaine");
+    absent(html, "écart", "aucun écart dans le rapport non plus");
   });
 
   await test("fenêtre bloquée : explication claire, pas d'erreur", async () => {

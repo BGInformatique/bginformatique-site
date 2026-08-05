@@ -10,7 +10,7 @@ ni npm, aucune dépendance à installer.
 
 ## Ce qui est testé
 
-124 tests en 19 sections : formats et calendrier (y compris les changements
+123 tests en 19 sections : formats et calendrier (y compris les changements
 d'heure de mars et novembre), saisie des heures, normalisation des données,
 fusion entre appareils (pierres tombales comprises), enregistrement local,
 authentification, réception des instantanés Firestore — dont le cas qui a

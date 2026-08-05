@@ -109,7 +109,6 @@ globalThis.__tc = {
   dayLabel,
   minutesBetween,
   fmtDuration,
-  fmtSigned,
   fmtDecimalHours,
   startOfDay,
   addDays,

@@ -743,15 +743,6 @@ td.center {
   text-align: center;
 }
 
-/* Écart entre le temps punché et le temps ventilé en interventions.
- * Les sélecteurs complets sont nécessaires : « .day-row td » et
- * « .filtered-total strong » l'emportent sinon en spécificité. */
-.gap-warn,
-.day-row td.gap-warn,
-.filtered-total strong.gap-warn {
-  color: var(--warn);
-}
-
 .next-day {
   font-size: 0.75em;
   color: var(--text-muted);
