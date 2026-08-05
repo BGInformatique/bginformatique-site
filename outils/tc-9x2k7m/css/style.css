@@ -143,6 +143,40 @@ main > *,
   flex-wrap: wrap;
 }
 
+/* Bande de l'intervention chronométrée : sa propre ligne sous les boutons de
+   punch, pour qu'un chrono en marche se voie sans avoir à descendre dans la
+   page. */
+.live-card {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.live-info {
+  flex: 1;
+  min-width: 200px;
+}
+
+.live-timer {
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.live-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 /* ---- Sommaire ---- */
 
 .summary {

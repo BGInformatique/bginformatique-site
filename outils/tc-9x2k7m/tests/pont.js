@@ -62,6 +62,9 @@ globalThis.__tc = {
   get punchDialogClosesActive() {
     return punchDialogClosesActive;
   },
+  get interventionDialogClosesActive() {
+    return interventionDialogClosesActive;
+  },
   dayOverrides,
   activeBanners,
   summaryExpanded,
@@ -74,7 +77,7 @@ globalThis.__tc = {
   STORAGE_KEY,
   IMPORT_BACKUP_KEY,
   QUARANTINE_PREFIX,
-  PUNCH_OUBLIE_MS,
+  CHRONO_OUBLIE_MS,
   TOMBSTONE_TTL_MS,
   INVALID_DURATION_MSG,
   GROUP_LABELS,
@@ -126,6 +129,8 @@ globalThis.__tc = {
   cancelPunch,
   renderPunchCard,
   updateTimer,
+  chronoHMS,
+  ensureChronoInterval,
   checkPunchOublie,
   openPunchDialog,
   submitPunchForm,
@@ -136,6 +141,14 @@ globalThis.__tc = {
   timesFromFields,
   resolveTimes,
   showDuration,
+
+  /* --- Intervention chronométrée --- */
+  startIntervention,
+  finishIntervention,
+  cancelIntervention,
+  renderInterventionLive,
+  updateInterventionTimer,
+  checkInterventionOubliee,
 
   /* --- Interventions --- */
   openInterventionDialog,
