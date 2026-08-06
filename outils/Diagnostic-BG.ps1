@@ -10,6 +10,10 @@
     Le script est strictement en lecture seule. Aucune modification n'est
     apportée au système.
 
+    Optimisations : une seule session CIM (DCOM) réutilisée pour toutes les
+    requêtes WMI, filtrage côté serveur (WQL) pour les classes volumineuses
+    (périphériques, services) et mesure de la durée d'exécution.
+
 .NOTES
     Auteur  : BG Informatique - https://bginformatique.ca
     Licence : Usage diagnostic. Le rapport reste la propriété du client.
@@ -20,6 +24,7 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
 
+$Sw         = [System.Diagnostics.Stopwatch]::StartNew()
 $Stamp      = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
 $Desktop    = [Environment]::GetFolderPath('Desktop')
 if (-not (Test-Path $Desktop)) { $Desktop = $env:USERPROFILE }
@@ -38,6 +43,26 @@ function Add-Header {
 function Add-Sub { param([string]$Title) Add-Line ''; Add-Line "-- $Title --" }
 function Add-KV  { param([string]$K,[object]$V) Add-Line ("  {0,-28} : {1}" -f $K, $V) }
 function Safe    { param([scriptblock]$Block,[string]$Fallback='(indisponible)') try { & $Block } catch { $Fallback } }
+
+# Session CIM unique, réutilisée pour toutes les requêtes WMI.
+# Protocole DCOM : fonctionne localement sans dépendre du service WinRM.
+$CimSession = $null
+try {
+    $CimSession = New-CimSession -SessionOption (New-CimSessionOption -Protocol Dcom) -ErrorAction Stop
+} catch { $CimSession = $null }
+
+function Get-Cim {
+    param(
+        [Parameter(Mandatory)][string]$Class,
+        [string]$Filter,
+        [string]$Namespace
+    )
+    $p = @{ ClassName = $Class; ErrorAction = 'Stop' }
+    if ($CimSession) { $p.CimSession = $CimSession }
+    if ($Filter)     { $p.Filter     = $Filter }
+    if ($Namespace)  { $p.Namespace  = $Namespace }
+    Get-CimInstance @p
+}
 
 # ─── En-tête du rapport ──────────────────────────────────────────────────
 Add-Line ('=' * 70)
@@ -58,9 +83,9 @@ Write-Host ''
 # ─── 1. Identite et systeme d'exploitation ───────────────────────────────
 Write-Host '  [1/12] Systeme d''exploitation...'
 Add-Header '1. SYSTEME D''EXPLOITATION'
-$os  = Safe { Get-CimInstance Win32_OperatingSystem }
-$cs  = Safe { Get-CimInstance Win32_ComputerSystem }
-$bios= Safe { Get-CimInstance Win32_BIOS }
+$os  = Safe { Get-Cim Win32_OperatingSystem }
+$cs  = Safe { Get-Cim Win32_ComputerSystem }
+$bios= Safe { Get-Cim Win32_BIOS }
 if ($os) {
     Add-KV 'Edition'        $os.Caption
     Add-KV 'Version'        $os.Version
@@ -89,7 +114,7 @@ if ($bios) {
 # ─── 2. Processeur et memoire ────────────────────────────────────────────
 Write-Host '  [2/12] Processeur et memoire...'
 Add-Header '2. PROCESSEUR ET MEMOIRE'
-$cpu = Safe { Get-CimInstance Win32_Processor }
+$cpu = Safe { Get-Cim Win32_Processor }
 if ($cpu) {
     foreach ($c in @($cpu)) {
         Add-KV 'Processeur'         $c.Name
@@ -109,7 +134,7 @@ if ($os) {
     Add-KV 'RAM libre (GB)'      $freeGB
 }
 Add-Sub 'Barrettes physiques'
-$mem = Safe { Get-CimInstance Win32_PhysicalMemory }
+$mem = Safe { Get-Cim Win32_PhysicalMemory }
 if ($mem) {
     $i = 1
     foreach ($m in @($mem)) {
@@ -161,7 +186,7 @@ if ($mp) {
 } else { Add-Line '  (Get-MpComputerStatus indisponible - peut necessiter privileges admin)' }
 
 Add-Sub 'Antivirus / antimalware enregistres'
-$av = Safe { Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntivirusProduct }
+$av = Safe { Get-Cim -Class AntivirusProduct -Namespace 'root\SecurityCenter2' }
 if ($av) {
     foreach ($a in @($av)) {
         Add-Line "  - $($a.displayName) (executable: $($a.pathToSignedReportingExe))"
@@ -216,7 +241,7 @@ if ($procs) {
 # ─── 7. Demarrage automatique ────────────────────────────────────────────
 Write-Host '  [7/12] Programmes au demarrage...'
 Add-Header '7. PROGRAMMES AU DEMARRAGE'
-$startup = Safe { Get-CimInstance Win32_StartupCommand }
+$startup = Safe { Get-Cim Win32_StartupCommand }
 if ($startup) {
     foreach ($s in @($startup)) {
         Add-Line ("  [$($s.Location)]  $($s.Name)")
@@ -228,7 +253,9 @@ if ($startup) {
 Write-Host '  [8/12] Services Windows...'
 Add-Header '8. SERVICES PROBLEMATIQUES'
 Add-Sub 'Services configures en automatique mais arretes'
-$svc = Safe { Get-CimInstance Win32_Service | Where-Object { $_.StartMode -eq 'Auto' -and $_.State -ne 'Running' -and $_.Name -notlike 'edgeupdate*' } }
+# Filtrage cote serveur (WQL) : on ne ramene que les services en demarrage
+# automatique qui ne tournent pas, au lieu de charger les ~200 services du poste.
+$svc = Safe { Get-Cim -Class Win32_Service -Filter "StartMode = 'Auto' AND State <> 'Running'" | Where-Object { $_.Name -notlike 'edgeupdate*' } }
 if ($svc) {
     foreach ($s in @($svc)) {
         Add-Line ("  [$($s.State)]  $($s.Name)  -  $($s.DisplayName)")
@@ -298,7 +325,9 @@ Add-KV 'Resolution DNS'  $(if ($dnsTest) {"OK ($($dnsTest.IPAddress))"} else {'e
 # ─── 11. Drivers et periphériques ────────────────────────────────────────
 Write-Host '  [11/12] Peripheriques en erreur...'
 Add-Header '11. PERIPHERIQUES EN ERREUR'
-$badDev = Safe { Get-CimInstance Win32_PnPEntity | Where-Object { $_.ConfigManagerErrorCode -ne 0 -and $_.ConfigManagerErrorCode -ne $null } }
+# Filtrage cote serveur (WQL) : on demande directement les peripheriques en
+# erreur plutot que de charger les centaines d'entrees PnP du poste.
+$badDev = Safe { Get-Cim -Class Win32_PnPEntity -Filter 'ConfigManagerErrorCode <> 0' }
 if ($badDev) {
     foreach ($d in @($badDev)) {
         Add-Line ("  - [code $($d.ConfigManagerErrorCode)] $($d.Name)")
@@ -308,15 +337,13 @@ if ($badDev) {
 # ─── 12. Programmes installes ────────────────────────────────────────────
 Write-Host '  [12/12] Inventaire des programmes installes...'
 Add-Header '12. PROGRAMMES INSTALLES'
-$apps = @()
 $paths = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
-foreach ($p in $paths) {
-    $items = Safe { Get-ItemProperty $p | Where-Object { $_.DisplayName } }
-    if ($items) { $apps += $items }
+$apps = foreach ($p in $paths) {
+    Safe { Get-ItemProperty $p | Where-Object { $_.DisplayName } }
 }
 $apps = $apps | Sort-Object DisplayName -Unique
 Add-KV 'Nombre de programmes detectes' (@($apps).Count)
@@ -327,11 +354,16 @@ foreach ($a in $apps) {
     Add-Line ("  - $($a.DisplayName)$ver$pub")
 }
 
+# ─── Liberation de la session CIM ────────────────────────────────────────
+if ($CimSession) { Remove-CimSession $CimSession -ErrorAction SilentlyContinue }
+
 # ─── Cloture et sauvegarde ───────────────────────────────────────────────
+$Sw.Stop()
 Add-Line ''
 Add-Line ('=' * 70)
 Add-Line '                          FIN DU RAPPORT'
 Add-Line ('=' * 70)
+Add-Line ("  Diagnostic execute en {0:N1} secondes." -f $Sw.Elapsed.TotalSeconds)
 Add-Line ''
 Add-Line 'Ce rapport est strictement local. Aucune donnee n''a ete transmise.'
 Add-Line 'Pour nous l''envoyer : information@bginformatique.ca - 450 231-9199'
@@ -345,6 +377,7 @@ try {
     Write-Host '  ============================================================' -ForegroundColor Green
     Write-Host ''
     Write-Host "  Fichier : $ReportPath" -ForegroundColor White
+    Write-Host ("  Duree   : {0:N1} secondes" -f $Sw.Elapsed.TotalSeconds) -ForegroundColor White
     Write-Host ''
     Write-Host '  Vous pouvez maintenant :' -ForegroundColor White
     Write-Host '   1. Ouvrir le fichier pour verifier son contenu' -ForegroundColor Gray
