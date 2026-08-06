@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>TimeCalculator — Feuille de temps et interventions</title>
-  <link rel="stylesheet" href="css/style.css?v=20260805184143">
+  <link rel="stylesheet" href="css/style.css?v=20260806164034">
 </head>
 <body>
   <header class="app-header">
@@ -46,24 +46,23 @@
         <button id="btn-cancel-punch" class="btn btn-ghost" hidden>Annuler le punch</button>
       </div>
 
-      <!-- Intervention chronométrée : elle démarre au moment présent, sans
-           aucune heure à taper. Le client, le billet et la description se
-           remplissent à la fin, quand on sait ce qui a été fait. -->
+      <!-- Interventions chronométrées : chacune démarre au moment présent,
+           sans aucune heure à taper, et plusieurs peuvent tourner en même
+           temps. Le billet et la description se remplissent à la fin, quand
+           on sait ce qui a été fait. -->
       <div class="live-card" id="intervention-live">
-        <span class="status-dot" id="intervention-dot"></span>
-        <div class="live-info">
-          <div class="status-label" id="intervention-label">Aucune intervention en cours</div>
-          <div class="status-detail" id="intervention-detail">« Démarrer » lance le chrono maintenant; les détails s'inscrivent à la fin.</div>
-        </div>
-        <div class="live-timer" id="intervention-timer" hidden>00:00:00</div>
-        <div class="live-actions">
+        <div class="live-head">
+          <span class="status-dot" id="intervention-dot"></span>
+          <div class="live-info">
+            <div class="status-label" id="intervention-label">Aucune intervention en cours</div>
+            <div class="status-detail" id="intervention-detail">« Démarrer » lance un chrono maintenant; les détails s'inscrivent à la fin.</div>
+          </div>
           <button id="btn-start-intervention" class="btn btn-primary">▶ Démarrer une intervention</button>
-          <button id="btn-finish-intervention" class="btn btn-primary" hidden>Terminer l'intervention</button>
-          <button id="btn-cancel-intervention" class="btn btn-ghost" hidden>Annuler</button>
         </div>
+        <ul class="live-list" id="intervention-list" hidden></ul>
       </div>
 
-      <p class="shortcut-hint">Raccourcis : <kbd>P</kbd> punch in / punch out · <kbd>D</kbd> démarrer / terminer une intervention · <kbd>I</kbd> inscrire une intervention</p>
+      <p class="shortcut-hint">Raccourcis : <kbd>P</kbd> punch in / punch out · <kbd>D</kbd> démarrer une intervention · <kbd>T</kbd> terminer la dernière démarrée · <kbd>I</kbd> inscrire une intervention</p>
     </section>
 
     <!-- Sommaire du temps travaillé -->
@@ -290,6 +289,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="js/app.js?v=20260805184143"></script>
+  <script type="module" src="js/app.js?v=20260806164034"></script>
 </body>
 </html>

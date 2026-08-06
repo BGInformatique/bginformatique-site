@@ -67,8 +67,10 @@ const TOMBSTONE_TTL_MS = 180 * 24 * 3600 * 1000;
 
 // state.activePunch    : { start: ms } ou null
 // state.activePunchAt  : ms — dernier changement de activePunch (arbitrage entre appareils)
-// state.activeIntervention   : { start: ms } ou null — chrono d'intervention en marche
-// state.activeInterventionAt : ms — dernier changement de activeIntervention
+// state.activeInterventions  : [{ id, start, client, updatedAt }] — chronos
+//                        d'intervention en marche, plusieurs à la fois. Ils se
+//                        fusionnent enregistrement par enregistrement comme les
+//                        autres registres, pierres tombales comprises.
 // state.punches        : [{ id, start, end, updatedAt }]
 // state.interventions  : [{ id, start, end, client, ticket, category, description,
 //                           billable, toVerify, verifyNote, updatedAt }]
@@ -93,8 +95,7 @@ function emptyState() {
   return {
     activePunch: null,
     activePunchAt: 0,
-    activeIntervention: null,
-    activeInterventionAt: 0,
+    activeInterventions: [],
     punches: [],
     interventions: [],
     tombstones: {},
@@ -208,10 +209,27 @@ function normalizeState(data) {
     activePunch = { start: Number(data.activePunch.start) };
   }
 
-  let activeIntervention = null;
-  if (data.activeIntervention && Number.isFinite(Number(data.activeIntervention.start))) {
-    activeIntervention = { start: Number(data.activeIntervention.start) };
+  // Chronos d'intervention en marche. L'ancien format n'en portait qu'un
+  // (activeIntervention) : il est repris, avec un identifiant DÉDUIT de son
+  // heure de départ — deux appareils qui font la conversion chacun de leur
+  // côté fabriquent ainsi le même, et la fusion n'en fait pas deux copies.
+  const activeInterventions = [];
+  const vus = new Set();
+  const ajouteChrono = (id, start, client, updatedAt) => {
+    if (!Number.isFinite(start) || vus.has(id)) return;
+    vus.add(id);
+    activeInterventions.push({ id, start, client, updatedAt: updatedAt || start });
+  };
+  for (const c of Array.isArray(data.activeInterventions) ? data.activeInterventions : []) {
+    if (!c || typeof c !== "object") continue;
+    const start = Number(c.start);
+    ajouteChrono(str(c.id) || "chrono-" + start, start, str(c.client), num(c.updatedAt));
   }
+  if (data.activeIntervention && Number.isFinite(Number(data.activeIntervention.start))) {
+    const start = Number(data.activeIntervention.start);
+    ajouteChrono("chrono-" + start, start, "", num(data.activeInterventionAt));
+  }
+  activeInterventions.sort((a, b) => a.start - b.start);
 
   const tombstones = {};
   if (data.tombstones && typeof data.tombstones === "object") {
@@ -226,8 +244,7 @@ function normalizeState(data) {
     state: {
       activePunch,
       activePunchAt: num(data.activePunchAt),
-      activeIntervention,
-      activeInterventionAt: num(data.activeInterventionAt),
+      activeInterventions,
       punches,
       interventions,
       tombstones,
@@ -292,16 +309,14 @@ function mergeStates(local, remote) {
     return out.sort((a, b) => a.start - b.start);
   };
 
-  // Les deux chronomètres s'arbitrent séparément : arrêter l'un sur le
-  // cellulaire ne doit pas ressusciter ni effacer l'autre sur le poste.
   const activeDepuisRemote = num(remote.activePunchAt) > num(local.activePunchAt);
-  const interDepuisRemote = num(remote.activeInterventionAt) > num(local.activeInterventionAt);
   return {
     activePunch: activeDepuisRemote ? remote.activePunch : local.activePunch,
     activePunchAt: Math.max(num(local.activePunchAt), num(remote.activePunchAt)),
-    activeIntervention:
-      (interDepuisRemote ? remote.activeIntervention : local.activeIntervention) || null,
-    activeInterventionAt: Math.max(num(local.activeInterventionAt), num(remote.activeInterventionAt)),
+    // Les chronos d'intervention passent par la fusion normale : démarrer sur
+    // le cellulaire pendant qu'un autre tourne sur le poste garde les deux, et
+    // seul un arrêt explicite (pierre tombale) en retire un.
+    activeInterventions: fusionner(local.activeInterventions || [], remote.activeInterventions || []),
     punches: fusionner(local.punches, remote.punches),
     interventions: fusionner(local.interventions, remote.interventions),
     tombstones,
@@ -315,7 +330,7 @@ function sameState(a, b) {
   const cle = (s) =>
     JSON.stringify([
       s.activePunch ? s.activePunch.start : null,
-      s.activeIntervention ? s.activeIntervention.start : null,
+      (s.activeInterventions || []).map((c) => [c.id, c.start, c.client, c.updatedAt]),
       s.punches.map((p) => [p.id, p.start, p.end, p.updatedAt]),
       s.interventions.map((i) => [
         i.id, i.start, i.end, i.client, i.ticket, i.category,
@@ -471,10 +486,8 @@ const els = {
   interventionDot: $("intervention-dot"),
   interventionLabel: $("intervention-label"),
   interventionDetail: $("intervention-detail"),
-  interventionTimer: $("intervention-timer"),
+  interventionList: $("intervention-list"),
   btnStartIntervention: $("btn-start-intervention"),
-  btnFinishIntervention: $("btn-finish-intervention"),
-  btnCancelIntervention: $("btn-cancel-intervention"),
   statToday: $("stat-today"),
   statWeek: $("stat-week"),
   statMonth: $("stat-month"),
@@ -622,10 +635,15 @@ function punchOut() {
     return;
   }
   render();
-  // Le punch out ne touche pas au chrono d'intervention : on le dit, sinon il
-  // tourne tout seul après la fin de la journée.
-  if (state.activeIntervention) {
-    showToast("Punch out enregistré — l'intervention chronométrée continue de tourner.");
+  // Le punch out ne touche pas aux chronos d'intervention : on le dit, sinon
+  // ils tournent tout seuls après la fin de la journée.
+  const enMarche = state.activeInterventions.length;
+  if (enMarche > 0) {
+    showToast(
+      enMarche === 1
+        ? "Punch out enregistré — l'intervention chronométrée continue de tourner."
+        : `Punch out enregistré — les ${enMarche} interventions chronométrées continuent de tourner.`
+    );
   }
 }
 
@@ -671,11 +689,11 @@ function renderPunchCard() {
 // l'intervention en cours, et inversement.
 function tickChronos() {
   updateTimer();
-  updateInterventionTimer();
+  updateInterventionTimers();
 }
 
 function ensureChronoInterval() {
-  const besoin = !!state.activePunch || !!state.activeIntervention;
+  const besoin = !!state.activePunch || state.activeInterventions.length > 0;
   if (besoin && !timerInterval) {
     timerInterval = setInterval(tickChronos, 1000);
   } else if (!besoin && timerInterval) {
@@ -744,121 +762,217 @@ function checkPunchOublie() {
   });
 }
 
-/* ---------- Intervention chronométrée ---------- */
+/* ---------- Interventions chronométrées ---------- */
 
 /*
  * Démarrer une intervention au moment présent : un clic, aucune heure à
- * taper. Le client, le billet et la description se remplissent à la FIN,
- * quand on sait ce qui a été fait — c'est là qu'on peut les décrire, pas
- * avant. Le chrono survit à la fermeture de l'onglet (il est dans l'état
- * enregistré) et se retrouve d'un appareil à l'autre comme le punch.
+ * taper. Le billet et la description se remplissent à la FIN, quand on sait
+ * ce qui a été fait — c'est là qu'on peut les décrire, pas avant.
+ *
+ * PLUSIEURS chronos peuvent tourner en même temps : une sauvegarde qui roule
+ * chez un client pendant qu'on dépanne ailleurs, c'est deux interventions
+ * distinctes à facturer, pas une seule à découper après coup. Chacun porte
+ * son identifiant, se termine séparément, et survit à la fermeture de
+ * l'onglet comme au passage d'un appareil à l'autre.
  */
 function startIntervention() {
-  if (state.activeIntervention) return;
-  state.activeIntervention = { start: Date.now() };
-  state.activeInterventionAt = Date.now();
+  const chrono = touch({ id: genId(), start: Date.now(), client: "" });
+  state.activeInterventions.push(chrono);
   if (!save()) {
-    state.activeIntervention = null;
+    state.activeInterventions.pop();
     return;
   }
   renderInterventionLive();
 }
 
-// Terminer : le formulaire s'ouvre déjà rempli avec les VRAIES heures (début
-// chronométré, fin au moment présent). Comme pour le punch oublié, le chrono
-// n'est arrêté qu'après un enregistrement réussi : fermer le dialogue sans
-// enregistrer ne fait pas disparaître l'heure de début.
-function finishIntervention() {
-  if (!state.activeIntervention) return;
-  const start = state.activeIntervention.start;
+// Terminer CE chrono-là : le formulaire s'ouvre déjà rempli avec les VRAIES
+// heures (début chronométré, fin au moment présent). Comme pour le punch
+// oublié, le chrono n'est arrêté qu'après un enregistrement réussi : fermer
+// le dialogue sans enregistrer ne fait pas disparaître l'heure de début.
+function finishIntervention(id) {
+  const chrono = state.activeInterventions.find((c) => c.id === id);
+  if (!chrono) return;
   // Minimum d'une minute, comme au punch out : sans ça, une intervention de
   // vingt secondes se ferait refuser par le formulaire (durée nulle).
-  const end = Math.max(Date.now(), start + 60000);
-  interventionDialogClosesActive = true;
+  const end = Math.max(Date.now(), chrono.start + 60000);
+  interventionDialogClosesChrono = chrono.id;
   nouvelleIntervention({
     title: "Terminer l'intervention",
-    date: dateISO(new Date(start)),
-    start: timeHM(new Date(start)),
+    date: dateISO(new Date(chrono.start)),
+    start: timeHM(new Date(chrono.start)),
     end: timeHM(new Date(end)),
-    origin: { start, end },
+    client: chrono.client,
+    origin: { start: chrono.start, end },
   });
 }
 
-function cancelIntervention() {
-  if (!state.activeIntervention) return;
-  if (!confirm("Annuler l'intervention en cours ? Aucune intervention ne sera inscrite.")) return;
-  const previous = state.activeIntervention;
-  state.activeIntervention = null;
-  state.activeInterventionAt = Date.now();
+function cancelIntervention(id) {
+  const idx = state.activeInterventions.findIndex((c) => c.id === id);
+  if (idx < 0) return;
+  const chrono = state.activeInterventions[idx];
+  const qui = chrono.client ? ` (${chrono.client})` : "";
+  if (!confirm(`Annuler l'intervention en cours${qui} ? Aucune intervention ne sera inscrite.`)) return;
+  state.activeInterventions.splice(idx, 1);
+  // Pierre tombale : sans elle, l'autre appareil relancerait le chrono arrêté
+  // à la prochaine fusion.
+  state.tombstones[chrono.id] = Date.now();
   if (!save()) {
-    state.activeIntervention = previous;
+    state.activeInterventions.splice(idx, 0, chrono);
+    delete state.tombstones[chrono.id];
     return;
   }
   renderInterventionLive();
 }
 
-function renderInterventionLive() {
-  const active = !!state.activeIntervention;
-  if (!active) dismissBanner("intervention-oubliee");
-  els.interventionDot.classList.toggle("active", active);
-  els.btnStartIntervention.hidden = active;
-  els.btnFinishIntervention.hidden = !active;
-  els.btnCancelIntervention.hidden = !active;
-  els.interventionTimer.hidden = !active;
+// Le client saisi en cours de route sert à distinguer deux chronos à l'écran,
+// et se retrouve prérempli au moment de terminer.
+function updateChronoClient(id, value) {
+  const chrono = state.activeInterventions.find((c) => c.id === id);
+  if (!chrono) return;
+  const avant = { client: chrono.client, updatedAt: chrono.updatedAt };
+  chrono.client = value.trim();
+  touch(chrono);
+  if (!save()) {
+    Object.assign(chrono, avant);
+    return;
+  }
+  // Le champ à l'écran porte déjà la valeur : on accorde la signature pour
+  // qu'un rendu ultérieur ne reconstruise pas la liste sous le curseur.
+  signatureChronosRendue = signatureChronos();
+}
 
-  if (active) {
-    const start = new Date(state.activeIntervention.start);
-    const veille = dateISO(start) !== dateISO(new Date());
-    els.interventionLabel.textContent = "Intervention en cours";
-    els.interventionDetail.textContent =
-      `Démarrée à ${timeHM(start)}${veille ? ` (${dateISO(start)})` : ""}` +
+const AVIS_CHRONO = "intervention-oubliee-";
+
+// Une bannière par chrono : celles des chronos disparus n'ont plus d'objet.
+function nettoyerAvisChronos() {
+  const vivants = new Set(state.activeInterventions.map((c) => AVIS_CHRONO + c.id));
+  for (const id of [...activeBanners.keys()]) {
+    if (id.startsWith(AVIS_CHRONO) && !vivants.has(id)) dismissBanner(id);
+  }
+}
+
+function signatureChronos() {
+  return JSON.stringify(state.activeInterventions.map((c) => [c.id, c.start, c.client]));
+}
+
+// Reconstruire la liste à chaque battement effacerait la saisie en cours dans
+// le champ « client » : on ne la rebâtit que lorsqu'elle change vraiment.
+let signatureChronosRendue = null;
+
+function renderInterventionLive() {
+  const chronos = state.activeInterventions;
+  const actif = chronos.length > 0;
+  nettoyerAvisChronos();
+
+  els.interventionDot.classList.toggle("active", actif);
+  els.interventionLabel.textContent = actif
+    ? chronos.length === 1
+      ? "1 intervention en cours"
+      : `${chronos.length} interventions en cours`
+    : "Aucune intervention en cours";
+  els.interventionDetail.textContent = actif
+    ? "Chaque chrono se termine séparément; les détails s'inscrivent à ce moment-là." +
       // Rappel discret : du temps facturé à un client sans que la journée
       // soit punchée, c'est presque toujours un punch in oublié.
-      (state.activePunch ? "" : " · aucun punch en cours");
-    updateInterventionTimer();
-  } else {
-    els.interventionLabel.textContent = "Aucune intervention en cours";
-    els.interventionDetail.textContent =
-      "« Démarrer » lance le chrono maintenant; les détails s'inscrivent à la fin.";
+      (state.activePunch ? "" : " · aucun punch en cours")
+    : "« Démarrer » lance un chrono maintenant; les détails s'inscrivent à la fin.";
+
+  const signature = signatureChronos();
+  if (signature !== signatureChronosRendue) {
+    els.interventionList.innerHTML = "";
+    for (const c of chronos) els.interventionList.appendChild(chronoRow(c));
+    signatureChronosRendue = signature;
   }
+  els.interventionList.hidden = !actif;
+
+  updateInterventionTimers();
   ensureChronoInterval();
 }
 
-function updateInterventionTimer() {
-  if (!state.activeIntervention) return;
-  els.interventionTimer.textContent = chronoHMS(Date.now() - state.activeIntervention.start);
+// Construite par le DOM plutôt qu'en HTML : le client est saisi par l'usager
+// et se retrouverait sinon concaténé dans un attribut.
+function chronoRow(chrono) {
+  const start = new Date(chrono.start);
+  const veille = dateISO(start) !== dateISO(new Date());
+
+  const li = document.createElement("li");
+  li.className = "live-row";
+  li.dataset.chrono = chrono.id;
+
+  const dot = document.createElement("span");
+  dot.className = "status-dot active";
+  li.appendChild(dot);
+
+  const client = document.createElement("input");
+  client.type = "text";
+  client.className = "live-client";
+  client.value = chrono.client || "";
+  client.placeholder = "Client (optionnel)";
+  client.setAttribute("list", "client-list");
+  client.setAttribute("aria-label", "Client de l'intervention en cours");
+  client.autocomplete = "off";
+  client.dataset.chronoClient = chrono.id;
+  li.appendChild(client);
+
+  const depuis = document.createElement("span");
+  depuis.className = "live-since";
+  depuis.textContent = `depuis ${timeHM(start)}${veille ? ` (${dateISO(start)})` : ""}`;
+  li.appendChild(depuis);
+
+  const timer = document.createElement("span");
+  timer.className = "live-timer";
+  timer.dataset.chronoTimer = chrono.id;
+  timer.textContent = chronoHMS(Date.now() - chrono.start);
+  li.appendChild(timer);
+
+  const terminer = document.createElement("button");
+  terminer.className = "btn btn-primary";
+  terminer.textContent = "Terminer";
+  terminer.dataset.finishChrono = chrono.id;
+  li.appendChild(terminer);
+
+  const annuler = document.createElement("button");
+  annuler.className = "icon-btn delete";
+  annuler.textContent = "✕";
+  annuler.title = "Annuler cette intervention";
+  annuler.setAttribute("aria-label", "Annuler cette intervention en cours");
+  annuler.dataset.cancelChrono = chrono.id;
+  li.appendChild(annuler);
+
+  return li;
+}
+
+function updateInterventionTimers() {
+  for (const c of state.activeInterventions) {
+    const el = els.interventionList.querySelector(`[data-chrono-timer="${cssEscape(c.id)}"]`);
+    if (el) el.textContent = chronoHMS(Date.now() - c.start);
+  }
 }
 
 // Même logique que le punch oublié : un chrono d'intervention laissé ouvert
 // toute la nuit produirait une intervention de 15 h imputée au client.
 function checkInterventionOubliee() {
-  if (!state.activeIntervention) {
-    dismissBanner("intervention-oubliee");
-    return;
-  }
-  const depuis = Date.now() - state.activeIntervention.start;
-  if (depuis < CHRONO_OUBLIE_MS) return;
-  const start = new Date(state.activeIntervention.start);
-  const heures = Math.floor(depuis / 3600000);
-  banner({
-    id: "intervention-oubliee",
-    tone: "warn",
-    text:
-      `Une intervention est chronométrée depuis ${heures} h (début le ${dateISO(start)} à ${timeHM(start)}). ` +
-      "S'il s'agit d'un chrono laissé en marche, inscrivez-la avec la bonne heure de fin plutôt que de la laisser courir.",
-    actions: [
-      {
-        label: "Terminer avec la bonne heure de fin",
-        run: () => {
-          if (!state.activeIntervention) {
-            dismissBanner("intervention-oubliee");
-            return;
-          }
-          finishIntervention();
+  nettoyerAvisChronos();
+  for (const chrono of state.activeInterventions) {
+    const depuis = Date.now() - chrono.start;
+    if (depuis < CHRONO_OUBLIE_MS) continue;
+    const start = new Date(chrono.start);
+    const heures = Math.floor(depuis / 3600000);
+    const qui = chrono.client ? ` pour ${chrono.client}` : "";
+    banner({
+      id: AVIS_CHRONO + chrono.id,
+      tone: "warn",
+      text:
+        `Une intervention${qui} est chronométrée depuis ${heures} h (début le ${dateISO(start)} à ${timeHM(start)}). ` +
+        "S'il s'agit d'un chrono laissé en marche, inscrivez-la avec la bonne heure de fin plutôt que de la laisser courir.",
+      actions: [
+        {
+          label: "Terminer avec la bonne heure de fin",
+          run: () => finishIntervention(chrono.id),
         },
-      },
-    ],
-  });
+      ],
+    });
+  }
 }
 
 /* ---------- Formulaires : outils communs ---------- */
@@ -902,9 +1016,10 @@ const INVALID_DURATION_MSG = "Vérifiez la date et les heures : la durée doit �
 // n'est effacé qu'après un enregistrement réussi, jamais avant.
 let punchDialogClosesActive = false;
 
-// Même rôle pour le chrono d'intervention : tant que le formulaire n'a pas
-// été enregistré, l'intervention en cours continue de tourner.
-let interventionDialogClosesActive = false;
+// Même rôle pour les chronos d'intervention, mais il faut savoir LEQUEL : le
+// dialogue porte l'identifiant du chrono qu'il terminera, et tant que rien
+// n'est enregistré ce chrono continue de tourner.
+let interventionDialogClosesChrono = null;
 
 // Enregistrement en cours de modification, avec ses timestamps d'origine.
 // Une heure affichée « 01:30 » est ambiguë la nuit du retour à l'heure normale
@@ -1152,24 +1267,29 @@ function submitInterventionForm(event) {
 
   const idx = state.interventions.findIndex((i) => i.id === record.id);
   const previous = idx >= 0 ? state.interventions[idx] : null;
-  const previousActive = state.activeIntervention;
-  const previousActiveAt = state.activeInterventionAt;
+  const chronoIdx = interventionDialogClosesChrono
+    ? state.activeInterventions.findIndex((c) => c.id === interventionDialogClosesChrono)
+    : -1;
+  const chrono = chronoIdx >= 0 ? state.activeInterventions[chronoIdx] : null;
   if (idx >= 0) state.interventions[idx] = record;
   else state.interventions.push(record);
-  // Le chrono n'est arrêté qu'ici, une fois l'intervention bien formée.
-  if (interventionDialogClosesActive) {
-    state.activeIntervention = null;
-    state.activeInterventionAt = Date.now();
+  // Le chrono n'est arrêté qu'ici, une fois l'intervention bien formée — et
+  // seulement celui-là : les autres continuent de tourner.
+  if (chrono) {
+    state.activeInterventions.splice(chronoIdx, 1);
+    state.tombstones[chrono.id] = Date.now();
   }
 
   if (!save()) {
     if (idx >= 0) state.interventions[idx] = previous;
     else state.interventions.pop();
-    state.activeIntervention = previousActive;
-    state.activeInterventionAt = previousActiveAt;
+    if (chrono) {
+      state.activeInterventions.splice(chronoIdx, 0, chrono);
+      delete state.tombstones[chrono.id];
+    }
     return showFormError(els.fError, "Enregistrement impossible — voir l'avis en haut de la page.");
   }
-  interventionDialogClosesActive = false;
+  interventionDialogClosesChrono = null;
   editOrigin = null;
   els.interventionDialog.close();
   ensureInterventionVisible(record);
@@ -2199,7 +2319,6 @@ function importJson(file) {
       ...next,
       tombstones,
       activePunchAt: maintenant,
-      activeInterventionAt: maintenant,
       updatedAt: maintenant,
     };
     if (!save()) {
@@ -2229,8 +2348,18 @@ els.btnPunchOut.addEventListener("click", punchOut);
 els.btnCancelPunch.addEventListener("click", cancelPunch);
 
 els.btnStartIntervention.addEventListener("click", startIntervention);
-els.btnFinishIntervention.addEventListener("click", finishIntervention);
-els.btnCancelIntervention.addEventListener("click", cancelIntervention);
+
+els.interventionList.addEventListener("click", (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.finishChrono) finishIntervention(btn.dataset.finishChrono);
+  if (btn.dataset.cancelChrono) cancelIntervention(btn.dataset.cancelChrono);
+});
+
+els.interventionList.addEventListener("change", (event) => {
+  const champ = event.target.closest("[data-chrono-client]");
+  if (champ) updateChronoClient(champ.dataset.chronoClient, champ.value);
+});
 
 els.btnAddPunch.addEventListener("click", () => {
   const now = new Date();
@@ -2263,7 +2392,7 @@ els.punchDialog.addEventListener("close", () => {
   editOrigin = null;
 });
 els.interventionDialog.addEventListener("close", () => {
-  interventionDialogClosesActive = false;
+  interventionDialogClosesChrono = null;
   editOrigin = null;
 });
 
@@ -2423,8 +2552,13 @@ document.addEventListener("keydown", (event) => {
     else punchIn();
   } else if (k === "d") {
     event.preventDefault();
-    if (state.activeIntervention) finishIntervention();
-    else startIntervention();
+    startIntervention();
+  } else if (k === "t") {
+    event.preventDefault();
+    // La dernière démarrée : avec plusieurs chronos en marche, c'est celle
+    // qu'on vient d'ouvrir, donc celle qu'on termine le plus souvent.
+    const derniere = [...state.activeInterventions].sort((a, b) => a.start - b.start).pop();
+    if (derniere) finishIntervention(derniere.id);
   } else if (k === "i") {
     event.preventDefault();
     nouvelleIntervention();

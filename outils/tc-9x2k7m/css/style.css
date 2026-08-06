@@ -143,19 +143,22 @@ main > *,
   flex-wrap: wrap;
 }
 
-/* Bande de l'intervention chronométrée : sa propre ligne sous les boutons de
+/* Bande des interventions chronométrées : sa propre ligne sous les boutons de
    punch, pour qu'un chrono en marche se voie sans avoir à descendre dans la
-   page. */
+   page. Plusieurs peuvent tourner à la fois — une ligne chacun. */
 .live-card {
   flex-basis: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.live-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .live-info {
@@ -163,18 +166,44 @@ main > *,
   min-width: 200px;
 }
 
+.live-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.live-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+/* Le client distingue les chronos entre eux : sans lui, deux minuteries
+   côte à côte ne se différencient que par leur heure de départ. */
+.live-client {
+  flex: 1;
+  min-width: 140px;
+}
+
+.live-since {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .live-timer {
-  font-size: 1.6rem;
+  font-size: 1.35rem;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: 1px;
-}
-
-.live-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
 }
 
 /* ---- Sommaire ---- */

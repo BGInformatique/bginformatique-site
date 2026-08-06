@@ -62,8 +62,8 @@ globalThis.__tc = {
   get punchDialogClosesActive() {
     return punchDialogClosesActive;
   },
-  get interventionDialogClosesActive() {
-    return interventionDialogClosesActive;
+  get interventionDialogClosesChrono() {
+    return interventionDialogClosesChrono;
   },
   dayOverrides,
   activeBanners,
@@ -141,12 +141,15 @@ globalThis.__tc = {
   resolveTimes,
   showDuration,
 
-  /* --- Intervention chronométrée --- */
+  /* --- Interventions chronométrées --- */
+  AVIS_CHRONO,
   startIntervention,
   finishIntervention,
   cancelIntervention,
+  updateChronoClient,
   renderInterventionLive,
-  updateInterventionTimer,
+  updateInterventionTimers,
+  signatureChronos,
   checkInterventionOubliee,
 
   /* --- Interventions --- */

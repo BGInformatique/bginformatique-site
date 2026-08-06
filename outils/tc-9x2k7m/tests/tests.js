@@ -1398,16 +1398,20 @@ async function sectionR() {
     await fermerDialogues();
   });
 
-  await test("« D » : démarre le chrono d'intervention, puis ouvre sa fin", async () => {
+  await test("« D » démarre un chrono à chaque fois, « T » termine le dernier", async () => {
     await reinitialiser();
     touche(document.body, "d");
-    vrai(tc.state.activeIntervention, "chrono démarré au clavier");
+    await attendre(2);
     touche(document.body, "d");
+    egal(tc.state.activeInterventions.length, 2, "deux chronos démarrés au clavier");
+    const dernier = tc.state.activeInterventions[1];
+    touche(document.body, "t");
     vrai(tc.els.interventionDialog.open, "formulaire de fin ouvert");
-    vrai(tc.state.activeIntervention, "chrono maintenu tant que rien n'est enregistré");
+    egal(tc.interventionDialogClosesChrono, dernier.id, "c'est le dernier démarré qui est visé");
     await fermerDialogues();
+    egal(tc.state.activeInterventions.length, 2, "rien d'arrêté sans enregistrement");
     reponseConfirm = true;
-    tc.cancelIntervention();
+    for (const c of [...tc.state.activeInterventions]) tc.cancelIntervention(c.id);
   });
 
   await test("dans un champ de saisie : les lettres restent des lettres", async () => {
@@ -1426,189 +1430,246 @@ async function sectionR() {
 }
 
 /* =====================================================================
- * S. Intervention chronométrée (démarrage au moment présent)
+ * S. Interventions chronométrées (plusieurs à la fois)
  * =================================================================== */
 async function sectionS() {
-  section("S. Intervention chronométrée");
+  section("S. Interventions chronométrées");
 
-  await test("démarrage : chrono en marche, persisté, second départ ignoré", async () => {
+  const chronos = () => tc.state.activeInterventions;
+  const lignes = () => tc.els.interventionList.querySelectorAll("li.live-row");
+
+  await test("démarrage : un chrono par clic, ils s'additionnent", async () => {
     await reinitialiser();
     tc.startIntervention();
-    vrai(tc.state.activeIntervention, "chrono actif");
-    vrai(tc.state.activeInterventionAt > 0, "horodaté pour l'arbitrage");
-    egal(tc.els.btnStartIntervention.hidden, true, "bouton « Démarrer » retiré");
-    egal(tc.els.btnFinishIntervention.hidden, false, "bouton « Terminer » offert");
-    egal(tc.els.interventionTimer.hidden, false, "chrono affiché");
-    vrai(tc.els.interventionDot.classList.contains("active"), "pastille allumée");
-    vrai(
-      JSON.parse(localStorage.getItem(tc.STORAGE_KEY)).activeIntervention,
-      "persisté sur l'appareil"
+    egal(chronos().length, 1, "premier chrono");
+    egal(tc.els.interventionLabel.textContent, "1 intervention en cours");
+    await attendre(2); // Date.now() doit avancer : deux départs distincts
+    tc.startIntervention();
+    egal(chronos().length, 2, "second chrono, le premier tourne toujours");
+    egal(tc.els.interventionLabel.textContent, "2 interventions en cours");
+    egal(lignes().length, 2, "deux lignes à l'écran");
+    vrai(chronos()[0].id !== chronos()[1].id, "identifiants distincts");
+    egal(tc.els.btnStartIntervention.hidden, false, "on peut encore en démarrer");
+    egal(
+      JSON.parse(localStorage.getItem(tc.STORAGE_KEY)).activeInterventions.length,
+      2,
+      "persistés sur l'appareil"
     );
-    const debut = tc.state.activeIntervention.start;
-    tc.startIntervention();
-    egal(tc.state.activeIntervention.start, debut, "second démarrage ignoré");
   });
 
-  await test("le chrono survit au rechargement; une valeur illisible est écartée", async () => {
-    const debut = tc.state.activeIntervention.start;
-    // load() relit le stockage local : c'est ce que fait un rechargement.
-    egal(tc.load().activeIntervention.start, debut, "chrono retrouvé au rechargement");
-    const { state: abime } = tc.normalizeState({
-      punches: [],
-      interventions: [],
-      activeIntervention: { start: "hier" },
-    });
-    egal(abime.activeIntervention, null, "chrono illisible écarté");
+  await test("chaque ligne a sa minuterie, son « Terminer » et son annulation", async () => {
+    const premier = chronos()[0];
+    const ligne = tc.els.interventionList.querySelector(`li[data-chrono="${premier.id}"]`);
+    vrai(ligne, "ligne du premier chrono");
+    contient(ligne.textContent, "depuis " + tc.timeHM(new Date(premier.start)));
+    vrai(ligne.querySelector(`[data-chrono-timer="${premier.id}"]`), "minuterie propre");
+    vrai(ligne.querySelector(`[data-finish-chrono="${premier.id}"]`), "bouton Terminer propre");
+    vrai(ligne.querySelector(`[data-cancel-chrono="${premier.id}"]`), "bouton d'annulation propre");
   });
 
-  await test("terminer : formulaire aux vraies heures, chrono maintenu tant que rien n'est enregistré", async () => {
-    // Même exigence que pour le punch oublié : fermer le dialogue sans
-    // enregistrer ne doit pas faire disparaître l'heure de début.
-    const debut = tc.state.activeIntervention.start;
-    tc.finishIntervention();
+  await test("le client saisi en cours de route est conservé et n'efface rien", async () => {
+    const [a, b] = chronos();
+    tc.updateChronoClient(a.id, "  Clinique ABC  ");
+    egal(chronos()[0].client, "Clinique ABC", "taillé");
+    egal(chronos()[1].client, "", "l'autre chrono n'est pas touché");
+    vrai(chronos()[0].updatedAt >= a.updatedAt, "horodaté pour la fusion");
+    // La liste ne doit pas être reconstruite sous le curseur pendant la saisie :
+    // le champ doit rester le MÊME nœud après un rendu.
+    const champAvant = tc.els.interventionList.querySelector(`[data-chrono-client="${a.id}"]`);
+    tc.renderInterventionLive();
+    vrai(
+      champAvant === tc.els.interventionList.querySelector(`[data-chrono-client="${a.id}"]`),
+      "champ reconstruit sous le curseur"
+    );
+    egal(
+      tc.els.interventionList.querySelector(`[data-chrono-client="${b.id}"]`).value,
+      "",
+      "champ du second chrono toujours vide"
+    );
+  });
+
+  await test("terminer : formulaire aux vraies heures, client repris, les autres tournent", async () => {
+    const [a, b] = chronos();
+    tc.finishIntervention(a.id);
     vrai(tc.els.interventionDialog.open, "dialogue ouvert");
-    egal(tc.interventionDialogClosesActive, true, "le dialogue doit arrêter le chrono");
-    egal(tc.els.fDate.value, tc.dateISO(new Date(debut)), "date du chrono");
-    egal(tc.els.fStart.value, tc.timeHM(new Date(debut)), "début du chrono, rien à taper");
+    egal(tc.interventionDialogClosesChrono, a.id, "le dialogue vise CE chrono");
+    egal(tc.els.fDate.value, tc.dateISO(new Date(a.start)), "date du chrono");
+    egal(tc.els.fStart.value, tc.timeHM(new Date(a.start)), "début du chrono, rien à taper");
+    egal(tc.els.fClient.value, "Clinique ABC", "client repris du chrono");
     contient(tc.els.interventionDialogTitle.textContent, "Terminer");
-    tc.els.interventionDialog.close(); // équivalent d'Échap
-    await attendreQue(() => tc.interventionDialogClosesActive === false, "écouteur close exécuté");
-    vrai(tc.state.activeIntervention, "le chrono TOURNE ENCORE");
-    egal(tc.state.activeIntervention.start, debut, "heure de début intacte");
+    egal(chronos().length, 2, "rien n'est arrêté avant l'enregistrement");
+    vrai(chronos().some((c) => c.id === b.id), "le second chrono est intact");
   });
 
-  await test("enregistrement : heures exactes, minimum d'une minute, chrono arrêté", async () => {
+  await test("fermer sans enregistrer : le chrono visé tourne encore", async () => {
+    const a = chronos()[0];
+    tc.els.interventionDialog.close(); // équivalent d'Échap
+    await attendreQue(() => tc.interventionDialogClosesChrono === null, "écouteur close exécuté");
+    egal(chronos().length, 2, "les deux chronos sont là");
+    egal(chronos()[0].start, a.start, "heure de début intacte");
+  });
+
+  await test("enregistrement : heures exactes, minimum d'une minute, ce chrono-là s'arrête", async () => {
     await reinitialiser();
     tc.startIntervention();
-    const debut = tc.state.activeIntervention.start;
-    tc.finishIntervention();
-    tc.els.fClient.value = "Clinique ABC";
+    await attendre(2);
+    tc.startIntervention();
+    const [a, b] = chronos();
+    tc.finishIntervention(a.id);
     tc.els.fDescription.value = "Remplacement du disque";
+    tc.els.fClient.value = "Clinique ABC";
     tc.submitInterventionForm(evenement);
     await attendre(0);
     egal(tc.state.interventions.length, 1, "intervention inscrite");
     const i = tc.state.interventions[0];
-    egal(i.start, debut, "début au millième près, pas reconstruit depuis « HH:MM »");
-    egal(i.end, debut + 60000, "intervention éclair portée à une minute");
-    egal(tc.state.activeIntervention, null, "chrono arrêté");
+    egal(i.start, a.start, "début au millième près, pas reconstruit depuis « HH:MM »");
+    egal(i.end, a.start + 60000, "intervention éclair portée à une minute");
+    egal(chronos().length, 1, "un seul chrono arrêté");
+    egal(chronos()[0].id, b.id, "c'est bien l'autre qui continue");
+    vrai(tc.state.tombstones[a.id] > 0, "pierre tombale sur le chrono arrêté");
+    egal(tc.state.tombstones[i.id], undefined, "l'intervention inscrite n'est PAS enterrée");
     egal(tc.els.interventionDialog.open, false, "dialogue fermé");
-    egal(tc.els.btnStartIntervention.hidden, false, "retour au repos");
   });
 
-  await test("la fin reprend le client, le billet et la catégorie du jour", async () => {
-    await reinitialiser();
-    tc.state.interventions.push({
-      id: "prec", start: ceJour(0, 0, 5).getTime(), end: ceJour(0, 0, 20).getTime(),
-      client: "Clinique ABC", ticket: "T-77", category: "Installation",
-      description: "x", billable: true, toVerify: false, verifyNote: "", updatedAt: 1,
-    });
-    tc.persistLocal();
+  await test("annuler : refus conservé, accord ne retire que ce chrono", async () => {
+    await attendre(2);
     tc.startIntervention();
-    tc.finishIntervention();
-    vrai(tc.els.interventionDialog.open);
-    egal(tc.els.fClient.value, "Clinique ABC", "client repris");
-    egal(tc.els.fTicket.value, "T-77", "billet repris");
-    egal(tc.els.fCategory.value, "Installation", "catégorie reprise");
-    await fermerDialogues();
-    reponseConfirm = true;
-    tc.cancelIntervention();
-  });
-
-  await test("annuler : refus conservé, accord n'inscrit rien", async () => {
-    await reinitialiser();
-    tc.startIntervention();
-    const debut = tc.state.activeIntervention.start;
+    egal(chronos().length, 2);
+    const [garde, jete] = chronos();
     reponseConfirm = false;
-    tc.cancelIntervention();
-    vrai(tc.state.activeIntervention, "refus → chrono conservé");
-    egal(tc.state.activeIntervention.start, debut, "heure de début intacte");
+    tc.cancelIntervention(jete.id);
+    egal(chronos().length, 2, "refus → rien de retiré");
     reponseConfirm = true;
-    tc.cancelIntervention();
-    egal(tc.state.activeIntervention, null, "chrono annulé");
-    egal(tc.state.interventions.length, 0, "aucune intervention inscrite");
+    tc.cancelIntervention(jete.id);
+    egal(chronos().length, 1, "chrono annulé");
+    egal(chronos()[0].id, garde.id, "l'autre est intact");
+    vrai(tc.state.tombstones[jete.id] > 0, "pierre tombale posée");
+    egal(tc.state.interventions.length, 1, "aucune intervention inscrite par l'annulation");
   });
 
-  await test("fusion : le chrono d'intervention s'arbitre à part du punch", async () => {
+  await test("fusion : union par identifiant, arrêt respecté, punch indépendant", async () => {
     const etat = (extra) => ({
-      activePunch: null, activePunchAt: 0,
-      activeIntervention: null, activeInterventionAt: 0,
+      activePunch: null, activePunchAt: 0, activeInterventions: [],
       punches: [], interventions: [], tombstones: {}, updatedAt: 0, ...extra,
     });
 
-    const recu = tc.mergeStates(
-      etat({ activeInterventionAt: 10 }),
-      etat({ activeIntervention: { start: 999 }, activeInterventionAt: 20 })
-    );
-    egal(recu.activeIntervention.start, 999, "le changement le plus récent l'emporte");
-
-    const garde = tc.mergeStates(
-      etat({ activeInterventionAt: 30 }),
-      etat({ activeIntervention: { start: 999 }, activeInterventionAt: 20 })
-    );
-    egal(garde.activeIntervention, null, "un arrêt plus récent n'est pas ressuscité");
-
+    // Deux appareils, un chrono chacun : les deux doivent survivre.
     const deux = tc.mergeStates(
-      etat({ activePunch: { start: 111 }, activePunchAt: 50 }),
-      etat({ activeIntervention: { start: 222 }, activeInterventionAt: 40 })
+      etat({ activeInterventions: [{ id: "c1", start: 1000, client: "", updatedAt: 10 }] }),
+      etat({ activeInterventions: [{ id: "c2", start: 2000, client: "B", updatedAt: 20 }] })
     );
-    egal(deux.activePunch.start, 111, "punch local conservé");
-    egal(deux.activeIntervention.start, 222, "chrono distant conservé");
+    egal(deux.activeInterventions.length, 2, "les deux chronos coexistent");
+    egal(deux.activeInterventions[0].id, "c1", "triés par heure de départ");
 
-    // Document écrit avant cette fonction : les champs n'existent pas.
-    const ancien = tc.mergeStates(
-      etat({ activeIntervention: { start: 333 }, activeInterventionAt: 60 }),
-      { activePunch: null, activePunchAt: 0, punches: [], interventions: [], tombstones: {}, updatedAt: 0 }
+    // Le client saisi le plus récemment l'emporte.
+    const recent = tc.mergeStates(
+      etat({ activeInterventions: [{ id: "c1", start: 1000, client: "ancien", updatedAt: 10 }] }),
+      etat({ activeInterventions: [{ id: "c1", start: 1000, client: "récent", updatedAt: 30 }] })
     );
-    egal(ancien.activeIntervention.start, 333, "un ancien document n'efface pas le chrono");
+    egal(recent.activeInterventions.length, 1, "pas de doublon");
+    egal(recent.activeInterventions[0].client, "récent");
+
+    // Arrêté ici, encore en marche là-bas : la pierre tombale gagne.
+    const arrete = tc.mergeStates(
+      etat({ tombstones: { c1: 40 } }),
+      etat({ activeInterventions: [{ id: "c1", start: 1000, client: "", updatedAt: 30 }] })
+    );
+    egal(arrete.activeInterventions.length, 0, "un chrono arrêté ne repart pas");
+
+    // Le punch s'arbitre toujours à part.
+    const avecPunch = tc.mergeStates(
+      etat({ activePunch: { start: 111 }, activePunchAt: 50 }),
+      etat({ activeInterventions: [{ id: "c9", start: 900, client: "", updatedAt: 60 }] })
+    );
+    egal(avecPunch.activePunch.start, 111, "punch local conservé");
+    egal(avecPunch.activeInterventions.length, 1, "chrono distant conservé");
   });
 
-  await test("chrono oublié depuis 13 h : avis, et l'action ouvre la fin sans rien perdre", async () => {
+  await test("ancien format : le chrono unique est repris, sans doublon entre appareils", async () => {
+    const ancien = { punches: [], interventions: [], activeIntervention: { start: 1234 }, activeInterventionAt: 99 };
+    const { state: a } = tc.normalizeState(ancien);
+    egal(a.activeInterventions.length, 1, "chrono repris");
+    egal(a.activeInterventions[0].start, 1234);
+    egal(a.activeInterventions[0].updatedAt, 99, "horodatage de l'ancien champ conservé");
+    // Deux appareils convertissent chacun de leur côté : même identifiant.
+    const { state: b } = tc.normalizeState(ancien);
+    egal(a.activeInterventions[0].id, b.activeInterventions[0].id, "identifiant déterministe");
+    egal(tc.mergeStates(a, b).activeInterventions.length, 1, "la fusion n'en fait pas deux");
+
+    const { state: abime } = tc.normalizeState({
+      punches: [], interventions: [], activeInterventions: [{ start: "hier" }, { id: "ok", start: 5000 }],
+    });
+    egal(abime.activeInterventions.length, 1, "chrono illisible écarté");
+    egal(abime.activeInterventions[0].id, "ok");
+  });
+
+  await test("le chrono survit au rechargement", async () => {
     await reinitialiser();
-    tc.state.activeIntervention = { start: Date.now() - 13 * 3600 * 1000 };
-    tc.state.activeInterventionAt = Date.now();
+    tc.startIntervention();
+    tc.updateChronoClient(chronos()[0].id, "Clinique ABC");
+    const relu = tc.load(); // relit le stockage local, comme un rechargement
+    egal(relu.activeInterventions.length, 1, "chrono retrouvé");
+    egal(relu.activeInterventions[0].client, "Clinique ABC", "client retrouvé");
+    egal(relu.activeInterventions[0].start, chronos()[0].start);
+  });
+
+  await test("chrono oublié : un avis par chrono, l'action termine le bon", async () => {
+    await reinitialiser();
+    tc.state.activeInterventions.push(
+      { id: "vieux", start: Date.now() - 13 * 3600 * 1000, client: "Clinique ABC", updatedAt: 1 },
+      { id: "recent", start: Date.now() - 60000, client: "", updatedAt: 1 }
+    );
+    tc.persistLocal();
     tc.checkInterventionOubliee();
-    vrai(tc.activeBanners.has("intervention-oubliee"), "avis présent");
+    vrai(tc.activeBanners.has(tc.AVIS_CHRONO + "vieux"), "avis sur le chrono oublié");
+    egal(tc.activeBanners.has(tc.AVIS_CHRONO + "recent"), false, "rien sur le chrono récent");
     contient(tc.els.banners.textContent, "chronométrée depuis 13 h");
+    contient(tc.els.banners.textContent, "pour Clinique ABC", "le client nomme le chrono visé");
+
     const bouton = [...tc.els.banners.querySelectorAll("button")].find(
       (b) => b.textContent === "Terminer avec la bonne heure de fin"
     );
     vrai(bouton, "action de correction présente");
-    const debut = tc.state.activeIntervention.start;
     bouton.click();
-    vrai(tc.els.interventionDialog.open, "formulaire de fin ouvert");
+    egal(tc.interventionDialogClosesChrono, "vieux", "c'est le chrono oublié qui est visé");
     await fermerDialogues();
-    egal(tc.state.activeIntervention.start, debut, "chrono intact après une fermeture");
+    egal(chronos().length, 2, "rien perdu après une fermeture");
+
+    // Le chrono disparu emporte son avis avec lui.
+    reponseConfirm = true;
+    tc.cancelIntervention("vieux");
+    egal(tc.activeBanners.has(tc.AVIS_CHRONO + "vieux"), false, "avis retiré avec le chrono");
   });
 
-  await test("punch out : le chrono d'intervention continue, avec un avis discret", async () => {
+  await test("punch out : les chronos continuent, avec un avis discret au pluriel", async () => {
     await reinitialiser();
     tc.punchIn();
     tc.startIntervention();
-    const debut = tc.state.activeIntervention.start;
+    await attendre(2);
+    tc.startIntervention();
     tc.punchOut();
-    vrai(tc.state.activeIntervention, "chrono d'intervention intact");
-    egal(tc.state.activeIntervention.start, debut);
+    egal(chronos().length, 2, "chronos intacts");
     const avis = [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | ");
-    contient(avis, "continue de tourner", "avis discret affiché");
+    contient(avis, "les 2 interventions chronométrées continuent de tourner");
   });
 
-  await test("le battement survit au punch out : le chrono avance encore", async () => {
-    // Régression : un seul setInterval sert les deux chronos. L'arrêt du punch
-    // ne doit pas figer l'affichage de l'intervention en cours.
-    const avant = tc.els.interventionTimer.textContent;
+  await test("le battement survit au punch out : les chronos avancent encore", async () => {
+    // Régression : un seul setInterval sert les deux sortes de chronos.
+    // L'arrêt du punch ne doit pas figer les interventions en cours.
+    const minuteries = () =>
+      [...tc.els.interventionList.querySelectorAll("[data-chrono-timer]")].map((e) => e.textContent).join("|");
+    const avant = minuteries();
     await attendre(1300);
-    vrai(tc.els.interventionTimer.textContent !== avant, `chrono figé à ${avant}`);
+    vrai(minuteries() !== avant, `minuteries figées à ${avant}`);
   });
 
-  await test("la bande dit quand le chrono tourne hors punch", async () => {
+  await test("la bande dit quand les chronos tournent hors punch", async () => {
     contient(tc.els.interventionDetail.textContent, "aucun punch en cours");
     tc.punchIn();
     absent(tc.els.interventionDetail.textContent, "aucun punch en cours", "rappel retiré au punch in");
-    contient(tc.els.interventionDetail.textContent, "Démarrée à", "heure de départ affichée");
-    reponseConfirm = true;
-    tc.cancelPunch();
-    tc.cancelIntervention();
+    for (const c of [...chronos()]) tc.cancelIntervention(c.id);
     egal(tc.els.interventionLabel.textContent, "Aucune intervention en cours", "retour au repos");
+    egal(tc.els.interventionList.hidden, true, "liste masquée");
   });
 }
 
