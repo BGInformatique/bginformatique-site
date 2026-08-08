@@ -117,8 +117,12 @@ donc mêmes règles que `state` — rien à republier en console ; aucun nom de
 prospect dans le code, le dépôt est public). La source de vérité reste le
 journal TSV du dossier de prospection, hors dépôt.
 
-- **Cliquer une carte** filtre la liste des tâches sur ce prospect — le
-  brouillon de relance est là.
+- **Cliquer le nom** (souligné pointillé) déplie la **fiche contact** sous la
+  ligne : contact, téléphone (lien `tel:` — l'appel est le canal priorisé),
+  courriel (`mailto:`), site. Les coordonnées viennent des colonnes CONTACT /
+  TELEPHONE / COURRIEL / SITE du journal TSV, via le miroir (7 août 2026).
+- **Cliquer le reste de la ligne** filtre la liste des tâches sur ce prospect —
+  le brouillon de relance est là.
 - **« Signaler… »** (répondu, RDV fixé, client, dormance, réactiver) écrit un
   signal dans le miroir ; le prospecteur l'applique au journal TSV au cycle
   suivant, puis l'efface. Un signal prime sur la cadence — un prospect qui a

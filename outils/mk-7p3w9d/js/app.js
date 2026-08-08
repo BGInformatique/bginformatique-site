@@ -105,6 +105,7 @@ let dernierEcrit = null;
  */
 let filtreClient = lireMandat(), filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
 let pageInv = 0;   // lot courant de l'inventaire de prospection (20 par lot)
+const fichesOuvertes = new Set();   // fiches contact dépliées — survit aux re-rendus
 const ouvertes = new Set();
 
 // Un autre onglet a changé de mandat : on suit, sinon deux onglets affichent
@@ -535,6 +536,29 @@ function lienCourriel(courriel, brouillon) {
     `&body=${encodeURIComponent(brouillon)}`;
 }
 
+/* La fiche contact d'un prospect : tout ce que le journal sait pour le
+   joindre, en une ligne sous son rang. Le téléphone est cliquable (tel:) —
+   c'est le canal que Dominic a demandé de prioriser. */
+function lienTel(brut) {
+  const ch = (brut || "").replace(/\D/g, "");
+  if (ch.length === 10) return `tel:+1${ch}`;
+  if (ch.length === 11 && ch[0] === "1") return `tel:+${ch}`;
+  return ch ? `tel:${ch}` : "";
+}
+
+function ligneFiche(p) {
+  const morceaux = [];
+  if (p.contact && p.contact !== "a identifier") morceaux.push(ech(p.contact));
+  if (p.telephone) morceaux.push(
+    `<a class="p-act" href="${ech(lienTel(p.telephone))}" title="Appeler">☎ ${ech(p.telephone)}</a>`);
+  if (p.courriel) morceaux.push(
+    `<a class="p-act" href="mailto:${ech(p.courriel)}" title="Écrire (sans brouillon)">${ech(p.courriel)}</a>`);
+  if (/^https?:\/\//.test(p.site || "")) morceaux.push(
+    `<a class="p-act" href="${ech(p.site)}" target="_blank" rel="noopener noreferrer">site</a>`);
+  return morceaux.length ? morceaux.join(" · ")
+    : "coordonnées à compléter — colonnes CONTACT / TELEPHONE / COURRIEL / SITE du journal TSV";
+}
+
 function rendreProspection() {
   const liste = (prospection && prospection.prospects) || [];
   /*
@@ -571,7 +595,7 @@ function rendreProspection() {
   }
   const signaux = (prospection && prospection.signaux) || {};
   $("p-maj").textContent = prospection.majLe
-    ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} · clic = tâches du prospect`
+    ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} · nom = fiche contact · ligne = tâches du prospect`
     : "";
 
   /* Liste serrée, sans décor : une ligne par prospect, l'état en texte brut.
@@ -601,7 +625,7 @@ function rendreProspection() {
       const retard = enCadence && p.prochaine && p.prochaine < auj;
       const brouillon = !envoye && !sig ? brouillonDe(t) : "";
       return `<tr data-p="${ech(p.id)}">
-        <td class="p-c-nom">${ech(p.prospect)}</td>
+        <td class="p-c-nom" title="Fiche contact — un clic">${ech(p.prospect)}</td>
         <td>${ech(etat)}</td>
         <td class="p-c-num">${p.relances || 0}</td>
         <td class="p-c-date${retard ? " p-retard" : ""}">${ech(p.prochaine || "—")}</td>
@@ -610,6 +634,9 @@ function rendreProspection() {
           title="Ouvrir un courriel avec le brouillon${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</a> ·
           <button type="button" class="p-act" data-cp title="Copier le brouillon (pour LinkedIn ou ailleurs)">copier</button>` : ""}</td>
         <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select></td>
+      </tr>
+      <tr class="p-fiche"${fichesOuvertes.has(p.id) ? "" : " hidden"}>
+        <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(p)}</td>
       </tr>`;
     }).join("") + "</tbody>";
 
@@ -626,6 +653,15 @@ function rendreProspection() {
       } catch {
         avis("Copie refusée par le navigateur — ouvrir la tâche et copier à la main.", true);
       }
+    };
+    /* Un clic sur le nom déplie la fiche contact (téléphone, courriel, site) ;
+       le reste de la ligne garde son rôle : filtrer les tâches du prospect. */
+    tr.querySelector(".p-c-nom").onclick = (ev) => {
+      ev.stopPropagation();
+      const f = tr.nextElementSibling;
+      if (!f || !f.classList.contains("p-fiche")) return;
+      f.hidden = !f.hidden;
+      if (f.hidden) fichesOuvertes.delete(p.id); else fichesOuvertes.add(p.id);
     };
     tr.onclick = (ev) => {
       if (ev.target.closest("select") || ev.target.closest("a") || ev.target.closest("button")) return;
