@@ -556,7 +556,7 @@ function ligneFiche(p) {
   if (/^https?:\/\//.test(p.site || "")) morceaux.push(
     `<a class="p-act" href="${ech(p.site)}" target="_blank" rel="noopener noreferrer">site</a>`);
   return morceaux.length ? morceaux.join(" · ")
-    : "coordonnées à compléter — colonnes CONTACT / TELEPHONE / COURRIEL / SITE du journal TSV";
+    : "coordonnées à compléter — journal ou inventaire de prospection (TSV)";
 }
 
 function rendreProspection() {
@@ -705,7 +705,16 @@ function rendreProspection() {
   if (pageInv >= pages) pageInv = pages - 1;
   const visibles = inv.slice(pageInv * 20, pageInv * 20 + 20);
   $("p-inv-n").textContent =
-    `${inv.length} prospects potentiels · lot ${pageInv + 1} de ${pages}`;
+    `${inv.length} prospects potentiels · lot ${pageInv + 1} de ${pages} · nom = fiche contact`;
+
+  /* La fiche contact vaut aussi ici. Une entrée en cadence emprunte celle du
+     journal (la plus riche, contre-vérifiée) par son nom ; les autres montrent
+     ce que l'inventaire sait (relevé en une passe, source officielle exigée). */
+  const norm = (s) => (s || "").toLowerCase().normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const prospectParNom = new Map(liste.map((p) => [norm(p.prospect), p]));
+  const ficheInv = (r) => (r.statut === "en_cadence" && prospectParNom.get(norm(r.nom)))
+    || { contact: r.contact, telephone: r.telephone, courriel: r.courriel, site: r.lien };
 
   $("p-cand-liste").innerHTML =
     `<thead><tr><th>Prospect</th><th>Secteur</th><th>Ville</th><th>Origine</th>` +
@@ -734,15 +743,28 @@ function rendreProspection() {
         liens.push(`<a class="p-lien" href="${ech(c.source)}" target="_blank" rel="noopener noreferrer">src</a>`);
       }
       const infobulle = (c && c.angle) || r.note || "";
-      return `<tr${infobulle ? ` title="${ech(infobulle)}"` : ""}>
-        <td class="p-c-nom">${ech(r.nom)}</td>
+      return `<tr data-i="${ech(r.id)}"${infobulle ? ` title="${ech(infobulle)}"` : ""}>
+        <td class="p-c-nom" title="Fiche contact — un clic">${ech(r.nom)}</td>
         <td>${ech(r.secteur || "")}</td>
         <td>${ech(r.ville || "")}</td>
         <td class="p-c-note">${ech(r.origine || "")}</td>
         <td class="p-c-note">${LIB_INV[r.statut] || ech(r.statut)}</td>
         <td>${liens.join(" ")}</td>
-        <td class="p-c-dec">${action}</td></tr>`;
+        <td class="p-c-dec">${action}</td></tr>
+      <tr class="p-fiche"${fichesOuvertes.has("inv:" + r.id) ? "" : " hidden"}>
+        <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(ficheInv(r))}</td>
+      </tr>`;
     }).join("") + "</tbody>";
+
+  $("p-cand-liste").querySelectorAll("tr[data-i]").forEach((tr) => {
+    const cle = "inv:" + tr.dataset.i;
+    tr.querySelector(".p-c-nom").onclick = () => {
+      const f = tr.nextElementSibling;
+      if (!f || !f.classList.contains("p-fiche")) return;
+      f.hidden = !f.hidden;
+      if (f.hidden) fichesOuvertes.delete(cle); else fichesOuvertes.add(cle);
+    };
+  });
 
   $("p-pages").innerHTML = pages > 1 ? Array.from({ length: pages }, (_, i) =>
     `<button class="puce" data-pg="${i}" aria-pressed="${i === pageInv}">` +

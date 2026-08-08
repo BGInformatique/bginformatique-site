@@ -121,6 +121,9 @@ journal TSV du dossier de prospection, hors dépôt.
   ligne : contact, téléphone (lien `tel:` — l'appel est le canal priorisé),
   courriel (`mailto:`), site. Les coordonnées viennent des colonnes CONTACT /
   TELEPHONE / COURRIEL / SITE du journal TSV, via le miroir (7 août 2026).
+  La fiche vaut aussi dans l'**inventaire** : une entrée en cadence emprunte
+  la fiche du journal, les autres montrent ce que l'inventaire sait
+  (colonnes TELEPHONE / COURRIEL / CONTACT de `_Inventaire.tsv`).
 - **Cliquer le reste de la ligne** filtre la liste des tâches sur ce prospect —
   le brouillon de relance est là.
 - **« Signaler… »** (répondu, RDV fixé, client, dormance, réactiver) écrit un
