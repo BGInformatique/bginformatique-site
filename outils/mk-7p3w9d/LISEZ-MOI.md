@@ -117,10 +117,25 @@ donc mêmes règles que `state` — rien à republier en console ; aucun nom de
 prospect dans le code, le dépôt est public). La source de vérité reste le
 journal TSV du dossier de prospection, hors dépôt.
 
+- **L'entonnoir du plan « Entonnoir 24 »** (9-10 août 2026) coiffe le volet :
+  six étages (contactés → joints → répondus → RDV → clients → **revenu**
+  facturé/carnet en dollars réels), la **phase courante du plan** (dates
+  codées : armement → sprint → closing → croisière), les **quatre compteurs de
+  gestes** de la semaine (appels · envois · pubs · avis, boutons +1), le
+  bouton **« Relevé du vendredi »** (photographie horodatée ajoutée à
+  `releves`) et la saisie de revenu. Données dans le document
+  `marketing/prospection` : `gestes`, `revenus`, `releves` appartiennent à la
+  page ; `appels` est une **boîte de dépôt** que le prospecteur consomme
+  (compteurs APPELS au journal TSV, statut `injoignable` après 3 tentatives
+  sans joint), puis vide. Le prospecteur pousse désormais son miroir **avec
+  updateMask** — il ne touche jamais aux champs de la page.
 - **Cliquer le nom** (souligné pointillé) déplie la **fiche contact** sous la
   ligne : contact, téléphone (lien `tel:` — l'appel est le canal priorisé),
-  courriel (`mailto:`), site. Les coordonnées viennent des colonnes CONTACT /
-  TELEPHONE / COURRIEL / SITE du journal TSV, via le miroir (7 août 2026).
+  courriel (`mailto:`), site — plus le compteur de tentatives et les boutons
+  **« consigner l'appel »** (joint / boîte vocale / sans réponse), qui
+  alimentent l'entonnoir et les gestes à la seconde. Les coordonnées viennent
+  des colonnes CONTACT / TELEPHONE / COURRIEL / SITE du journal TSV, via le
+  miroir (7 août 2026).
   La fiche vaut aussi dans l'**inventaire** : une entrée en cadence emprunte
   la fiche du journal, les autres montrent ce que l'inventaire sait
   (colonnes TELEPHONE / COURRIEL / CONTACT de `_Inventaire.tsv`).

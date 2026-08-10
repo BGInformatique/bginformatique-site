@@ -37,6 +37,8 @@ import {
   limit,
   setDoc,
   onSnapshot,
+  arrayUnion,
+  increment,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
 import {
@@ -126,9 +128,29 @@ const LIB_PROSP = {
   a_contacter: "À contacter", contact_prepare: "1er contact prêt",
   contacte_sans_reponse: "Sans réponse", relance_preparee: "Relance prête",
   relance_envoyee: "Relance envoyée", repondu: "A répondu",
-  rdv_fixe: "RDV fixé", dormant: "Dormant", client: "Client",
-  abandonne: "Abandonné",
+  rdv_fixe: "RDV fixé", dormant: "Dormant", injoignable: "Injoignable",
+  client: "Client", abandonne: "Abandonné",
 };
+
+/* ── plan « Entonnoir 24 » (décisions 31-33) ─────────────────────────────
+   La semaine ISO clef des compteurs de gestes, et la phase courante du plan
+   — des dates du plan, pas des réglages. */
+function semaineISO(d = new Date()) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const j = x.getUTCDay() || 7;
+  x.setUTCDate(x.getUTCDate() + 4 - j);
+  const an = x.getUTCFullYear();
+  const s = Math.ceil(((x - Date.UTC(an, 0, 1)) / 86400000 + 1) / 7);
+  return `${an}-S${String(s).padStart(2, "0")}`;
+}
+
+function phaseCourante() {
+  const a = jourISO();
+  if (a <= "2026-08-16") return "Phase 0 — armement · les 12 envois partent le vendredi 14 · sprint lundi 17";
+  if (a <= "2026-10-02") return "Sprint de couverture — 12-15 nouveaux/sem · 3 blocs d'appels · alerte < 20 gestes/sem";
+  if (a <= "2026-10-30") return "Fenêtre de closing — RDV sous 48 h · soumission sous 48 h · intervention sous 7 jours";
+  return "Croisière — 8 nouveaux/sem · 2 blocs d'appels";
+}
 
 function normaliser(brut) {
   const s = VIDE();
@@ -591,12 +613,110 @@ function rendreProspection() {
       `${liste.length} pour « ${proprietaire || "un autre mandat"} ».`;
     $("p-maj").textContent = "";
     $("p-candidats").hidden = true;
+    $("ent").hidden = true;
     return;
   }
   const signaux = (prospection && prospection.signaux) || {};
   $("p-maj").textContent = prospection.majLe
     ? `journal du ${new Date(prospection.majLe).toLocaleDateString("fr-CA")} · nom = fiche contact · ligne = tâches du prospect`
     : "";
+
+  /* ── l'entonnoir : contactés → joints → répondus → RDV → clients → revenu.
+     Un signal déposé sur la page prime sur le statut du miroir (plus frais),
+     et les appels consignés ici comptent avant même que le prospecteur les
+     ait reportés au journal. ── */
+  const enAttente = (prospection && prospection.appels) || {};
+  const tentativesDe = (p) => (p.appelsFaits || 0) + ((enAttente[p.id] || []).length);
+  const jointsDe = (p) => (p.appelsJoints || 0) +
+    (enAttente[p.id] || []).filter((a) => a.resultat === "joint").length;
+  const statutVif = (p) => (signaux[p.id] && signaux[p.id].statut) || p.statut;
+
+  // Même fraîcheur que les étages suivants : le statut signalé prime, et une
+  // tentative consignée à l'instant fait un contacté — sinon l'entonnoir
+  // pourrait s'inverser (des joints sans contactés).
+  const contactes = miens.filter((p) => p.dernierContact || tentativesDe(p) > 0 ||
+    !["a_contacter", "contact_prepare"].includes(statutVif(p)));
+  const avantPlan = contactes.filter((p) =>
+    p.dernierContact && p.dernierContact < "2026-08-14").length;
+  const nJoints = miens.filter((p) => jointsDe(p) > 0).length;
+  const nRepondus = miens.filter((p) =>
+    ["repondu", "rdv_fixe", "client"].includes(statutVif(p))).length;
+  const nRdv = miens.filter((p) => ["rdv_fixe", "client"].includes(statutVif(p))).length;
+  const nClients = miens.filter((p) => statutVif(p) === "client").length;
+  const revenus = (prospection && prospection.revenus) || [];
+  const dollars = (t) => revenus.filter((r) => r.type === t)
+    .reduce((s, r) => s + (Number(r.montant) || 0), 0);
+
+  $("ent").hidden = false;
+  $("ent-phase").textContent = "// " + phaseCourante();
+  $("ent-ligne").innerHTML =
+    `Contactés <b>${contactes.length}</b>${avantPlan ? ` <span class="p-c-note">(dont ${avantPlan} avant le plan)</span>` : ""} · ` +
+    `Joints <b>${nJoints}</b> · Répondus <b>${nRepondus}</b> · RDV <b>${nRdv}</b> · ` +
+    `Clients <b>${nClients}</b> · Revenu <b>${dollars("facture").toLocaleString("fr-CA")} $</b>` +
+    ` <span class="p-c-note">(carnet ${dollars("carnet").toLocaleString("fr-CA")} $)</span>`;
+
+  /* Les quatre compteurs de gestes de la semaine — chaque geste se compte au
+     moment où il se pose ; consigner un appel en compte un tout seul. */
+  /* La semaine se recalcule AU CLIC (un onglet peut passer la fin de semaine
+     ouvert sans re-rendu), et les compteurs passent par Number() : le doc est
+     partagé avec BG001, on n'injecte ni ne concatène ce qu'on n'a pas vérifié. */
+  const sem = semaineISO();
+  const g = ((prospection && prospection.gestes) || {})[sem] || {};
+  const nG = (k) => Number(g[k]) || 0;
+  const GESTES = [["appels", "appels"], ["envois", "envois"], ["pubs", "pubs"], ["avis", "avis"]];
+  const totalG = GESTES.reduce((s, [k]) => s + nG(k), 0);
+  $("g-liste").innerHTML = GESTES.map(([k, l]) =>
+    `${l} <b>${nG(k)}</b> <button type="button" class="p-act" data-g="${k}">+1</button>`
+  ).join(" · ") + ` · total <b>${totalG}</b>`;
+  $("g-liste").querySelectorAll("[data-g]").forEach((b) => {
+    b.onclick = () => {
+      if (!uidCourant) return;
+      setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+        { gestes: { [semaineISO()]: { [b.dataset.g]: increment(1) } } }, { merge: true })
+        .catch((e) => avis("Geste refusé : " + e.message, true));
+    };
+  });
+
+  const releves = (prospection && prospection.releves) || [];
+  const dernierR = releves.length ? releves[releves.length - 1] : null;
+  $("releve-info").textContent = dernierR ? `dernier : ${dernierR.date}` : "aucun relevé encore";
+  $("btn-releve").onclick = () => {
+    if (!uidCourant) return;
+    const semClic = semaineISO();
+    const gClic = ((prospection && prospection.gestes) || {})[semClic] || {};
+    setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+      { releves: arrayUnion({
+        semaine: semClic, date: jourISO(),
+        entonnoir: { contactes: contactes.length, joints: nJoints, repondus: nRepondus,
+          rdv: nRdv, clients: nClients,
+          revenuFacture: dollars("facture"), revenuCarnet: dollars("carnet") },
+        gestes: { appels: Number(gClic.appels) || 0, envois: Number(gClic.envois) || 0,
+          pubs: Number(gClic.pubs) || 0, avis: Number(gClic.avis) || 0 },
+      }) }, { merge: true })
+      .catch((e) => avis("Relevé refusé : " + e.message, true));
+    avis(`Relevé ${semClic} consigné.`);
+  };
+
+  /* Le revenu se consigne en dollars réels, jamais projetés : « facturé »
+     quand la première intervention est livrée, « carnet » à l'acceptation. */
+  const selR = $("r-prospect");
+  const choixR = selR.value;
+  selR.innerHTML = `<option value="">— prospect —</option>` + miens.map((p) =>
+    `<option value="${ech(p.prospect)}"${p.prospect === choixR ? " selected" : ""}>${ech(p.prospect)}</option>`).join("");
+  $("f-revenu").onsubmit = (ev) => {
+    ev.preventDefault();
+    const montant = Number($("r-montant").value);
+    if (!(montant > 0)) { avis("Montant invalide — rien consigné.", true); return; }
+    if (!uidCourant) { avis("Non connecté — rien consigné.", true); return; }
+    setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+      { revenus: arrayUnion({ date: jourISO(), prospect: selR.value || "",
+        montant, type: $("r-type").value }) }, { merge: true })
+      .catch((e) => avis("Revenu refusé : " + e.message, true));
+    // La persistance locale garantit l'écriture : confirmation immédiate,
+    // même hors ligne — le .catch couvre le refus réel des règles.
+    $("r-montant").value = "";
+    avis("Revenu consigné.");
+  };
 
   /* Liste serrée, sans décor : une ligne par prospect, l'état en texte brut.
      Seule couleur : une échéance dépassée — c'est une information, pas un style. */
@@ -636,7 +756,12 @@ function rendreProspection() {
         <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select></td>
       </tr>
       <tr class="p-fiche"${fichesOuvertes.has(p.id) ? "" : " hidden"}>
-        <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(p)}</td>
+        <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(p)}
+          <span class="p-c-note">· tentatives ${tentativesDe(p)}${jointsDe(p) ? ` (${jointsDe(p)} joints)` : ""}</span>
+          — consigner l'appel :
+          <button type="button" class="p-act" data-ap="joint">joint</button> ·
+          <button type="button" class="p-act" data-ap="vocal">boîte vocale</button> ·
+          <button type="button" class="p-act" data-ap="sans_reponse">sans réponse</button></td>
       </tr>`;
     }).join("") + "</tbody>";
 
@@ -663,6 +788,24 @@ function rendreProspection() {
       f.hidden = !f.hidden;
       if (f.hidden) fichesOuvertes.delete(p.id); else fichesOuvertes.add(p.id);
     };
+    /* Consigner une tentative d'appel : elle entre dans la boîte « appels »
+       du miroir (le prospecteur la reportera au journal) et compte tout de
+       suite dans l'entonnoir et les gestes de la semaine. */
+    tr.nextElementSibling.querySelectorAll("[data-ap]").forEach((b) => {
+      b.onclick = () => {
+        if (!uidCourant) return;
+        // Le bouton se fige tout de suite : le re-rendu (snapshot local) le
+        // remplace de toute façon, et le compteur « tentatives » qui monte
+        // sous les yeux EST la confirmation. Le ts rend chaque tentative
+        // unique — deux boîtes vocales le même jour font deux entrées.
+        b.disabled = true;
+        setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+          { appels: { [p.id]: arrayUnion({ date: jourISO(), resultat: b.dataset.ap,
+              ts: maintenant() }) },
+            gestes: { [semaineISO()]: { appels: increment(1) } } }, { merge: true })
+          .catch((e) => { b.disabled = false; avis("Appel non consigné : " + e.message, true); });
+      };
+    });
     tr.onclick = (ev) => {
       if (ev.target.closest("select") || ev.target.closest("a") || ev.target.closest("button")) return;
       filtreTexte = p.prospect.toLowerCase();

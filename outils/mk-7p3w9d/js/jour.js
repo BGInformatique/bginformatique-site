@@ -97,7 +97,13 @@ function rendre() {
   const auj = jourISO();
   const d = new Date();
   const js = d.getDay();                       // 0 = dimanche
-  const ouvrable = js >= 1 && js <= 5;
+  // Fériés du Québec sur l'horizon du plan : ni rituel, ni bloc d'appels, et
+  // ils ne comptent pas comme jours ouvrés dans l'échéancier J+3/J+6/J+8.
+  const FERIES = new Set([
+    "2026-09-07", "2026-10-12", "2026-12-25", "2027-01-01", "2027-03-26",
+    "2027-05-24", "2027-06-24", "2027-07-01", "2027-09-06", "2027-10-11",
+  ]);
+  const ouvrable = js >= 1 && js <= 5 && !FERIES.has(auj);
   const dans7 = jourISO(new Date(d.getTime() + 7 * 86400000));
   $("j-date").textContent = "// " +
     d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -122,14 +128,64 @@ function rendre() {
 
   /* ── aujourd'hui ── */
   const jour = [];
-  // Rituels de la semaine — dans l'ordre où la journée se déroule.
-  if (sien && js === 1) jour.push(item("RITUEL", "client",
-    "Cycle du prospecteur ce matin : relire ses nouveaux brouillons et les envoyer", "./"));
-  if (sien && js === 4) jour.push(item("RITUEL", "client",
-    "Le recherchiste est passé : trier ses candidats (accepter / rejeter)", "./"));
-  if (sien && js === 5) jour.push(item("RITUEL", "temps",
-    "Vendredi : relever les statistiques LinkedIn et faire le point de la semaine",
-    versTaches("statistiques LinkedIn")));
+  // Rituels de la semaine type du plan « Entonnoir 24 » (décisions 31-33).
+  // Pendant le sprint (17 août – 2 octobre), le mercredi est un bloc d'appels.
+  // Un férié n'a ni rituel ni bloc — la règle de report du plan s'applique.
+  const sprint = auj >= "2026-08-17" && auj <= "2026-10-02";
+  if (sien && ouvrable && js === 1) jour.push(item("RITUEL", "client",
+    "Bloc d'envois : relire les brouillons du prospecteur et TOUT envoyer aujourd'hui " +
+    "(règle des 24 h), puis publier la publication LinkedIn", "./"));
+  if (sien && ouvrable && js === 2) jour.push(item("RITUEL", "client",
+    "Bloc d'appels n° 1 — 9 h 30 à 11 h 30 (2ᵉ tentatives, suivis de soumissions)", "./"));
+  if (sien && ouvrable && js === 3 && sprint) jour.push(item("RITUEL", "client",
+    "Bloc d'appels n° 3 — 9 h 30 à 11 h 30 (3ᵉ tentatives) — sprint : la production attend", "./"));
+  if (sien && ouvrable && js === 4) jour.push(item("RITUEL", "client",
+    "Bloc d'appels n° 2 — 9 h 30 à 11 h 30 (1ʳᵉˢ tentatives des envois du lundi), " +
+    "puis trier les candidats du moteur", "./"));
+  if (sien && ouvrable && js === 5) jour.push(item("RITUEL", "temps",
+    "Relevé d'entonnoir — bouton « Relevé du vendredi » au tableau de bord, " +
+    "puis planifier les relances de la semaine", "./"));
+
+  // La liste d'appels du jour, les jours de bloc : qui est dû (J+3 / J+6 /
+  // J+8 ouvrés après l'envoi, 3 tentatives max), douleur d'abord — un site
+  // web hors ligne accepte vite, et une acceptation rapide est du revenu.
+  // NOTE : cet échéancier téléphonique est distinct de la colonne « Prochaine »
+  // du tableau de bord, qui cadence les relances ÉCRITES (J+14, prospecteur).
+  const jourBloc = ouvrable && (js === 2 || js === 4 || (js === 3 && sprint));
+  if (sien && jourBloc && prospection) {
+    const ouvre = (iso, n) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "9999-12-31";
+      const d2 = new Date(iso + "T12:00:00");
+      let k = 0;
+      while (k < n) {
+        d2.setDate(d2.getDate() + 1);
+        const j2 = d2.getDay();
+        if (j2 >= 1 && j2 <= 5 && !FERIES.has(jourISO(d2))) k++;
+      }
+      return jourISO(d2);
+    };
+    const enAttente = prospection.appels || {};
+    const sig = prospection.signaux || {};
+    const statutVif = (p) => (sig[p.id] && sig[p.id].statut) || p.statut;
+    // Liste d'admission, pas de blocage : un statut inconnu ne s'appelle pas.
+    // « relance_preparee » attend son envoi — le brouillon est déjà listé plus
+    // haut, on n'affiche pas l'appel ET l'envoi du même prospect.
+    const APPELABLES = new Set(["a_contacter", "contacte_sans_reponse", "relance_envoyee"]);
+    const sienP = (p) => p.mandat ? appartientAuMandat(mandat, p.mandat) : sien;
+    const dus = (prospection.prospects || [])
+      .filter((p) => sienP(p) && p.dernierContact && APPELABLES.has(statutVif(p)))
+      .map((p) => ({ p, n: (p.appelsFaits || 0) + ((enAttente[p.id] || []).length) }))
+      .filter(({ p, n }) => n < 3 && auj >= ouvre(p.dernierContact, [3, 6, 8][n]) &&
+        p.dernierAppel !== auj && !(enAttente[p.id] || []).some((a) => a.date === auj))
+      .sort((a, b) =>
+        (/hors ligne/i.test(b.p.note || "") ? 1 : 0) - (/hors ligne/i.test(a.p.note || "") ? 1 : 0) ||
+        (a.p.dernierContact || "").localeCompare(b.p.dernierContact || ""));
+    for (const { p, n } of dus) {
+      jour.push(item("APPEL", "retard",
+        `${p.prospect} — tentative ${n + 1}${p.telephone ? " · " + p.telephone : ""}` +
+        (/hors ligne/i.test(p.note || "") ? " · ⚡ site hors ligne" : ""), "./"));
+    }
+  }
   // La publication LinkedIn du jour ouvrable.
   const posts = ((lot && lot.posts) || []).slice().sort((a, b) => (a.n || 0) - (b.n || 0));
   const prochainePub = posts.find((p) => p.statutPub !== "publie");
@@ -161,7 +217,7 @@ function rendre() {
   const decisions = (prospection && prospection.candidatures) || {};
   const candidats = ((prospection && prospection.candidats) || [])
     .filter((c) => !decisions[c.id]);
-  if (candidats.length) {
+  if (sien && candidats.length) {
     trier.push(item("CANDIDATS", "en_cours",
       `${candidats.length} candidat${candidats.length > 1 ? "s" : ""} de l'engin à accepter ou rejeter`, "./"));
   }

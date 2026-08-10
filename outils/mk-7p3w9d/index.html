@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Tableau de bord marketing — BG Informatique</title>
-  <link rel="stylesheet" href="css/style.css?v=20260807213843">
+  <link rel="stylesheet" href="css/style.css?v=20260810090121">
 </head>
 <body>
 
@@ -58,6 +58,29 @@
       <h2>Prospection</h2>
       <span class="cpt" id="p-maj"></span>
     </div>
+
+    <!-- L'entonnoir du plan « Entonnoir 24 » : six étages, les gestes de la
+         semaine, le relevé du vendredi et le revenu — la seule comptabilité. -->
+    <div class="ent" id="ent" hidden>
+      <div class="mono ent-phase" id="ent-phase"></div>
+      <div class="ent-ligne" id="ent-ligne"></div>
+      <div class="ent-gestes">
+        <span class="mono">// gestes semaine</span>
+        <span id="g-liste"></span>
+        <button type="button" id="btn-releve" class="btn btn-ghost">Relevé du vendredi</button>
+        <span class="cpt" id="releve-info"></span>
+      </div>
+      <form class="ent-rev" id="f-revenu">
+        <select id="r-prospect"></select>
+        <input id="r-montant" type="number" min="0.01" step="0.01" placeholder="montant $" required>
+        <select id="r-type">
+          <option value="facture">facturé (livré)</option>
+          <option value="carnet">carnet (accepté)</option>
+        </select>
+        <button class="btn" type="submit">+ revenu</button>
+      </form>
+    </div>
+
     <div class="vide" id="p-vide" hidden></div>
     <div class="p-defile"><table class="p-table" id="p-liste"></table></div>
     <div id="p-candidats" hidden>
@@ -178,6 +201,6 @@
   </form>
 </dialog>
 
-<script type="module" src="js/app.js?v=20260807213843"></script>
+<script type="module" src="js/app.js?v=20260810090121"></script>
 </body>
 </html>
