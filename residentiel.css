@@ -848,3 +848,39 @@ a.res-card:hover {
 }
 
 .res-footer-bottom span { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-light); }
+
+/* ═══ Villes desservies ═══
+   Bloc généré par residentiel/generer-villes.py : la liste des villes sur
+   l'accueil résidentiel, et le renvoi vers les villes voisines au bas de
+   chaque page de ville. */
+
+.res-villes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.res-villes a {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.res-villes a:hover,
+.res-villes a:focus-visible {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.res-villes-aussi {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.res-villes-aussi a { color: var(--brand-blue); }

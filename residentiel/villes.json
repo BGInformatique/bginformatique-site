@@ -1,0 +1,134 @@
+{
+  "_lisez_moi": [
+    "Fiches des pages de villes résidentielles. Source de vérité de generer-villes.py.",
+    "",
+    "Une ville avec \"actif\": false est ignorée : sa page n'est ni créée ni supprimée.",
+    "C'est volontaire — quatre pages bien faites battent dix pages bâclées, et Google",
+    "traite un gabarit dupliqué avec le nom changé comme une page-portail.",
+    "",
+    "Le champ \"contexte\" est OBLIGATOIRE et doit faire au moins 200 caractères. Le",
+    "générateur refuse d'écrire une page sans lui. C'est le paragraphe qui n'existe",
+    "nulle part ailleurs sur le site, et c'est la seule chose qui distingue une vraie",
+    "page de ville d'une page-portail.",
+    "",
+    "Le champ \"contexte_local\" est facultatif mais fortement recommandé : ce que seul",
+    "quelqu'un d'ici peut écrire — un secteur, un axe, un repère. Une phrase suffit.",
+    "",
+    "Zone vérifiée auprès d'exo les 2, 3 et 5 août 2026. Le réseau de la couronne nord",
+    "change le 24 août 2026 : revalider les trajets ce jour-là."
+  ],
+
+  "villes": [
+    {
+      "actif": true,
+      "nom": "Blainville",
+      "slug": "blainville",
+      "trajet": "ligne 709 depuis le terminus Saint-Jérôme, ou les lignes 246 et 247 depuis le terminus Sainte-Thérèse",
+      "gare": "La gare de Blainville est sur la ligne de train 12, entre Sainte-Thérèse et Mirabel.",
+      "contexte": "Blainville est la ville la plus peuplée de la zone desservie, et la plus simple à atteindre : la ligne 709 y passe directement depuis le terminus de Saint-Jérôme, sans correspondance. C'est aussi une gare de la ligne de train 12 — mais le train ne circule pas la fin de semaine, alors que l'autobus, lui, roule tous les jours. Concrètement : un rendez-vous du samedi matin à Blainville se prend aussi facilement qu'un mardi soir.",
+      "contexte_local": "",
+      "voisines": ["sainte-therese", "boisbriand", "terrebonne"]
+    },
+    {
+      "actif": true,
+      "nom": "Sainte-Thérèse",
+      "slug": "sainte-therese",
+      "trajet": "ligne 709 depuis le terminus Saint-Jérôme",
+      "gare": "La gare de Sainte-Thérèse est sur la ligne de train 12.",
+      "contexte": "Sainte-Thérèse est le carrefour du réseau : quinze lignes d'autobus repartent de son terminus vers Boisbriand, Rosemère, Lorraine, Terrebonne, Sainte-Anne-des-Plaines, Saint-Eustache et Deux-Montagnes. C'est ce qui fait qu'un déplacement à Sainte-Thérèse est le plus court et le plus fiable de toute la zone — une seule ligne, la 709, depuis le terminus de Saint-Jérôme, tous les jours de la semaine.",
+      "contexte_local": "",
+      "voisines": ["blainville", "boisbriand", "rosemere"]
+    },
+    {
+      "actif": true,
+      "nom": "Boisbriand",
+      "slug": "boisbriand",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis les lignes 240 ou 241",
+      "gare": "",
+      "contexte": "Boisbriand se rejoint en deux autobus : la 709 jusqu'au terminus Sainte-Thérèse, puis la 240 ou la 241. Il n'y a pas de gare de train à Boisbriand — la plus proche est celle de Sainte-Thérèse. Ce détail a une conséquence pratique : comme tout passe par l'autobus, la desserte est la même le samedi que le mardi, contrairement aux villes où le train sert de raccourci en semaine.",
+      "contexte_local": "",
+      "voisines": ["sainte-therese", "blainville", "rosemere"]
+    },
+    {
+      "actif": true,
+      "nom": "Terrebonne",
+      "slug": "terrebonne",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis la ligne 249",
+      "gare": "",
+      "contexte": "Terrebonne est la ville la plus à l'est de la zone desservie. On y va en deux autobus : la 709 jusqu'au terminus Sainte-Thérèse, puis la 249, qui dessert aussi Lorraine sur son parcours. C'est un trajet plus long que vers Blainville ou Sainte-Thérèse, et ça change une chose concrète : pour un problème réglable à distance — lenteur, virus, courriel, sauvegarde — on règle à distance, tout de suite, plutôt que de faire attendre une demi-journée.",
+      "contexte_local": "",
+      "voisines": ["lorraine", "sainte-therese", "blainville"]
+    },
+
+    {
+      "actif": false,
+      "nom": "Rosemère",
+      "slug": "rosemere",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis la ligne 242",
+      "gare": "La gare de Rosemère est sur la ligne de train 12.",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["sainte-therese", "lorraine", "boisbriand"]
+    },
+    {
+      "actif": false,
+      "nom": "Lorraine",
+      "slug": "lorraine",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis la ligne 249",
+      "gare": "",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["rosemere", "terrebonne", "sainte-therese"]
+    },
+    {
+      "actif": false,
+      "nom": "Mirabel",
+      "slug": "mirabel",
+      "trajet": "ligne 709 depuis le terminus Saint-Jérôme, ou la ligne 243 depuis Sainte-Thérèse pour le secteur Saint-Augustin",
+      "gare": "La gare de Mirabel est sur la ligne de train 12, la plus proche de Saint-Jérôme.",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["blainville", "sainte-therese"]
+    },
+    {
+      "actif": false,
+      "nom": "Sainte-Anne-des-Plaines",
+      "slug": "sainte-anne-des-plaines",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis la ligne 250",
+      "gare": "",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["sainte-therese", "terrebonne"]
+    },
+    {
+      "actif": false,
+      "nom": "Saint-Eustache",
+      "slug": "saint-eustache",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis un express 405, 600 ou 605",
+      "gare": "",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["deux-montagnes", "boisbriand", "sainte-therese"]
+    },
+    {
+      "actif": false,
+      "nom": "Deux-Montagnes",
+      "slug": "deux-montagnes",
+      "trajet": "ligne 709 jusqu'au terminus Sainte-Thérèse, puis un express 405, 600 ou 605",
+      "gare": "",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["saint-eustache", "sainte-therese"]
+    },
+    {
+      "actif": false,
+      "nom": "Saint-Jérôme",
+      "slug": "saint-jerome",
+      "trajet": "sur place",
+      "gare": "Le terminus et la gare de Saint-Jérôme sont le point de départ de tout le réseau.",
+      "contexte": "",
+      "contexte_local": "",
+      "voisines": ["mirabel", "blainville"]
+    }
+  ]
+}
