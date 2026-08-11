@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>BGFoods — circulaires et listes d'épicerie</title>
+  <link rel="stylesheet" href="css/style.css?v=20260811230000">
+</head>
+<body>
+<header class="app-header">
+  <h1>🛒 BGFoods</h1>
+  <p class="subtitle">Injecter les circulaires, sortir la liste au meilleur prix</p>
+  <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
+</header>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-card">
+    <h2>Connexion requise</h2>
+    <p>Connecte-toi avec ton compte Microsoft BG Informatique. Tes circulaires et
+       tes listes te suivent alors de l'ordinateur au téléphone.</p>
+    <button id="btn-login" class="btn btn-lg">Se connecter avec Microsoft</button>
+    <p class="banner err" id="auth-error" hidden></p>
+  </div>
+</div>
+
+<div id="banners" class="banners" aria-live="polite"></div>
+
+<nav class="tabs" id="onglets" hidden>
+  <button class="tab" role="tab" data-onglet="liste" aria-selected="true">Liste d'épicerie</button>
+  <button class="tab" role="tab" data-onglet="aubaines" aria-selected="false">Aubaines</button>
+  <button class="tab" role="tab" data-onglet="circulaires" aria-selected="false">Circulaires</button>
+</nav>
+
+<main hidden>
+
+  <!-- ══════════ Liste d'épicerie ══════════ -->
+  <section id="vue-liste">
+    <div class="card no-print">
+      <h2>Ce dont j'ai besoin</h2>
+      <p class="small muted">Un article par ligne : générer enregistre aussi la liste sous son nom, pour la retrouver au magasin. Commence par une quantité
+        (<code>2 lait 2 %</code>) et ajoute une note entre parenthèses
+        (<code>poulet (bio)</code>).</p>
+      <textarea id="articles" rows="8" placeholder="2 lait 2 %&#10;poitrine de poulet&#10;fraises&#10;pain tranché"></textarea>
+      <div class="champs" style="margin-top:10px">
+        <div>
+          <label for="liste-nom">Nom de la liste</label>
+          <input type="text" id="liste-nom" value="Liste d'épicerie">
+        </div>
+        <div>
+          <label for="date-cible">Date de magasinage</label>
+          <input type="date" id="date-cible">
+        </div>
+        <div>
+          <label for="max-epiceries">Maximum d'épiceries</label>
+          <input type="number" id="max-epiceries" min="1" max="10" placeholder="illimité">
+        </div>
+        <div>
+          <label for="validees">Aubaines</label>
+          <label class="case"><input type="checkbox" id="validees"> validées seulement</label>
+        </div>
+      </div>
+      <div class="barre">
+        <button class="btn" id="btn-generer">Générer la liste</button>
+        <button class="btn btn-ghost" id="btn-imprimer">Imprimer / PDF</button>
+      </div>
+    </div>
+
+    <div id="resultat-liste"></div>
+
+    <div class="card no-print" id="carte-listes-enregistrees" hidden>
+      <h2>Listes enregistrées</h2>
+      <div id="listes-enregistrees"></div>
+    </div>
+  </section>
+
+  <!-- ══════════ Aubaines ══════════ -->
+  <section id="vue-aubaines" hidden>
+    <div class="card no-print">
+      <h2>Aubaines de la semaine</h2>
+      <div class="barre-filtres">
+        <div>
+          <label for="filtre-date">En vigueur le</label>
+          <input type="date" id="filtre-date">
+        </div>
+        <div>
+          <label for="filtre-epicerie">Épicerie</label>
+          <select id="filtre-epicerie"><option value="">toutes</option></select>
+        </div>
+        <div>
+          <label for="filtre-categorie">Catégorie</label>
+          <select id="filtre-categorie"><option value="">toutes</option></select>
+        </div>
+        <div>
+          <label for="filtre-recherche">Recherche</label>
+          <input type="text" id="filtre-recherche" placeholder="poulet, lait…">
+        </div>
+      </div>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="filtre-validees"> validées seulement</label>
+        <button class="btn btn-ghost" id="btn-imprimer-aubaines">Imprimer / PDF</button>
+      </div>
+    </div>
+    <div id="resultat-aubaines"></div>
+  </section>
+
+  <!-- ══════════ Circulaires ══════════ -->
+  <section id="vue-circulaires" hidden>
+    <div class="deux-colonnes">
+      <div class="card">
+        <h2>Téléverser une circulaire</h2>
+        <p class="small muted">PDF ou fichier texte. Le fichier est lu dans le
+          navigateur : il ne part sur aucun serveur.</p>
+        <input type="file" id="fichier" accept=".pdf,.txt,.md">
+        <div class="champs" style="margin-top:10px">
+          <div>
+            <label for="import-epicerie">Épicerie</label>
+            <input type="text" id="import-epicerie" list="liste-epiceries" placeholder="détectée automatiquement">
+            <datalist id="liste-epiceries"></datalist>
+          </div>
+          <div>
+            <label for="import-debut">Valide du</label>
+            <input type="date" id="import-debut">
+          </div>
+          <div>
+            <label for="import-fin">Valide au</label>
+            <input type="date" id="import-fin">
+          </div>
+        </div>
+        <div class="barre">
+          <button class="btn" id="btn-importer-fichier">Extraire les aubaines</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Coller le texte</h2>
+        <p class="small muted">Quand le PDF ne se lit pas, ou pour ajouter des
+          rabais vus en magasin.</p>
+        <textarea id="texte-circulaire" rows="7" placeholder="Fraises du Québec 454 g 2,99 $&#10;Poitrines de poulet 3,99 $/lb&#10;2/5,00 $ Yogourt Source 16 x 100 g"></textarea>
+        <div class="barre">
+          <button class="btn" id="btn-importer-texte">Extraire les aubaines</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Circulaires importées</h2>
+      <div id="liste-circulaires"></div>
+    </div>
+
+    <div id="correction"></div>
+  </section>
+
+</main>
+
+<script type="module" src="js/app.js?v=20260811230000"></script>
+</body>
+</html>

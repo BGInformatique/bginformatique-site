@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # Dossiers surveillés : ajouter une ligne par outil versionné de cette façon.
-OUTILS=("outils/tc-9x2k7m" "outils/mk-7p3w9d")
+OUTILS=("outils/tc-9x2k7m" "outils/mk-7p3w9d" "outils/ep-4k9m2t")
 
 horodatage="$(date +%Y%m%d%H%M%S)"
 touche=0

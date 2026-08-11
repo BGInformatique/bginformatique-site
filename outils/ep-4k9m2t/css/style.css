@@ -1,0 +1,195 @@
+/* BGFoods — circulaires et listes d'épicerie.
+   Palette alignée sur TimeCalculator et le tableau de bord marketing : les
+   outils internes doivent se ressembler. */
+
+:root {
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --text: #1c2430;
+  --text-muted: #64748b;
+  --border: #dbe2ea;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #b45309;
+  --surface: #eef2f7;
+  --shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  --r: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f151d;
+    --card: #1a222d;
+    --text: #e6ebf1;
+    --text-muted: #94a3b8;
+    --border: #2c3947;
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --danger: #ef4444;
+    --ok: #22c55e;
+    --warn: #fbbf24;
+    --surface: #222c39;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -.01em; }
+button { font: inherit; cursor: pointer; }
+[hidden] { display: none !important; }
+a { color: var(--primary); }
+
+.muted { color: var(--text-muted); }
+.small { font-size: 13px; }
+.nowrap { white-space: nowrap; }
+.prix { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gain { color: var(--ok); font-weight: 600; }
+
+/* ── en-tête ──────────────────────────────────────────── */
+.app-header {
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 14px 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.app-header h1 { font-size: 19px; }
+.app-header .subtitle { margin: 0; color: var(--text-muted); font-size: 13px; flex: 1 1 220px; }
+
+/* ── boutons ──────────────────────────────────────────── */
+.btn {
+  background: var(--primary); color: #fff; border: 1px solid transparent;
+  border-radius: 9px; padding: 8px 14px; font-size: 14px; font-weight: 600;
+}
+.btn:hover { background: var(--primary-hover); }
+.btn:disabled { opacity: .55; cursor: progress; }
+.btn-lg { padding: 12px 20px; font-size: 15px; width: 100%; }
+.btn-ghost { background: none; color: var(--text-muted); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--surface); color: var(--text); }
+.btn-danger { background: none; color: var(--danger); border: 1px solid transparent; }
+.btn-danger:hover { background: rgba(220, 38, 38, .1); }
+.btn-mini { padding: 3px 8px; font-size: 12px; }
+
+/* ── connexion et avis ────────────────────────────────── */
+.auth-gate { min-height: 78vh; display: grid; place-items: center; padding: 24px; }
+.auth-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 28px; max-width: 420px; text-align: center;
+}
+.auth-card h2 { font-size: 19px; margin-bottom: 10px; }
+.auth-card p { color: var(--text-muted); font-size: 14px; margin: 0 0 20px; }
+
+.banners { padding: 0 22px; margin-top: 14px; display: grid; gap: 8px; }
+.banner {
+  border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; font-size: 13.5px;
+  background: var(--surface);
+}
+.banner.err { background: rgba(220, 38, 38, .1); color: var(--danger); border-color: rgba(220, 38, 38, .28); }
+.banner.ok { background: rgba(22, 163, 74, .1); color: var(--ok); border-color: rgba(22, 163, 74, .28); }
+.banner.warn { background: rgba(180, 83, 9, .1); color: var(--warn); border-color: rgba(180, 83, 9, .28); }
+
+/* ── onglets ──────────────────────────────────────────── */
+.tabs { display: flex; gap: 6px; padding: 14px 22px 0; flex-wrap: wrap; }
+.tab {
+  background: none; border: 1px solid transparent; border-radius: 9px 9px 0 0;
+  padding: 9px 16px; color: var(--text-muted); font-weight: 600; font-size: 14px;
+}
+.tab[aria-selected="true"] {
+  background: var(--card); color: var(--text);
+  border-color: var(--border); border-bottom-color: var(--card);
+}
+
+main { padding: 0 22px 40px; max-width: 1180px; }
+
+/* ── cartes et formulaires ────────────────────────────── */
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 16px 18px; margin-top: 14px;
+}
+.card h2 { font-size: 16px; margin-bottom: 4px; }
+.card > p.small { margin: 4px 0 12px; }
+
+.deux-colonnes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.champs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+
+label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+input[type=text], input[type=date], input[type=number], input[type=file], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+textarea { resize: vertical; min-height: 120px; font-family: inherit; }
+.barre { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.barre-filtres { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.barre-filtres > * { flex: 1 1 150px; }
+.case { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
+.case input { width: auto; }
+
+/* ── tableaux ─────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+thead th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+tfoot td { background: var(--surface); font-weight: 600; }
+
+.defilant { overflow-x: auto; }
+table.correction input[type=text], table.correction select {
+  width: auto; max-width: 100%; padding: 4px 6px; font-size: 13px;
+}
+table.correction td { white-space: nowrap; }
+table.correction tr.doute { background: rgba(180, 83, 9, .08); }
+table.correction tr.validee { background: rgba(22, 163, 74, .07); }
+
+.etiquette {
+  display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--surface);
+  color: var(--text-muted); font-size: 12px;
+}
+.etiquette.ok { background: rgba(22, 163, 74, .15); color: var(--ok); }
+
+.vide { color: var(--text-muted); font-style: italic; padding: 10px 0; }
+.epicerie-titre { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.epicerie-titre h2 { font-size: 16px; }
+
+/* ── téléphone ────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .app-header, .tabs, main, .banners { padding-left: 12px; padding-right: 12px; }
+  .deux-colonnes { grid-template-columns: 1fr; }
+  .tab { padding: 9px 12px; }
+
+  /* Les tableaux deviennent des fiches : en magasin, on lit au pouce. */
+  table.liste, table.liste thead, table.liste tbody, table.liste tr, table.liste td { display: block; }
+  table.liste thead { display: none; }
+  table.liste tr {
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px;
+    display: grid; gap: 2px 10px; grid-template-columns: auto 1fr auto;
+    grid-template-areas: "coche titre total" "coche aubaine prix" "coche format unitaire";
+  }
+  table.liste td { border: none; padding: 0; }
+  table.liste td:nth-child(1) { grid-area: coche; align-self: center; }
+  table.liste td:nth-child(2) { grid-area: titre; font-weight: 600; }
+  table.liste td:nth-child(3) { grid-area: aubaine; font-size: 13.5px; }
+  table.liste td:nth-child(4) { grid-area: format; font-size: 12.5px; color: var(--text-muted); }
+  table.liste td:nth-child(5) { grid-area: prix; text-align: right; }
+  table.liste td:nth-child(6) { grid-area: unitaire; text-align: right; font-size: 12.5px; color: var(--text-muted); }
+  table.liste td:nth-child(7) { grid-area: total; text-align: right; font-weight: 600; }
+  table.liste tfoot tr { display: flex; justify-content: space-between; }
+
+  input[type=checkbox] { width: 20px; height: 20px; }
+}
+
+/* ── impression : la liste, et rien d'autre ───────────── */
+@media print {
+  .app-header, .tabs, .banners, .no-print, .btn { display: none !important; }
+  body { background: #fff; color: #000; }
+  main { padding: 0; max-width: none; }
+  .card { border: none; box-shadow: none; padding: 0; margin: 0 0 14px; }
+  table { font-size: 12px; }
+  .epicerie-titre { border-bottom: 2px solid #000; margin-top: 12px; }
+  tr, .card { break-inside: avoid; }
+}

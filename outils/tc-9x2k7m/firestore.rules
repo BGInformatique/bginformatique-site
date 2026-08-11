@@ -5,6 +5,7 @@ rules_version = '2';
 //  Outils couverts :
 //    TimeCalculator            https://bginformatique.ca/outils/tc-9x2k7m/
 //    Tableau de bord marketing https://bginformatique.ca/outils/mk-7p3w9d/
+//    BGFoods (épicerie)        https://bginformatique.ca/outils/ep-4k9m2t/
 //
 //  Le fichier vit dans le dossier de TimeCalculator pour raisons historiques ;
 //  il vaut pour TOUT le projet Firestore, un seul jeu de règles étant publié
@@ -93,6 +94,32 @@ service cloud.firestore {
       // L'application ne supprime jamais ce document : les enregistrements
       // retirés sont marqués par pierre tombale À L'INTÉRIEUR du document,
       // pour qu'un autre appareil ne les ressuscite pas à la synchro suivante.
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    //  BGFOODS — users/{uid}/bgfoods/{docId}
+    //  Outil : Circulaires et listes d'épicerie
+    //          https://bginformatique.ca/outils/ep-4k9m2t/
+    //  Un seul document aujourd'hui : « state ».
+    //
+    //  Encore un AJOUT : ni le bloc TimeCalculator ni le bloc MARKETING ne sont
+    //  touchés, et rien ici ne peut leur retirer un accès — deux « match » ne se
+    //  soustraient jamais l'un à l'autre.
+    //
+    //  Même forme et mêmes raisons que les deux précédents : portée limitée à
+    //  la sous-collection (pas de {document=**}), et aucune validation de champ
+    //  (l'application réécrit l'état entier; un schéma figé ici barrerait le
+    //  propriétaire au prochain changement de format).
+    // -------------------------------------------------------------------------
+    match /users/{uid}/bgfoods/{docId} {
+      allow read: if estProprietaire(uid);
+      allow create, update: if estProprietaire(uid);
+
+      // L'application ne supprime jamais ce document : circulaires, aubaines et
+      // listes retirées sont marquées par pierre tombale À L'INTÉRIEUR du
+      // document, pour qu'un autre appareil ne les ressuscite pas à la synchro
+      // suivante (voir outils/ep-4k9m2t/js/etat.js).
       allow delete: if false;
     }
 
