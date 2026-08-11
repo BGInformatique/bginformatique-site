@@ -92,6 +92,26 @@ def extraire(texte, debut, fin, quoi):
     return texte[i:j + len(fin)]
 
 
+def feuilles_style(t):
+    """Relit les deux <link> de feuilles de style d'une page vivante.
+
+    Elles portent un `?v=` que `deploy.sh` recalcule à chaque déploiement (un
+    condensé du contenu de style.css + residentiel.css). Les recopier en dur ici
+    avait deux effets : une page générée arrivait sans version — donc servie
+    depuis le cache du navigateur après un changement de CSS — et le script se
+    croyait en retard sur chaque page dès le lendemain d'un déploiement, ce qui
+    rendait l'état « inchangé » inutilisable. Même principe que `chrome()` : on
+    relit une page vivante au lieu de dupliquer.
+    """
+    liens = [l for l in t.splitlines()
+             if 'rel="stylesheet"' in l and l.lstrip().startswith("<link rel=")]
+    if len(liens) != 2:
+        raise SystemExit(
+            f"Attendu 2 feuilles de style dans {REFERENCE}, trouvé {len(liens)}. "
+            "Le gabarit des pages de villes en dépend — vérifier l'en-tête.")
+    return "\n".join(liens)
+
+
 def chrome():
     """Relit l'en-tête, le pied de page et les scripts de fin d'une page vivante."""
     t = open(REFERENCE, encoding="utf-8").read()
@@ -101,7 +121,7 @@ def chrome():
     entete = entete.replace(' aria-current="page"', "")
     pied = extraire(t, '<footer class="res-footer"', "</footer>", "pied de page")
     fin = t[t.find("</footer>") + len("</footer>"):t.find("</body>")]
-    return entete, pied, fin
+    return entete, pied, fin, feuilles_style(t)
 
 
 def faq(v):
@@ -125,7 +145,7 @@ def faq(v):
     return q
 
 
-def page(v, entete, pied, fin_scripts):
+def page(v, entete, pied, fin_scripts, feuilles):
     nom = v["nom"]
     slug = v["slug"]
     url = f"{BASE}depannage-informatique-{slug}.html"
@@ -232,8 +252,7 @@ def page(v, entete, pied, fin_scripts):
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="/residentiel.css">
+{feuilles}
 
   <script type="application/ld+json">
 {ld_service}
@@ -339,11 +358,19 @@ def maj_sitemap(urls, essai):
 
 
 def maj_index(villes, essai):
-    """Réécrit le bloc de liens de l'index entre ses deux marqueurs."""
+    """Réécrit le bloc de liens de l'index entre ses deux marqueurs.
+
+    Renvoie trois états, et pas deux : `None` si les marqueurs sont absents,
+    `True` si le bloc a été réécrit, `False` s'il était déjà à jour. La version
+    d'origine renvoyait un seul booléen, ce qui confondait « marqueurs absents »
+    et « rien à changer » — c'est-à-dire l'état normal. Le script annonçait donc
+    « liens non posés » à chaque passage réussi, et l'alerte disait le contraire
+    de la réalité. Une alerte qui crie tout le temps ne se lit plus.
+    """
     t = open(INDEX, encoding="utf-8").read()
     i, j = t.find(DEBUT_VILLES), t.find(FIN_VILLES)
     if i == -1 or j == -1:
-        return False
+        return None
     liens = "\n".join(
         f'      <a href="/residentiel/depannage-informatique-{v["slug"]}.html">'
         f'{texte(v["nom"])}</a>'
@@ -392,12 +419,12 @@ def main():
             return 1
         vus[c] = v["nom"]
 
-    entete, pied, fin_scripts = chrome()
+    entete, pied, fin_scripts, feuilles = chrome()
 
     ecrits, inchanges, urls = [], [], []
     for v in actives:
         chemin = os.path.join(ICI, f"depannage-informatique-{v['slug']}.html")
-        contenu = page(v, entete, pied, fin_scripts)
+        contenu = page(v, entete, pied, fin_scripts, feuilles)
         urls.append(f"{BASE}depannage-informatique-{v['slug']}.html")
         ancien = open(chemin, encoding="utf-8").read() if os.path.exists(chemin) else None
         if ancien == contenu:
@@ -417,10 +444,13 @@ def main():
         print(f"{tete}inchangé  {n}")
     for u in ajouts:
         print(f"{tete}sitemap   {u}")
-    if index_change:
+    if index_change is None:
+        print("index     ⚠️  marqueurs VILLES:DÉBUT/FIN absents de index.html — "
+              "liens non posés")
+    elif index_change:
         print(f"{tete}index     bloc des villes réécrit")
-    elif not index_change:
-        print("index     bloc VILLES:DÉBUT/FIN absent de index.html — liens non posés")
+    else:
+        print(f"{tete}index     {len(actives)} lien(s) déjà en place")
 
     sans_local = [v["nom"] for v in actives if not v.get("contexte_local", "").strip()]
     if sans_local:
