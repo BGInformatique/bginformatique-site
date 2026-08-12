@@ -537,8 +537,13 @@ function ecouterLancements() {
       const avant = lancementsVus.get(l.id);
       lancementsVus.set(l.id, l);
       rendreEtatLancement(l);
-      // Le passage à « fait » n'arrive qu'une fois : c'est là qu'on importe.
-      if (l.statut === "fait" && (!avant || avant.statut !== "fait")) {
+      // On importe une fois, et une seule. Deux gardes, pour deux oublis
+      // différents : `avant` couvre les instantanés répétés d'une même session
+      // (Firestore renvoie tout le lot à chaque changement), et le drapeau
+      // `recolte` écrit dans le document couvre le RECHARGEMENT de la page —
+      // sans lui, chaque ouverture réimporterait les demandes terminées, que
+      // le lanceur conserve trente jours.
+      if (l.statut === "fait" && !l.recolte && (!avant || avant.statut !== "fait")) {
         recolterLancement(l);
       }
     });
@@ -597,6 +602,16 @@ async function lancerSurBG001() {
   }
 }
 
+/** Note dans le document qu'on a déjà pris ses aubaines. */
+function marquerRecolte(l) {
+  const copie = lancementsVus.get(l.id);
+  if (copie) copie.recolte = true;
+  if (!utilisateur) return;
+  setDoc(doc(db, "users", utilisateur.uid, "bgfoods", l.id),
+    { recolte: true, maj: Date.now() }, { merge: true })
+    .catch(() => { /* la garde en mémoire tient le temps de la session */ });
+}
+
 const LIB_LANCEMENT = {
   demande: "⚡ demandé à BG001", en_cours: "⚡ BG001 lit les pages…",
   fait: "⚡ lu par BG001", echec: "⚡ échec sur BG001", annule: "⚡ annulé",
@@ -618,6 +633,9 @@ function rendreEtatLancement(l) {
  * saisie à la main. Rien n'entre dans les données sans avoir été lu par lui.
  */
 function recolterLancement(l) {
+  // Marqué AVANT l'import : si l'écriture échoue, on préfère ne pas importer
+  // plutôt qu'importer sans pouvoir s'en souvenir.
+  marquerRecolte(l);
   const texte = (l.resultat || "").trim();
   if (!texte) {
     avis("lancement", `BG001 a fini pour ${l.epicerie} sans reconnaître d'aubaine.`, "warn");

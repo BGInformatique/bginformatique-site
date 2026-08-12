@@ -329,6 +329,26 @@ async function principal() {
   verifier("un instantané répété n'importe pas deux fois",
     (await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)) === apres.circulaires);
 
+  // Le rechargement de la page est l'autre cas : la mémoire repart vide, et le
+  // lanceur garde les demandes terminées trente jours. Sans le drapeau écrit
+  // dans le document, chaque ouverture réimporterait tout.
+  verifier("la récolte est notée dans le document",
+    (await page.evaluate(() => globalThis.__bouchon.lancementsEcrits
+      .some((e) => /lancement-1$/.test(e.chemin) && e.recolte === true))),
+    JSON.stringify(await page.evaluate(() => globalThis.__bouchon.lancementsEcrits)));
+
+  const avantRechargement = await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length);
+  await page.evaluate(() => globalThis.__bouchon.emettreLancements([{
+    id: "lancement-2", outil: "BGFoods", statut: "fait", recolte: true, slug: "metro",
+    epicerie: "Metro", debut: "2026-08-06", fin: "2026-08-12",
+    resultat: "Rôti de bas de palette désossé 6,99 $/lb",
+    demandeLe: 3, finiLe: 4,
+  }]));
+  await page.waitForTimeout(200);
+  verifier("une demande déjà récoltée n'est pas réimportée",
+    (await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)) === avantRechargement,
+    `${avantRechargement} → ${await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)}`);
+
   verifier("aucune erreur JavaScript", erreursConsole.length === 0, erreursConsole.join(" | "));
 
   await navigateur.close();
