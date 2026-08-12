@@ -1062,17 +1062,52 @@ function dansLePlan(aubaine) {
   return (plan.articles || []).some((a) => nomNormalise(a.requete || "") === cible);
 }
 
+/**
+ * Plan qui recevra une aubaine cochée, quitte à le créer.
+ *
+ * SANS CETTE FONCTION, LA CASE ÉTAIT UNE IMPASSE. Elle exigeait un plan actif;
+ * n'en trouvant pas, elle affichait un avis et se décochait — ce qui se vit
+ * comme « je ne peux pas cocher ». Cocher une aubaine EST une façon de
+ * commencer un plan : on en crée donc un plutôt que de refuser.
+ *
+ * Le plan créé ici part VIDE, à l'inverse de celui du bouton « Créer le plan »
+ * qui se garnit des meilleurs spéciaux : ici vous choisissez vous-même, et
+ * treize articles surgis d'un clic seraient une mauvaise surprise.
+ */
+function planPourRecevoir() {
+  const actif = planActif();
+  if (actif) return actif;
+
+  // Un plan existe mais dort : on le réveille plutôt que d'en empiler un autre.
+  const dernier = [...etat.plans].sort(
+    (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  if (dernier) {
+    etatMod.remplacer(etat, "plans", dernier.id, { actif: 1 });
+    avisEphemere("plan-cree", `Plan « ${dernier.nom} » activé pour recevoir vos aubaines.`, "ok");
+    return etat.plans.find((p) => p.id === dernier.id);
+  }
+
+  const cree = etatMod.ajouter(etat, "plans", {
+    nom: "Mon plan",
+    maxEpiceries: null,
+    foyer: { adultes: 2, ados: 0, enfants: 0 },
+    budgetCents: null,
+    sansLaitDeVache: 0,
+    articles: [],
+    actif: 1,
+  });
+  avisEphemere("plan-cree", "Plan « Mon plan » créé : vos aubaines cochées s'y ajoutent. "
+    + "Renommez-le et réglez foyer, budget et régime dans l'onglet Plans.", "ok", 9000);
+  return cree;
+}
+
 /** Coche/décoche une aubaine dans le plan actif. */
 function basculerAubaineDansPlan(idAubaine, coche) {
-  const plan = planActif();
   const aubaine = etat.aubaines.find((a) => a.id === idAubaine);
   if (!aubaine) return;
-  if (!plan) {
-    avis("plan", "Aucun plan actif : créez-en un dans l'onglet Plans, ou activez-le, "
-      + "puis cochez les aubaines à y ajouter.", "warn");
-    rendre();   // remet la case dans son état réel
-    return;
-  }
+  // Décocher ne doit jamais créer de plan : sans plan, il n'y a rien à retirer.
+  const plan = coche ? planPourRecevoir() : planActif();
+  if (!plan) return;
   const cible = aubaine.nomNormalise || nomNormalise(aubaine.nom || "");
   const articles = (plan.articles || []).filter(
     (a) => nomNormalise(a.requete || "") !== cible);

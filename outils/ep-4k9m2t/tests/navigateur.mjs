@@ -527,6 +527,38 @@ async function principal() {
   await page.click('[data-onglet="liste"]');
   verifier("la zone de saisie revient", !(await page.locator("#articles").isDisabled()));
 
+  /* ---- Cocher une aubaine SANS aucun plan ----
+     C'est l'état d'un compte qui n'a jamais ouvert l'onglet Plans, et c'était
+     une impasse : la case exigeait un plan actif, n'en trouvait pas, et se
+     décochait aussitôt. Vécu comme « je ne peux pas cocher ». */
+  await page.evaluate(() => {
+    globalThis.bgfoods.etat = { ...globalThis.bgfoods.etat, plans: [] };
+  });
+  await page.waitForTimeout(150);
+  await page.click('[data-onglet="aubaines"]');
+  verifier("sans plan, aucune case n'est cochée",
+    !(await page.locator("[data-au-plan]").first().isChecked()));
+
+  await page.locator("[data-au-plan]").first().check();
+  await page.waitForTimeout(250);
+  const cree = await page.evaluate(() => globalThis.bgfoods.etat.plans);
+  verifier("cocher sans plan en crée un", cree.length === 1, JSON.stringify(cree.map((p) => p.nom)));
+  verifier("et il est actif", !!cree[0].actif);
+  verifier("l'aubaine cochée s'y trouve", (cree[0].articles || []).length === 1,
+    JSON.stringify(cree[0].articles));
+  // Le plan créé d'un clic part vide : treize articles surgis d'une case
+  // seraient une mauvaise surprise, contrairement au bouton « Créer le plan ».
+  verifier("il ne se garnit pas tout seul des spéciaux", cree[0].articles.length === 1);
+  verifier("la case reste cochée", await page.locator("[data-au-plan]").first().isChecked());
+
+  // Décocher ne doit pas recréer un plan par ricochet.
+  await page.evaluate(() => {
+    globalThis.bgfoods.etat = { ...globalThis.bgfoods.etat, plans: [] };
+  });
+  await page.waitForTimeout(150);
+  const casesAvant = await page.locator("[data-au-plan]").count();
+  verifier("les cases restent affichées sans plan", casesAvant > 0);
+
   verifier("aucune erreur JavaScript", erreursConsole.length === 0, erreursConsole.join(" | "));
 
   await navigateur.close();

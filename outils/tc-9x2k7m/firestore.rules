@@ -6,6 +6,7 @@ rules_version = '2';
 //    TimeCalculator            https://bginformatique.ca/outils/tc-9x2k7m/
 //    Tableau de bord marketing https://bginformatique.ca/outils/mk-7p3w9d/
 //    BGFoods (épicerie)        https://bginformatique.ca/outils/ep-4k9m2t/
+//    Boîtes de courriel        https://bginformatique.ca/outils/cr-8h4m2v/  (lecture seule)
 //
 //  Le fichier vit dans le dossier de TimeCalculator pour raisons historiques ;
 //  il vaut pour TOUT le projet Firestore, un seul jeu de règles étant publié
@@ -121,6 +122,45 @@ service cloud.firestore {
       // document, pour qu'un autre appareil ne les ressuscite pas à la synchro
       // suivante (voir outils/ep-4k9m2t/js/etat.js).
       allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    //  COURRIEL — users/{uid}/courriel/{docId}
+    //  Outil : Tableau de bord des boîtes de courriel
+    //          https://bginformatique.ca/outils/cr-8h4m2v/
+    //  Un seul document aujourd'hui : « etat ».
+    //
+    //  Encore un AJOUT : aucun des trois blocs précédents n'est touché, et rien
+    //  ici ne peut leur retirer un accès — deux « match » ne se soustraient
+    //  jamais l'un à l'autre.
+    //
+    //  CE BLOC DIFFÈRE DES TROIS AUTRES SUR UN POINT, ET C'EST VOULU :
+    //  l'écriture est REFUSÉE au navigateur. Les trois autres outils sont des
+    //  applications où le propriétaire saisit ses données ; celui-ci n'affiche
+    //  que ce qu'une machine a mesuré. La page est en lecture seule par
+    //  conception (voir js/app.js : aucun setDoc, aucun updateDoc). Le seul
+    //  écrivain est le compte de service lanceur-marketing@bgtimecalculator,
+    //  depuis BG001 — et l'accès serveur ignore les règles, donc lui refuser
+    //  l'écriture ici ne le gêne pas.
+    //
+    //  Ce que ce refus achète : un jeton de navigateur volé ne peut pas
+    //  fabriquer un faux tableau de bord — pas de fausse file d'action vide qui
+    //  ferait croire qu'il n'y a rien à traiter, pas de faux « tout concorde »
+    //  au contrôle. En lecture seule, le pire cas est de LIRE des courriels ;
+    //  avec l'écriture, il serait de MENTIR sur leur état.
+    //
+    //  Le contenu est sensible — objets et adresses en clair, y compris de
+    //  clients. Raison de plus pour que la portée reste étroite : cette
+    //  sous-collection, et rien d'autre.
+    // -------------------------------------------------------------------------
+    match /users/{uid}/courriel/{docId} {
+      allow read: if estProprietaire(uid);
+
+      // Aucune écriture depuis un navigateur. Si un jour la page devait
+      // recevoir un réglage modifiable à l'écran, ce serait un document
+      // SÉPARÉ (par exemple users/{uid}/courriel_reglages/…) avec son propre
+      // bloc — jamais en ouvrant celui-ci, qui porte les données mesurées.
+      allow create, update, delete: if false;
     }
 
     // -------------------------------------------------------------------------

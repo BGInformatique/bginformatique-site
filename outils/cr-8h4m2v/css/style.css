@@ -1,0 +1,465 @@
+/* =============================================================================
+   Boîtes de courriel — feuille de style
+   https://bginformatique.ca/outils/cr-8h4m2v/
+
+   Les jetons de base reprennent ceux des trois autres outils du site pour que
+   l'ensemble se ressemble. S'y ajoutent les jetons de VISUALISATION, qui ont
+   leurs propres règles et ne se mélangent pas aux couleurs d'interface :
+
+     --serie-1, --serie-2   les deux teintes catégorielles, dans un ordre FIXE.
+                            Une boîte garde sa couleur quoi qu'il arrive au
+                            filtre : la couleur suit l'entité, jamais son rang.
+                            Vérifiées au validateur contre les deux surfaces
+                            réelles de cette page (blanc et #1a222d) : bande de
+                            clarté, plancher de chroma, séparation daltonienne
+                            (ΔE 24,7 clair / 26,8 sombre) et contraste ≥ 3:1.
+     --seq-*                une SEULE teinte, du clair au foncé, pour les
+                            grandeurs (catégories, expéditeurs). Jamais d'arc-
+                            en-ciel : la longueur de la barre dit déjà la
+                            grandeur, la teinte n'a rien à ajouter.
+     --etat-*               bon / attention / sérieux / critique. Réservés aux
+                            états, jamais recyclés en « série 3 », et toujours
+                            accompagnés d'une icône ET d'un mot — une couleur
+                            seule ne porte pas de sens.
+     --grille, --axe        traits d'un cheveu, PLEINS. Jamais de pointillé :
+                            un pointillé se lit comme un seuil ou une
+                            projection alors que ce n'est qu'une grille.
+   ========================================================================== */
+
+:root {
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --text: #1c2430;
+  --text-muted: #64748b;
+  --text-faible: #8b97a8;
+  --border: #dbe2ea;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #b45309;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+
+  /* visualisation — thème clair */
+  --surface-viz: #ffffff;
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --serie-3: #1baf7a;
+  --serie-4: #eda100;
+  --seq-fort: #1c5cab;
+  --seq-moyen: #2a78d6;
+  --seq-faible: #cde2fb;
+  --grille: #e7ebf1;
+  --axe: #c8d1dc;
+  --etat-bon: #0ca30c;
+  --etat-attention: #fab219;
+  --etat-serieux: #ec835a;
+  --etat-critique: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f151d;
+    --card: #1a222d;
+    --text: #e6ebf1;
+    --text-muted: #94a3b8;
+    --text-faible: #7d8b9e;
+    --border: #2c3947;
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --danger: #ef4444;
+    --ok: #22c55e;
+    --warn: #fbbf24;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+
+    /* Les pas sombres sont CHOISIS pour la surface sombre, pas obtenus en
+       inversant les clairs : un simple retournement sort de la bande de clarté
+       et casse le contraste. */
+    --surface-viz: #1a222d;
+    --serie-1: #3987e5;
+    --serie-2: #d95926;
+    --serie-3: #199e70;
+    --serie-4: #c98500;
+    --seq-fort: #86b6ef;
+    --seq-moyen: #3987e5;
+    --seq-faible: #184f95;
+    --grille: #26313d;
+    --axe: #3a4756;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.app-header {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 8px;
+  position: relative;
+}
+
+.app-header h1 { margin: 0; font-size: 1.6rem; }
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+#btn-logout { position: absolute; top: 24px; right: 16px; }
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 8px 16px 48px;
+}
+
+/* ── éléments communs ─────────────────────────────────────────────────────── */
+
+.btn {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn:hover { border-color: var(--primary); }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-lg { padding: 12px 20px; font-size: 1.05rem; }
+.btn-sm { padding: 6px 10px; font-size: 0.85rem; }
+.btn-ghost { background: transparent; }
+.btn[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.section-titre {
+  font-size: 1.05rem;
+  margin: 26px 0 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.section-note, .carte-note {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.carte-titre {
+  margin: 0 0 14px;
+  font-size: 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vide { color: var(--text-muted); font-size: 0.9rem; margin: 6px 0 0; }
+
+/* ── porte d'entrée ───────────────────────────────────────────────────────── */
+
+.auth-gate { max-width: 460px; margin: 40px auto; padding: 0 16px; }
+.auth-card { text-align: center; }
+.auth-card h2 { margin-top: 0; }
+.form-error { color: var(--danger); font-size: 0.9rem; }
+
+/* ── bandeaux d'avis ─────────────────────────────────────────────────────── */
+
+.banners { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+
+.banner {
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.banner-icone { flex: none; }
+.banner-avert { border-left: 3px solid var(--etat-attention); }
+.banner-grave { border-left: 3px solid var(--etat-critique); }
+.banner-info { border-left: 3px solid var(--serie-1); }
+
+/* ── nombre héros et tuiles ──────────────────────────────────────────────── */
+
+.hero-card { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; }
+.hero-bloc { display: flex; align-items: baseline; gap: 14px; }
+
+.hero-figure {
+  /* Chiffres proportionnels (pas tabular-nums) : à cette taille, des chiffres
+     de largeur égale font paraître « 121 » distendu. */
+  font-size: 3.4rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+}
+
+.hero-label { font-size: 1.05rem; font-weight: 600; }
+.hero-detail { color: var(--text-muted); font-size: 0.88rem; }
+
+.hero-raisons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.hero-raisons li { font-size: 0.88rem; color: var(--text-muted); }
+.hero-raisons strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.tuile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+}
+
+.tuile-valeur { font-size: 1.7rem; font-weight: 600; line-height: 1.2; }
+.tuile-label { color: var(--text-muted); font-size: 0.85rem; }
+.tuile-detail { color: var(--text-faible); font-size: 0.78rem; margin-top: 2px; }
+
+/* ── filtres : une seule rangée, au-dessus de ce qu'ils cadrent ──────────── */
+
+.filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+  margin: 8px 0 18px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.filtre { display: flex; flex-direction: column; gap: 4px; }
+.filtre label { font-size: 0.8rem; color: var(--text-muted); }
+
+.filtre select {
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.filtres .btn { margin-left: auto; }
+
+/* ── tableaux ─────────────────────────────────────────────────────────────── */
+
+.table-defilable { overflow-x: auto; }
+
+.tableau {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.tableau th, .tableau td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.tableau th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.tableau tbody tr:last-child td { border-bottom: none; }
+.tableau .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* L'objet tient sur UNE ligne, coupé par des points de suite ; le texte complet
+   reste dans l'attribut « title ». Laissé libre de retourner à la ligne, un
+   objet de notification automatique — ils font parfois 150 caractères —
+   quadruple la hauteur de sa rangée et le tableau devient un mur. */
+.tableau-file td:nth-child(5) {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tableau td.attenue { color: var(--text-muted); }
+
+/* Une pastille de couleur À CÔTÉ du texte porte l'identité ; le texte lui-même
+   garde toujours l'encre de texte. Une teinte catégorielle claire est
+   illisible en texte sur la surface. */
+.pastille {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 7px;
+  vertical-align: baseline;
+}
+
+.etiquette {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.raison { font-weight: 600; font-size: 0.85rem; }
+.raison-marque { color: var(--warn); }
+.raison-sans-reponse { color: var(--danger); }
+
+/* ── graphiques ──────────────────────────────────────────────────────────── */
+
+.graphique { width: 100%; }
+.graphique svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+.viz-grille { stroke: var(--grille); stroke-width: 1; }
+.viz-axe { stroke: var(--axe); stroke-width: 1; }
+
+.viz-tick {
+  fill: var(--text-faible);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-valeur {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-nom { fill: var(--text); font-size: 12px; }
+.viz-secondaire { fill: var(--text-muted); font-size: 11px; }
+.viz-curseur { stroke: var(--axe); stroke-width: 1; }
+.viz-cible { fill: transparent; cursor: pointer; }
+.viz-cible:hover + .viz-marque, .viz-cible:focus + .viz-marque { opacity: 0.82; }
+.viz-cible:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: -4px 0 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.legende-entree { display: inline-flex; align-items: center; gap: 7px; }
+
+.legende-cle {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.legende-cle-ligne { height: 2px; border-radius: 2px; }
+
+.infobulle {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  max-width: 280px;
+}
+
+.infobulle-titre { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 4px; }
+.infobulle-ligne { display: flex; align-items: center; gap: 7px; }
+
+/* La valeur mène, le nom suit : ici le lecteur a la série et veut le nombre. */
+.infobulle-valeur { font-weight: 600; font-variant-numeric: tabular-nums; }
+.infobulle-nom { color: var(--text-muted); }
+
+.infobulle-cle {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* ── anomalies ───────────────────────────────────────────────────────────── */
+
+.anomalies { list-style: none; margin: 0; padding: 0; }
+
+.anomalies li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.anomalies li:last-child { border-bottom: none; }
+.anomalie-icone { flex: none; font-size: 1rem; line-height: 1.4; }
+.anomalie-genre { font-weight: 600; margin-right: 6px; }
+.genre-afflux { color: var(--warn); }
+.genre-silence { color: var(--danger); }
+.genre-muet { color: var(--text-muted); }
+
+.verdict-ok { color: var(--ok); font-weight: 600; }
+.verdict-ecart { color: var(--danger); font-weight: 600; }
+
+/* ── pied ────────────────────────────────────────────────────────────────── */
+
+.pied { color: var(--text-muted); font-size: 0.85rem; margin-top: 26px; }
+.pied p { margin: 4px 0; }
+.pied-note { color: var(--text-faible); }
+
+/* ── écrans étroits ──────────────────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+  .hero-figure { font-size: 2.6rem; }
+  .app-header { padding-top: 18px; }
+  #btn-logout { position: static; margin-top: 10px; }
+  .filtres .btn { margin-left: 0; }
+}
+
+/* Le mode contrastes forcés retire les couleurs : la forme et le texte doivent
+   suffire. Les pastilles gardent une bordure pour ne pas disparaître. */
+@media (forced-colors: active) {
+  .pastille, .legende-cle, .infobulle-cle { border: 1px solid currentColor; }
+}

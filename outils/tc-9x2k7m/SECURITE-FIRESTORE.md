@@ -4,12 +4,25 @@ Référence : `firestore.rules` dans ce dossier. La console Firebase ne lit pas
 ce dépôt — publier une modification des règles est toujours un geste manuel,
 décrit ici. Rédigé le 2026-07-30, après examen des règles en production.
 
-Depuis le 2026-07-30, ce fichier de règles couvre **deux outils** : la feuille
-de temps TimeCalculator (`users/<uid>/timecalculator/state`) et le tableau de
-bord marketing (`users/<uid>/marketing/state`). Deux blocs `match` indépendants,
-de même forme ; ni l'un ni l'autre ne peut retirer un accès accordé par l'autre.
-Toujours publier le fichier **tel qu'il est** — une copie antérieure au
-2026-07-30 effacerait le bloc marketing.
+Depuis le 2026-07-30, ce fichier de règles couvre **plusieurs outils**, chacun
+avec son bloc `match` indépendant et de même forme ; aucun ne peut retirer un
+accès accordé par un autre. Toujours publier le fichier **tel qu'il est** — une
+copie plus ancienne effacerait les blocs ajoutés depuis.
+
+| Outil | Chemin | Écriture depuis le navigateur |
+|---|---|---|
+| TimeCalculator | `users/<uid>/timecalculator/state` | oui (le propriétaire saisit) |
+| Tableau de bord marketing | `users/<uid>/marketing/state` | oui |
+| BGFoods | `users/<uid>/bgfoods/state` | oui |
+| Boîtes de courriel | `users/<uid>/courriel/etat` | **non — lecture seule** |
+
+Le dernier est le seul en lecture seule, et c'est une décision, pas un oubli :
+sa page n'affiche que ce qu'une machine a mesuré, jamais ce qu'on y saisit.
+Le seul écrivain est le compte de service, qui n'est pas soumis aux règles. Un
+jeton de navigateur volé ne peut donc pas fabriquer une fausse file d'action
+vide — le pire cas reste de LIRE des courriels, pas de MENTIR sur leur état.
+Ce document contient des objets et des adresses en clair, y compris de clients :
+la portée de son bloc reste volontairement limitée à sa sous-collection.
 
 ## État des lieux
 
