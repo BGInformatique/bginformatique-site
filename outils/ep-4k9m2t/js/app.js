@@ -50,6 +50,7 @@ import {
 } from "./normalisation.js";
 import { ErreurLecture, lireFichier } from "./lecture-pdf.js";
 import * as circulairesCom from "./circulaires-com.js";
+import * as extractionIA from "./extraction-ia.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -347,12 +348,33 @@ $("#btn-importer-texte").addEventListener("click", () => {
 
 /* ==================== Récupération depuis circulaires.com ==================== */
 
-function rendreChoixEpiceries() {
+/** La circulaire actuellement affichée, avec ses adresses d'images résolues. */
+let circulaireCourante = null;
+
+/**
+ * Remplit la liste des épiceries depuis l'annuaire de circulaires.com.
+ * Rien n'est écrit en dur : une bannière qu'ils ne recensent pas pour la région
+ * choisie n'apparaît pas, et c'est la règle qu'on s'est donnée — une seule
+ * source. La liste change donc avec la région.
+ */
+async function rendreChoixEpiceries() {
   const selecteur = $("#cc-epicerie");
-  if (selecteur.options.length) return;
-  selecteur.innerHTML = circulairesCom.EPICERIES.map(
-    (e) => `<option value="${e.slug}">${echapper(e.nom)}</option>`,
-  ).join("");
+  const region = $("#cc-region").value || circulairesCom.REGION_DEFAUT;
+  selecteur.innerHTML = '<option value="">Chargement…</option>';
+  selecteur.disabled = true;
+  try {
+    const epiceries = await circulairesCom.chercherEpiceries({ region });
+    selecteur.innerHTML = epiceries
+      .map((e) => `<option value="${echapper(e.slug)}" data-nom="${echapper(e.nom)}">${echapper(e.nom)}</option>`)
+      .join("");
+    selecteur.disabled = false;
+    $("#cc-compte").textContent =
+      `${epiceries.length} épiceries recensées par circulaires.com pour cette région.`;
+  } catch (e) {
+    selecteur.innerHTML = '<option value="">indisponible</option>';
+    $("#cc-compte").textContent = "";
+    avis("circulaires-com", `Annuaire injoignable : ${e.message}`, "err");
+  }
 }
 
 /**
@@ -376,26 +398,76 @@ function rendreCirculaireTrouvee(circulaire) {
     <p class="small muted">${circulaire.pages.length} page(s) — ${echapper(circulaire.epicerie)},
       ${echapper(validite)}.
       <a href="${echapper(circulaire.source)}" target="_blank" rel="noopener">Voir sur circulaires.com</a></p>
+    <div class="barre">
+      <button class="btn" id="btn-cc-extraire">Extraire les aubaines de ces ${circulaire.pages.length} pages</button>
+      <button class="btn btn-clair" id="btn-cc-ordre">Copier l'ordre pour le terminal</button>
+    </div>
+    <div id="cc-progres" class="small muted"></div>
     <div class="pages">${circulaire.pages
       .map(
         (page, index) => `<a href="#" data-page="${index}" title="Ouvrir en pleine résolution">
-          <img src="${echapper(page.vignette)}" alt="Page ${index + 1}" loading="lazy" referrerpolicy="no-referrer"
+          <img src="${echapper(page.apercu)}" alt="Page ${index + 1}" loading="lazy" referrerpolicy="no-referrer"
                onerror="this.replaceWith(Object.assign(document.createElement('span'),
                         {className:'indisponible', textContent:'Page ${index + 1} — ouvrir'}))">
           <span class="numero">Page ${index + 1}</span></a>`,
       )
       .join("")}</div>`;
-  contenant.dataset.pages = JSON.stringify(circulaire.pages);
 }
+
+/**
+ * Résout l'adresse pleine résolution de chaque page.
+ * Type B : elle est déjà connue, rien à faire. Type A : un aller-retour par
+ * page, en série pour ménager leur serveur.
+ */
+async function adressesPleines(circulaire, surProgres = () => {}) {
+  const urls = [];
+  for (let i = 0; i < circulaire.pages.length; i++) {
+    surProgres(i + 1, circulaire.pages.length);
+    const url = await circulairesCom.imagePleine(circulaire.pages[i]);
+    if (url) urls.push(url);
+  }
+  return urls;
+}
+
+/**
+ * Gestion de la clé. Elle ne quitte jamais cet appareil : la page est publique,
+ * une clé écrite dans le code serait lisible par tout le monde.
+ */
+$("#btn-cc-cle").addEventListener("click", () => {
+  const actuelle = extractionIA.cleStockee();
+  const saisie = prompt(
+    "Clé Anthropic pour l'extraction automatique.\n\n" +
+    "Elle reste dans ce navigateur, sur cet appareil. Laissez vide pour l'effacer " +
+    "et passer par votre session Claude Code (sans frais).",
+    actuelle,
+  );
+  if (saisie === null) return;
+  extractionIA.enregistrerCle(saisie);
+  avisEphemere("cle", saisie.trim()
+    ? "Clé enregistrée sur cet appareil."
+    : "Clé effacée. L'extraction passera par l'ordre à coller dans le terminal.", "ok");
+});
+
+$("#cc-region").addEventListener("change", () => {
+  $("#cc-resultat").innerHTML = "";
+  circulaireCourante = null;
+  rendreChoixEpiceries();
+});
 
 $("#btn-cc-chercher").addEventListener("click", async () => {
   const bouton = $("#btn-cc-chercher");
+  const choisi = $("#cc-epicerie").selectedOptions[0];
   const slug = $("#cc-epicerie").value;
+  if (!slug) return;
   bouton.disabled = true;
   bouton.textContent = "Recherche…";
   retirerAvis("circulaires-com");
   try {
-    const circulaire = await circulairesCom.chercherCirculaire(slug);
+    const circulaire = await circulairesCom.chercherCirculaire(slug, {
+      region: $("#cc-region").value,
+      nom: choisi ? choisi.dataset.nom : slug,
+    });
+    circulaireCourante = circulaire;
     rendreCirculaireTrouvee(circulaire);
     // Ce qu'on a récolté sert tout de suite : les champs d'import sont remplis,
     // il ne reste qu'à saisir les aubaines en regardant les pages.
@@ -419,20 +491,116 @@ $("#btn-cc-chercher").addEventListener("click", async () => {
   }
 });
 
+/* ---------- Envoyer la circulaire à l'extraction ---------- */
+
+/**
+ * Le bouton d'extraction. Avec une clé, l'IA lit les pages et les aubaines
+ * arrivent seules. Sans clé, on ne bloque pas : on prépare l'ordre à coller
+ * dans une session Claude Code, qui ne coûte rien de plus que l'abonnement.
+ */
+async function extraireCirculaireCourante() {
+  if (!circulaireCourante) return;
+  const bouton = $("#btn-cc-extraire");
+  const progres = $("#cc-progres");
+  const cle = extractionIA.cleStockee();
+
+  if (!cle) {
+    const garder = confirm(
+      "Aucune clé Anthropic n'est enregistrée dans ce navigateur.\n\n" +
+      "OK : entrer une clé maintenant (elle reste sur cet appareil, facturée par Anthropic).\n" +
+      "Annuler : copier plutôt l'ordre à coller dans votre session Claude Code, sans frais.",
+    );
+    if (!garder) return copierOrdre();
+    const saisie = prompt("Clé Anthropic (sk-ant-…) — stockée uniquement dans ce navigateur :");
+    if (!saisie) return;
+    extractionIA.enregistrerCle(saisie);
+  }
+
+  bouton.disabled = true;
+  retirerAvis("extraction");
+  try {
+    progres.textContent = "Résolution des adresses d'images…";
+    const urls = await adressesPleines(circulaireCourante, (i, n) => {
+      progres.textContent = `Résolution des adresses — page ${i} sur ${n}…`;
+    });
+    if (!urls.length) throw new Error("aucune adresse d'image n'a pu être résolue");
+
+    const cout = extractionIA.coutApproximatif(urls.length);
+    if (!confirm(
+      `${urls.length} pages vont être lues par ${extractionIA.MODELE_DEFAUT}.\n` +
+      `Coût approximatif : ${cout.toFixed(2)} $ US, facturé par Anthropic.\n\nContinuer ?`,
+    )) { progres.textContent = ""; return; }
+
+    const { texte, echecs } = await extractionIA.lireCirculaire(urls, {
+      surProgres: (p) => {
+        progres.textContent = `Lecture page ${p.page} sur ${p.total}${
+          p.etat === "lue" ? ` — ${p.lignes} ligne(s)` : p.etat === "échec" ? " — échec" : "…"}`;
+      },
+    });
+
+    if (!texte.trim()) {
+      avis("extraction", "L'IA n'a reconnu aucune aubaine sur ces pages.", "warn");
+      progres.textContent = "";
+      return;
+    }
+    // On passe par l'analyseur habituel : même lecture des prix que pour une
+    // saisie à la main, donc mêmes prix unitaires et mêmes vérifications.
+    importerPages([texte], {
+      epicerie: circulaireCourante.epicerie,
+      debut: circulaireCourante.validite ? circulaireCourante.validite.debut : "",
+      fin: circulaireCourante.validite ? circulaireCourante.validite.fin : "",
+      source: `circulaires.com — ${circulaireCourante.epicerie}`,
+    });
+    progres.textContent = "";
+    if (echecs.length) {
+      avis("extraction", `${echecs.length} page(s) n'ont pas pu être lues : ${echecs[0].raison}`, "warn");
+    }
+  } catch (e) {
+    progres.textContent = "";
+    avis("extraction", `Extraction interrompue : ${e.message}`, "err");
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
+/** Prépare l'ordre à coller dans une session Claude Code ouverte sur le poste. */
+async function copierOrdre() {
+  const progres = $("#cc-progres");
+  try {
+    progres.textContent = "Résolution des adresses d'images…";
+    const urls = await adressesPleines(circulaireCourante, (i, n) => {
+      progres.textContent = `Résolution des adresses — page ${i} sur ${n}…`;
+    });
+    const ordre = extractionIA.ordrePourTerminal(circulaireCourante, urls);
+    await navigator.clipboard.writeText(ordre);
+    progres.textContent = "";
+    avis("extraction",
+      `Ordre copié pour ${urls.length} page(s). Collez-le dans votre session Claude Code, ` +
+      "puis remettez les lignes obtenues dans « Coller le texte ».", "ok");
+  } catch (e) {
+    progres.textContent = "";
+    avis("extraction", `Copie impossible : ${e.message}`, "err");
+  }
+}
+
 $("#cc-resultat").addEventListener("click", async (evenement) => {
+  if (evenement.target.closest("#btn-cc-extraire")) return extraireCirculaireCourante();
+  if (evenement.target.closest("#btn-cc-ordre")) return copierOrdre();
+
   const lien = evenement.target.closest("[data-page]");
   if (!lien) return;
   evenement.preventDefault();
-  const pages = JSON.parse($("#cc-resultat").dataset.pages || "[]");
-  const page = pages[Number(lien.dataset.page)];
+  const page = (circulaireCourante || { pages: [] }).pages[Number(lien.dataset.page)];
   if (!page) return;
-  // L'adresse de l'image pleine résolution demande un aller-retour de plus :
-  // on l'ouvre dans un onglet, où le site sert l'image comme pour ses visiteurs.
+  // Type A : l'adresse pleine résolution demande un aller-retour de plus.
+  // Type B : elle est déjà connue. Dans les deux cas on ouvre un onglet, où le
+  // site sert l'image comme pour ses visiteurs.
+  const secours = page.pleine || page.formulaire || page.apercu;
   try {
     const image = await circulairesCom.imagePleine(page);
-    window.open(image || page.formulaire, "_blank", "noopener");
+    window.open(image || secours, "_blank", "noopener");
   } catch (e) {
-    window.open(page.formulaire, "_blank", "noopener");
+    window.open(secours, "_blank", "noopener");
   }
 });
 

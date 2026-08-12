@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>BGFoods — circulaires et listes d'épicerie</title>
-  <link rel="stylesheet" href="css/style.css?v=20260811222905">
+  <link rel="stylesheet" href="css/style.css?v=20260811225849">
 </head>
 <body>
 <header class="app-header">
@@ -109,16 +109,43 @@
     <div class="card">
       <h2>Depuis circulaires.com</h2>
       <p class="small muted">Va chercher la circulaire de la semaine : l'épicerie, les dates
-        et les pages. Les prix, eux, ne s'y lisent pas — les bannières publient des images.
-        Saisissez ensuite les aubaines qui vous intéressent en regardant les pages.</p>
+        et les pages. La liste d'épiceries vient de leur annuaire — ce qu'ils ne recensent
+        pas pour votre région n'apparaît pas ici. Une fois la circulaire affichée, le bouton
+        <em>Extraire</em> fait lire les pages et remplit les aubaines tout seul.</p>
       <div class="barre-filtres">
+        <div>
+          <label for="cc-region">Région</label>
+          <select id="cc-region">
+            <option value="Laurentides" selected>Laurentides (Saint-Jérôme)</option>
+            <option value="Lanaudiere">Lanaudière</option>
+            <option value="Laval">Laval / Île</option>
+            <option value="Montreal">Montréal</option>
+            <option value="Monteregie">Montérégie</option>
+            <option value="Outaouais">Outaouais</option>
+            <option value="Mauricie">Mauricie</option>
+            <option value="Estrie">Estrie</option>
+            <option value="Centre-du-Quebec">Centre-du-Québec</option>
+            <option value="Quebec">Québec / Capitale-Nationale</option>
+            <option value="Chaudiere-Appalaches">Chaudière-Appalaches</option>
+            <option value="Bas-Saint-Laurent">Bas-Saint-Laurent</option>
+            <option value="Saguenay - Lac-Saint-Jean">Saguenay – Lac-Saint-Jean</option>
+            <option value="Abitibi-Temiscamingue">Abitibi-Témiscamingue</option>
+            <option value="Cote-Nord">Côte-Nord</option>
+            <option value="Charlevoix">Charlevoix</option>
+            <option value="Gaspesie">Gaspésie</option>
+            <option value="Iles-de-la-Madeleine">Îles-de-la-Madeleine</option>
+            <option value="T">Toutes les régions</option>
+          </select>
+        </div>
         <div>
           <label for="cc-epicerie">Épicerie</label>
           <select id="cc-epicerie"></select>
         </div>
       </div>
+      <p class="small muted" id="cc-compte"></p>
       <div class="barre">
         <button class="btn" id="btn-cc-chercher">Chercher la circulaire</button>
+        <button class="btn btn-clair" id="btn-cc-cle">Clé d'extraction…</button>
       </div>
       <div id="cc-resultat"></div>
     </div>
@@ -170,6 +197,6 @@
 
 </main>
 
-<script type="module" src="js/app.js?v=20260811222905"></script>
+<script type="module" src="js/app.js?v=20260811225849"></script>
 </body>
 </html>

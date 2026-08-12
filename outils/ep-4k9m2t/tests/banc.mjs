@@ -20,6 +20,7 @@ import * as optimiseur from "../js/optimiseur.js";
 import * as etatMod from "../js/etat.js";
 import { lignesDepuisFragments, enImages } from "../js/lecture-pdf.js";
 import * as circulairesCom from "../js/circulaires-com.js";
+import * as extractionIA from "../js/extraction-ia.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -383,67 +384,187 @@ const echantillon = (nom) =>
   readFileSync(join(ICI, `echantillons/circulaires-com-${nom}.html`), "utf-8");
 
 {
-  const lien = circulairesCom.extraireLienVisionneuse(echantillon("epicerie"));
-  verifier("lien de la visionneuse trouvé", !!lien && lien.includes("/circulaire/?"), String(lien));
+  // ---- Annuaire : c'est LEUR liste qui fait foi, jamais une liste écrite ici.
+  const epiceries = circulairesCom.extraireEpiceries(echantillon("annuaire"));
+  verifier("l'annuaire d'alimentation rend les bannières de la région",
+    epiceries.length >= 25, `${epiceries.length} bannières`);
+  const slugs = epiceries.map((e) => e.slug);
+  for (const attendu of ["supermarche-iga", "maxi", "metro", "superc", "provigo",
+                         "marche-richelieu", "marches-tradition", "walmart"]) {
+    verifier(`l'annuaire liste ${attendu}`, slugs.includes(attendu));
+  }
+  // Le nom est porté par l'`alt` d'une image : le dépouillement naïf rendait vide.
+  const iga = epiceries.find((e) => e.slug === "supermarche-iga");
+  egal("le nom de la bannière est lu malgré l'absence de texte", iga.nom, "IGA");
+  verifier("le nom ne traîne pas la région", !/Laurentides/.test(iga.nom), iga.nom);
+  egal("annuaire méconnaissable : aucune épicerie inventée",
+    circulairesCom.extraireEpiceries("<html></html>").length, 0);
+}
 
-  const vue = circulairesCom.extraireVisionneuse(echantillon("visionneuse"), lien);
+{
+  // ---- Type A : jetons signés, pagination, image pleine en deux temps.
+  const cible = circulairesCom.extraireLienCirculaire(echantillon("epicerie"));
+  egal("visionneuse de type A reconnue", cible.type, "A");
+  verifier("lien de la visionneuse trouvé", cible.lien.includes("/circulaire/?"), cible.lien);
+
+  const vue = circulairesCom.extraireVisionneuse(echantillon("visionneuse"), cible.lien);
   egal("dates de validité lues", vue.validite, { debut: "2026-08-06", fin: "2026-08-12" });
   egal("pages de cette feuille", vue.pages.length, 2);
   egal("feuilles paginées", vue.pagination.length, 7);
 
-  // Le paramètre `flyer` est du base64url : « *iga-01.jpg**imageform**<empreinte> ».
   const jeton = /flyer=([A-Za-z0-9_-]+)/.exec(vue.pages[0].formulaire)[1];
-  verifier(
-    "le lien de page mène au formulaire d'image",
+  verifier("le lien de page mène au formulaire d'image",
     circulairesCom.decodeJeton(jeton).includes("**imageform**"),
-    circulairesCom.decodeJeton(jeton),
-  );
-  verifier("chaque page porte sa vignette", vue.pages.every((p) => p.vignette.startsWith("https://")));
+    circulairesCom.decodeJeton(jeton));
+  verifier("chaque page porte son aperçu", vue.pages.every((p) => p.apercu.startsWith("https://")));
 }
 
 {
-  // L'image pleine résolution est portée par un `src`, pas par un `href` :
-  // ne chercher que les liens laissait passer la seule chose qu'on cherchait.
-  const image = circulairesCom.extraireImagePleine(echantillon("imageform"));
-  verifier("adresse de l'image pleine résolution trouvée", !!image, String(image));
-  const jeton = /flyer=([A-Za-z0-9_-]+)/.exec(image)[1];
-  verifier(
-    "et c'est bien l'image, pas son formulaire",
-    circulairesCom.decodeJeton(jeton).includes("**image**"),
-    circulairesCom.decodeJeton(jeton),
-  );
+  // ---- Le défaut qui faisait passer Maxi pour une circulaire de 2 pages :
+  // certaines bannières écrivent « index.do?str=…&flyer=… ». Un motif qui
+  // exigeait « index.do?flyer= » collé ne voyait aucune feuille suivante.
+  const vue = circulairesCom.extraireVisionneuse(echantillon("visionneuse-maxi"),
+    "https://www.circulaires.com/maxi/circulaire/");
+  egal("pagination trouvée malgré le « str= » intercalé", vue.pagination.length, 6);
+  verifier("les feuilles suivantes sont bien des pages de circulaire",
+    vue.pagination.every((l) => l.includes("flyer=")), vue.pagination[1]);
+}
+
+{
+  // ---- Type B : page de choix, puis les JPEG en clair.
+  const cible = circulairesCom.extraireLienCirculaire(echantillon("epicerie-b"));
+  egal("visionneuse de type B reconnue", cible.type, "B");
+  const choix = circulairesCom.extraireChoix(echantillon("choix-b"), cible.lien);
+  egal("les deux semaines proposées sont vues", choix.length, 2);
+  verifier("chaque choix pointe une circulaire", choix.every((l) => l.includes("dpage=")), choix[0]);
+
+  const vue = circulairesCom.extraireVisionneuseB(echantillon("visionneuse-b"),
+    "https://circulaires.com/d/?sname=marche-richelieu&dpage=11");
+  egal("toutes les pages d'un coup", vue.pages.length, 7);
+  egal("dates lues sur la visionneuse B", vue.validite, { debut: "2026-08-13", fin: "2026-08-19" });
+  verifier("l'image pleine est déjà connue, sans aller-retour",
+    vue.pages.every((p) => p.pleine === p.apercu && /\.jpg/.test(p.pleine)), vue.pages[0].pleine);
+  verifier("le décor du site n'est pas pris pour une page",
+    vue.pages.every((p) => !p.pleine.includes("/images/")));
+}
+
+{
+  // Le dossier n'est pas toujours numérique : « qc01 », « ax01 », « mini »
+  // existent. L'exiger chiffré rendait InterMarché, Axep et TAU muets.
+  const faux = '<img src="./inter-marche/qc01/qc-03.jpg?0811">'
+             + '<img src="./marches-tau/mini/tau-01.jpg?0811">';
+  egal("dossiers non numériques acceptés",
+    circulairesCom.extraireVisionneuseB(faux, "https://circulaires.com/d/").pages.length, 2);
 }
 
 {
   egal("adresse protocol-relative complétée",
     circulairesCom.absolu("//www.circulaires.com/x/"), "https://www.circulaires.com/x/");
   egal("page sans circulaire : rien plutôt qu'une invention",
-    circulairesCom.extraireLienVisionneuse("<html><body>rien ici</body></html>"), null);
+    circulairesCom.extraireLienCirculaire("<html><body>rien ici</body></html>"), null);
   egal("HTML méconnaissable : aucune page inventée",
     circulairesCom.extraireVisionneuse("<html></html>").pages.length, 0);
   egal("jeton illisible toléré", circulairesCom.decodeJeton("!!!pas du base64!!!"), "");
-  verifier("les épiceries d'alimentation sont listées", circulairesCom.EPICERIES.length >= 18);
 }
 
 {
-  // La récupération complète, servie par les échantillons : aucun appel réseau.
-  const parUrl = (url) => {
-    if (url.endsWith("/supermarche-iga/")) return echantillon("epicerie");
-    if (url.includes("/circulaire/?")) return echantillon("visionneuse");
-    return "<html></html>";
-  };
-  const recuperer = async (url) => ({ ok: true, status: 200, text: async () => parUrl(url) });
-  const circulaire = await circulairesCom.chercherCirculaire("supermarche-iga", { recuperer });
-  egal("épicerie nommée", circulaire.epicerie, "IGA");
-  egal("dates rapportées", circulaire.validite, { debut: "2026-08-06", fin: "2026-08-12" });
-  verifier("des pages sont rapportées", circulaire.pages.length >= 2, String(circulaire.pages.length));
+  // ---- Récupération complète, servie par les échantillons : aucun appel réseau.
+  const recuperer = async (url) => ({
+    ok: true, status: 200,
+    text: async () => {
+      if (url.includes("/alimentation/")) return echantillon("annuaire");
+      if (url.includes("/supermarche-iga/?")) return echantillon("epicerie");
+      if (url.includes("/circulaire/?")) return echantillon("visionneuse");
+      if (url.includes("/marche-richelieu/?")) return echantillon("epicerie-b");
+      if (url.includes("flyers.do")) return echantillon("choix-b");
+      if (url.includes("dpage=")) return echantillon("visionneuse-b");
+      return "<html></html>";
+    },
+  });
+
+  const listees = await circulairesCom.chercherEpiceries({ recuperer });
+  verifier("les épiceries viennent de l'annuaire, pas d'une liste en dur",
+    listees.length >= 25, `${listees.length}`);
+
+  const a = await circulairesCom.chercherCirculaire("supermarche-iga", { recuperer, nom: "IGA" });
+  egal("épicerie nommée", a.epicerie, "IGA");
+  egal("dates rapportées", a.validite, { debut: "2026-08-06", fin: "2026-08-12" });
+  verifier("des pages sont rapportées", a.pages.length >= 2, String(a.pages.length));
+
+  const b = await circulairesCom.chercherCirculaire("marche-richelieu", { recuperer, nom: "Marché Richelieu" });
+  egal("le type B passe par la page de choix", b.type, "B");
+  egal("et rend ses pages", b.pages.length, 7);
+  egal("la semaine suivante reste accessible", b.autresCirculaires.length, 1);
+  egal("image pleine du type B : sans aller-retour",
+    await circulairesCom.imagePleine(b.pages[0]), b.pages[0].pleine);
 
   const vide = async () => ({ ok: true, status: 200, text: async () => "<html></html>" });
   let messageErreur = "";
   await circulairesCom.chercherCirculaire("epicerie-sans-circulaire", { recuperer: vide })
     .catch((e) => { messageErreur = e.message; });
   verifier("absence de circulaire annoncée clairement",
-    messageErreur.includes("Aucune circulaire trouvée"), messageErreur);
+    messageErreur.includes("ne publie aucune circulaire"), messageErreur);
+}
+
+/* ==================== Extraction par IA ====================
+   On ne touche pas au réseau : l'envoi est injecté. Ce qui compte ici, c'est
+   que la clé ne parte jamais dans le code et que la consigne demande bien le
+   format que analyseur.js sait lire. */
+
+{
+  let recu = null;
+  const envoyer = async (url, init) => {
+    recu = { url, init, corps: JSON.parse(init.body) };
+    return {
+      ok: true, status: 200,
+      json: async () => ({ content: [{ type: "text", text: "Fraises du Québec 454 g 2,99 $" }] }),
+    };
+  };
+  const texte = await extractionIA.lirePage("https://www.circulaires.com/page-01.jpg",
+    { cle: "sk-ant-essai", envoyer });
+  egal("la lecture rend les lignes du modèle", texte, "Fraises du Québec 454 g 2,99 $");
+  egal("appel dirigé vers l'API Messages", recu.url, extractionIA.POINT_API);
+  egal("en-tête d'accès navigateur présent",
+    recu.init.headers["anthropic-dangerous-direct-browser-access"], "true");
+  // Les JPEG de circulaires.com n'ont pas d'en-tête CORS : impossible d'en lire
+  // les octets ici. On transmet l'adresse, et c'est Anthropic qui va la chercher.
+  const image = recu.corps.messages[0].content[0];
+  egal("l'image est transmise par adresse, pas par octets", image.source.type, "url");
+  verifier("la consigne demande le format que l'analyseur sait lire",
+    extractionIA.CONSIGNE.includes("$/lb") && extractionIA.CONSIGNE.includes("2/5,00 $"));
+
+  // Ce que le modèle rend doit traverser l'analyseur habituel sans traitement
+  // de faveur : mêmes prix unitaires, mêmes vérifications qu'une saisie à la main.
+  const lues = analyseur.analyserPage("Fraises du Québec 454 g 2,99 $\nPoitrines de poulet 3,99 $/lb");
+  egal("les lignes de l'IA passent par l'analyseur habituel", lues.length, 2);
+
+  let refus = "";
+  await extractionIA.lirePage("https://x/p.jpg", { cle: "", envoyer })
+    .catch((e) => { refus = e.message; });
+  verifier("sans clé, on refuse au lieu d'appeler", refus.includes("Aucune clé"), refus);
+
+  const casse = async () => ({ ok: false, status: 401, json: async () => ({ error: { message: "bad key" } }) });
+  let message401 = "";
+  await extractionIA.lirePage("https://x/p.jpg", { cle: "sk-mauvaise", envoyer: casse })
+    .catch((e) => { message401 = e.message; });
+  verifier("clé refusée : message clair", message401.includes("401"), message401);
+
+  // Une page qui échoue ne doit pas emporter les autres.
+  let n = 0;
+  const capricieux = async () => {
+    n++;
+    if (n === 2) return { ok: false, status: 500, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ content: [{ type: "text", text: "Pain 2,49 $" }] }) };
+  };
+  const lot = await extractionIA.lireCirculaire(["a", "b", "c"], { cle: "k", envoyer: capricieux });
+  egal("une page en échec n'emporte pas les autres", lot.texte.split("\n").length, 2);
+  egal("et l'échec est rapporté", lot.echecs.length, 1);
+
+  verifier("l'ordre pour le terminal porte les adresses",
+    extractionIA.ordrePourTerminal({ epicerie: "IGA", validite: { debut: "2026-08-06", fin: "2026-08-12" } },
+      ["https://x/1.jpg", "https://x/2.jpg"]).includes("https://x/2.jpg"));
+  verifier("le coût annoncé reste dans un ordre de grandeur plausible",
+    extractionIA.coutApproximatif(14) > 0.05 && extractionIA.coutApproximatif(14) < 1);
 }
 
 /* ==================== Fusion multi-appareils ====================
