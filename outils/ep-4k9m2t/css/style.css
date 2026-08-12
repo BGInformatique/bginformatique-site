@@ -215,3 +215,16 @@ table.correction tr.validee { background: rgba(22, 163, 74, .07); }
 
 /* Éclair du lancement sur BG001 : même icône que le tableau de bord. */
 .ic-eclair { fill: currentColor; vertical-align: -2px; margin-right: 4px; }
+
+/* Plans d'épicerie : le plan actif se distingue, et l'étoile se voit d'un
+   coup d'œil — c'est elle qui décide des magasins quand on se limite. */
+.plan-actif { border-left: 3px solid #2563eb; }
+.etiquette-actif {
+  font-size: .7em; padding: 2px 7px; border-radius: 999px;
+  background: #2563eb; color: #fff; vertical-align: middle;
+}
+.etoile {
+  background: none; border: 0; cursor: pointer; font-size: 1.1rem;
+  line-height: 1; color: #c9c9c9; padding: 2px 4px;
+}
+.etoile.on, .etoile:hover { color: #e0a800; }

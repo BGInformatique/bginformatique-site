@@ -1,8 +1,13 @@
 /*
  * BGFoods — état de l'outil et fusion multi-appareils.
  *
- * Trois registres : les circulaires importées, les aubaines qu'on en a
- * tirées, et les listes d'épicerie enregistrées.
+ * Quatre registres : les circulaires importées, les aubaines qu'on en a
+ * tirées, les listes d'épicerie enregistrées, et les plans d'épicerie.
+ *
+ * UN PLAN n'est pas une liste. La liste est le résultat d'un calcul, figée au
+ * moment où on la génère. Le plan est ce qu'on veut : des articles qu'on garde
+ * d'une semaine à l'autre, dont certains sont marqués prioritaires. Un seul
+ * plan est actif à la fois, et c'est lui qui alimente la génération.
  *
  * LA FUSION EST LE CŒUR DE CE FICHIER. On importe la circulaire sur
  * l'ordinateur et on coche la liste au magasin sur le téléphone : les deux
@@ -17,13 +22,13 @@
 "use strict";
 
 export const CLE_STOCKAGE = "bgfoods.v1";
-export const REGISTRES = ["circulaires", "aubaines", "listes"];
+export const REGISTRES = ["circulaires", "aubaines", "listes", "plans"];
 
 // Une pierre tombale plus vieille que ça n'a plus d'appareil à convaincre.
 export const TTL_TOMBE_MS = 180 * 24 * 3600 * 1000;
 
 export function etatVide() {
-  return { circulaires: [], aubaines: [], listes: [], tombes: {}, updatedAt: 0 };
+  return { circulaires: [], aubaines: [], listes: [], plans: [], tombes: {}, updatedAt: 0 };
 }
 
 /** Identifiant court et unique, sans dépendance externe. */

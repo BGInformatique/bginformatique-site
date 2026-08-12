@@ -349,6 +349,67 @@ async function principal() {
     (await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)) === avantRechargement,
     `${avantRechargement} → ${await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)}`);
 
+  /* ---- Plans d'épicerie ----
+     Le plan actif remplace la zone de saisie comme source de la liste. Si les
+     deux restaient en concurrence, on ne saurait pas laquelle a produit le
+     résultat — d'où le bandeau et la zone désactivée, vérifiés ici. */
+  await page.click('[data-onglet="plans"]');
+  verifier("l'onglet Plans s'affiche", await page.locator("#vue-plans").isVisible());
+
+  await page.fill("#plan-nom", "Semaine type");
+  await page.fill("#plan-max", "1");
+  await page.click("#btn-creer-plan");
+  await page.waitForTimeout(150);
+  const plan1 = await page.evaluate(() => globalThis.bgfoods.etat.plans[0]);
+  verifier("le plan est créé", plan1 && plan1.nom === "Semaine type", JSON.stringify(plan1));
+  verifier("le premier plan est actif d'emblée", !!plan1.actif);
+  verifier("le maximum d'épiceries est retenu", plan1.maxEpiceries === 1, String(plan1.maxEpiceries));
+
+  await page.fill("[data-nouvel-article]", "2 lait 2 % (écrémé)");
+  await page.click("[data-ajouter]");
+  await page.waitForTimeout(150);
+  const article = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles[0]);
+  verifier("l'article est ajouté", article.requete === "lait 2 %", JSON.stringify(article));
+  verifier("la quantité est lue", article.quantite === 2, String(article.quantite));
+  verifier("la note est lue", article.note === "écrémé", String(article.note));
+  verifier("il n'est pas prioritaire par défaut", !article.priorite);
+
+  await page.click('[data-priorite="0"]');
+  await page.waitForTimeout(150);
+  verifier("l'étoile marque la priorité",
+    await page.evaluate(() => !!globalThis.bgfoods.etat.plans[0].articles[0].priorite));
+
+  await page.click('[data-onglet="liste"]');
+  verifier("le bandeau annonce le plan actif",
+    (await page.locator("#bandeau-plan").innerText()).includes("Semaine type"));
+  verifier("la zone de saisie est neutralisée", await page.locator("#articles").isDisabled());
+
+  // La zone contient autre chose que le plan : c'est le plan qui doit gagner.
+  await page.evaluate(() => { document.querySelector("#articles").value = "fraises"; });
+  await page.click("#btn-generer");
+  await page.waitForTimeout(200);
+  const liste = await page.evaluate(() => {
+    const r = globalThis.bgfoods.resultat();
+    return r && {
+      articles: r.groupes.flatMap((g) => g.lignes.map((l) => l.requete))
+        .concat(r.sansAubaine.map((l) => l.requete)),
+      prioritaires: r.groupes.flatMap((g) => g.lignes.filter((l) => l.priorite).map((l) => l.requete)),
+    };
+  });
+  verifier("la liste vient du plan, pas de la zone",
+    liste && liste.articles.includes("lait 2 %") && !liste.articles.includes("fraises"),
+    JSON.stringify(liste));
+  verifier("la priorité se rend jusqu'au résultat",
+    liste && liste.prioritaires.includes("lait 2 %"), JSON.stringify(liste));
+
+  await page.click('[data-onglet="plans"]');
+  await page.click("[data-activer]");
+  await page.waitForTimeout(150);
+  verifier("le plan se désactive",
+    await page.evaluate(() => !globalThis.bgfoods.etat.plans[0].actif));
+  await page.click('[data-onglet="liste"]');
+  verifier("la zone de saisie revient", !(await page.locator("#articles").isDisabled()));
+
   verifier("aucune erreur JavaScript", erreursConsole.length === 0, erreursConsole.join(" | "));
 
   await navigateur.close();

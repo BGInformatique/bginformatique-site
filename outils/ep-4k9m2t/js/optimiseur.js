@@ -195,20 +195,31 @@ export function articlesVersTexte(lignes) {
  * toutes les combinaisons, pour un gain de quelques cents sur des listes de
  * cette taille.
  */
-function choisirEpiceries(candidatsParLigne, maxEpiceries) {
+/**
+ * Poids d'un article dans le choix des épiceries.
+ *
+ * Un article marqué prioritaire dans un plan compte pour PLUSIEURS articles
+ * ordinaires : quand on se limite à deux ou trois magasins, ce sont eux qu'on
+ * refuse d'abandonner. Sans ce poids, la couverture ne verrait qu'un décompte,
+ * et le plan « je veux d'abord mes protéines » n'aurait aucun effet réel.
+ */
+export const POIDS_PRIORITE = 4;
+
+function choisirEpiceries(candidatsParLigne, maxEpiceries, poids = null) {
   const toutes = new Set();
   for (const candidats of candidatsParLigne) for (const c of candidats) toutes.add(c.epicerie);
+  const poidsDe = (i) => (poids && poids[i]) || 1;
 
   const evaluer = (choisies) => {
     let couvertes = 0;
     let cout = 0;
-    for (const candidats of candidatsParLigne) {
+    candidatsParLigne.forEach((candidats, i) => {
       const options = candidats.filter((c) => choisies.has(c.epicerie));
       if (options.length) {
-        couvertes++;
+        couvertes += poidsDe(i);
         cout += Math.min(...options.map(coutUnitaire));
       }
-    }
+    });
     return { couvertes, cout };
   };
 
@@ -249,8 +260,15 @@ export function optimiser(etat, articles, options = {}) {
 
   let autorisees = null;
   if (maxEpiceries && maxEpiceries > 0) {
-    const nonVides = candidatsParLigne.filter((c) => c.length);
-    if (nonVides.length) autorisees = choisirEpiceries(nonVides, maxEpiceries);
+    // On garde l'index d'origine pour que le poids de priorité suive sa ligne.
+    const nonVides = [];
+    const poids = [];
+    candidatsParLigne.forEach((c, i) => {
+      if (!c.length) return;
+      nonVides.push(c);
+      poids.push(demandes[i] && demandes[i].priorite ? POIDS_PRIORITE : 1);
+    });
+    if (nonVides.length) autorisees = choisirEpiceries(nonVides, maxEpiceries, poids);
   }
 
   const groupes = new Map();
@@ -267,6 +285,7 @@ export function optimiser(etat, articles, options = {}) {
       requete: demande.requete,
       quantite,
       note: demande.note || null,
+      priorite: !!demande.priorite,
       meilleure,
       alternatives: candidats.filter((c) => !meilleure || c.id !== meilleure.id).slice(0, MAX_ALTERNATIVES),
       cout: meilleure ? coutUnitaire(meilleure) * quantite : 0,
@@ -285,6 +304,13 @@ export function optimiser(etat, articles, options = {}) {
     groupe.total += ligne.cout;
     groupe.economies += ligne.economie;
   });
+
+  // Dans chaque magasin, les prioritaires en tête : au rayon, c'est ce qu'on
+  // met dans le panier avant de se laisser distraire.
+  for (const groupe of groupes.values()) {
+    groupe.lignes.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0));
+  }
+  sansAubaine.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0));
 
   // La plus grosse facture en premier : c'est l'épicerie principale de la sortie.
   const ordonnes = [...groupes.values()].sort((a, b) => b.total - a.total || a.epicerie.localeCompare(b.epicerie));

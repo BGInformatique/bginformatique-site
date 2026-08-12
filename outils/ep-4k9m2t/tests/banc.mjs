@@ -244,6 +244,56 @@ const ETAT = etatDepuis([
   egal("IGA est le meilleur compromis", resultat.groupes[0].epicerie, "IGA");
 }
 
+/* ---------- Priorités d'un plan ----------
+   L'étoile doit peser sur le CHOIX des épiceries, pas seulement s'afficher.
+   Le montage ci-dessous est fait pour que la priorité renverse la décision :
+   une épicerie couvre deux articles ordinaires, l'autre le seul prioritaire. */
+{
+  const ETAT_PRIO = etatDepuis([
+    ["Nombreux", "Lait 2 % Natrel 2 L 4,49 $\nFraises du Québec 454 g 2,99 $\n"],
+    ["Unique", "Poitrines de poulet désossées 8,80 $/kg 3,99 $/lb\n"],
+  ]);
+  const articles = [
+    { requete: "lait 2 %", quantite: 1 },
+    { requete: "fraises", quantite: 1 },
+    { requete: "poitrine de poulet", quantite: 1 },
+  ];
+
+  const sansPriorite = optimiseur.optimiser(ETAT_PRIO, articles,
+    { dateCible: AUJOURDHUI, maxEpiceries: 1 });
+  egal("sans priorité, l'épicerie qui couvre le plus l'emporte",
+    sansPriorite.groupes[0].epicerie, "Nombreux");
+
+  const avecPriorite = optimiseur.optimiser(
+    ETAT_PRIO,
+    articles.map((a) => (a.requete === "poitrine de poulet" ? { ...a, priorite: true } : a)),
+    { dateCible: AUJOURDHUI, maxEpiceries: 1 },
+  );
+  egal("un article prioritaire renverse le choix de l'épicerie",
+    avecPriorite.groupes[0].epicerie, "Unique");
+  egal("et c'est bien lui qu'on rapporte", avecPriorite.groupes[0].lignes[0].requete,
+    "poitrine de poulet");
+  verifier("la priorité voyage jusqu'à la ligne", avecPriorite.groupes[0].lignes[0].priorite);
+  egal("les articles abandonnés restent visibles",
+    avecPriorite.sansAubaine.map((l) => l.requete).sort(), ["fraises", "lait 2 %"]);
+
+  // Deux prioritaires valent plus qu'un : le poids n'est pas un simple drapeau.
+  verifier("le poids de priorité est supérieur à un article ordinaire",
+    optimiseur.POIDS_PRIORITE > 1, String(optimiseur.POIDS_PRIORITE));
+}
+
+{
+  // Dans un magasin, les prioritaires en tête : au rayon, on les prend d'abord.
+  const resultat = optimiseur.optimiser(
+    ETAT,
+    [{ requete: "lait 2 %", quantite: 1 }, { requete: "fraises", quantite: 1, priorite: true }],
+    { dateCible: AUJOURDHUI, maxEpiceries: 1 },
+  );
+  const ordre = resultat.groupes[0].lignes.map((l) => l.requete);
+  egal("les prioritaires passent devant dans le groupe", ordre[0], "fraises");
+  egal("sans perdre les autres", ordre.length, 2);
+}
+
 {
   const resultat = optimiseur.optimiser(ETAT, [{ requete: "lait 2 %", quantite: 1 }], { dateCible: AUJOURDHUI });
   const ligne = resultat.groupes[0].lignes[0];

@@ -231,7 +231,7 @@ onAuthStateChanged(auth, (compte) => {
 $$(".tab").forEach((onglet) => {
   onglet.addEventListener("click", () => {
     $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t === onglet)));
-    for (const vue of ["liste", "aubaines", "circulaires"]) {
+    for (const vue of ["liste", "plans", "aubaines", "circulaires"]) {
       $(`#vue-${vue}`).hidden = vue !== onglet.dataset.onglet;
     }
   });
@@ -1026,11 +1026,150 @@ function optionsListe() {
  * cases cochées au magasin, sur le téléphone, sont celles de la liste
  * préparée à la maison.
  */
+/* ==================== Plans d'épicerie ====================
+ *
+ * Un plan garde ce qu'on achète d'une semaine à l'autre; la liste, elle, est
+ * le résultat figé d'un calcul. Un seul plan est actif, et c'est lui qui
+ * alimente la génération — sinon deux sources de vérité se contrediraient.
+ *
+ * L'étoile n'est pas décorative : un article prioritaire pèse POIDS_PRIORITE
+ * fois plus dans le choix des épiceries. Quand on se limite à deux magasins,
+ * ce sont eux qui décident lesquels.
+ */
+
+function planActif() {
+  return etat.plans.find((p) => p.actif) || null;
+}
+
+function rendrePlans() {
+  const contenant = $("#liste-plans");
+  if (!contenant) return;
+  const plans = [...etat.plans].sort((a, b) => (b.actif ? 1 : 0) - (a.actif ? 1 : 0)
+    || (a.nom || "").localeCompare(b.nom || "", "fr"));
+  if (!plans.length) {
+    contenant.innerHTML = '<div class="card"><p class="vide">Aucun plan. '
+      + "Créez-en un ci-dessus : « Semaine type », par exemple.</p></div>";
+    return;
+  }
+  contenant.innerHTML = plans.map((plan) => {
+    const articles = plan.articles || [];
+    const prioritaires = articles.filter((a) => a.priorite).length;
+    return `<div class="card${plan.actif ? " plan-actif" : ""}" data-plan="${echapper(plan.id)}">
+      <div class="barre">
+        <h2 style="flex:1">${echapper(plan.nom || "Plan")}${plan.actif
+          ? ' <span class="etiquette-actif">actif</span>' : ""}</h2>
+        <button class="btn ${plan.actif ? "btn-ghost" : ""}" data-activer>${
+          plan.actif ? "Désactiver" : "Activer"}</button>
+        <button class="btn btn-ghost" data-supprimer-plan>Supprimer</button>
+      </div>
+      <p class="small muted">${articles.length} article(s), dont ${prioritaires} prioritaire(s).
+        ${plan.maxEpiceries ? `Maximum ${plan.maxEpiceries} épicerie(s).` : "Sans limite d'épiceries."}</p>
+      <table class="deals">
+        <thead><tr><th style="width:3rem">Prio</th><th>Article</th>
+          <th style="width:4rem">Qté</th><th style="width:3rem"></th></tr></thead>
+        <tbody>${articles.map((a, i) => `<tr>
+          <td><button class="etoile${a.priorite ? " on" : ""}" data-priorite="${i}"
+            title="${a.priorite ? "Retirer la priorité" : "Marquer prioritaire"}"
+            aria-pressed="${a.priorite ? "true" : "false"}">★</button></td>
+          <td>${echapper(a.requete)}${a.note ? ` <span class="small muted">(${echapper(a.note)})</span>` : ""}</td>
+          <td>${a.quantite > 1 ? a.quantite : ""}</td>
+          <td><button class="ic" data-retirer="${i}" title="Retirer">✕</button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <div class="barre">
+        <input type="text" data-nouvel-article style="flex:1"
+          placeholder="2 poitrines de poulet (bio)  —  quantité au début, note entre parenthèses">
+        <button class="btn" data-ajouter>Ajouter</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("#btn-creer-plan").addEventListener("click", () => {
+  const nom = $("#plan-nom").value.trim();
+  if (!nom) return avisEphemere("plan", "Donnez un nom au plan.", "warn");
+  const max = parseInt($("#plan-max").value, 10);
+  etatMod.ajouter(etat, "plans", {
+    nom,
+    maxEpiceries: Number.isFinite(max) && max > 0 ? max : null,
+    articles: [],
+    actif: etat.plans.length ? 0 : 1,   // le premier plan créé sert tout de suite
+  });
+  $("#plan-nom").value = "";
+  $("#plan-max").value = "";
+  enregistrer();
+});
+
+$("#liste-plans").addEventListener("click", (evenement) => {
+  const carte = evenement.target.closest("[data-plan]");
+  if (!carte) return;
+  const plan = etat.plans.find((p) => p.id === carte.dataset.plan);
+  if (!plan) return;
+  const articles = [...(plan.articles || [])];
+
+  if (evenement.target.closest("[data-activer]")) {
+    const activer = !plan.actif;
+    // Un seul actif : deux plans actifs, et on ne saurait plus lequel a servi.
+    for (const autre of etat.plans) {
+      if (autre.actif) etatMod.remplacer(etat, "plans", autre.id, { actif: 0 });
+    }
+    if (activer) etatMod.remplacer(etat, "plans", plan.id, { actif: 1 });
+    return enregistrer();
+  }
+
+  if (evenement.target.closest("[data-supprimer-plan]")) {
+    if (!confirm(`Supprimer le plan « ${plan.nom} » ?`)) return;
+    etatMod.supprimer(etat, "plans", plan.id);
+    return enregistrer();
+  }
+
+  const etoile = evenement.target.closest("[data-priorite]");
+  if (etoile) {
+    const i = Number(etoile.dataset.priorite);
+    if (!articles[i]) return;
+    articles[i] = { ...articles[i], priorite: !articles[i].priorite };
+    etatMod.remplacer(etat, "plans", plan.id, { articles });
+    return enregistrer();
+  }
+
+  const retrait = evenement.target.closest("[data-retirer]");
+  if (retrait) {
+    articles.splice(Number(retrait.dataset.retirer), 1);
+    etatMod.remplacer(etat, "plans", plan.id, { articles });
+    return enregistrer();
+  }
+
+  if (evenement.target.closest("[data-ajouter]")) {
+    const champ = carte.querySelector("[data-nouvel-article]");
+    // Même lecture que la zone de saisie : « 2 lait 2 % (bio) » s'y comprend.
+    const nouveaux = optimiseur.analyserArticles(champ.value);
+    if (!nouveaux.length) return avisEphemere("plan", "Écrivez un article à ajouter.", "warn");
+    etatMod.remplacer(etat, "plans", plan.id, {
+      articles: [...articles, ...nouveaux.map((a) => ({ ...a, priorite: false }))],
+    });
+    champ.value = "";
+    return enregistrer();
+  }
+});
+
+/* ==================== Génération de la liste ==================== */
+
 function genererListe() {
   const options = optionsListe();
-  const articles = optimiseur.analyserArticles($("#articles").value);
+  const plan = planActif();
+  // Le plan actif fait foi : sans cette règle, la zone de saisie et le plan se
+  // contrediraient et on ne saurait pas lequel a produit la liste.
+  const articles = plan
+    ? (plan.articles || [])
+    : optimiseur.analyserArticles($("#articles").value);
+  if (plan && plan.maxEpiceries && !options.maxEpiceries) {
+    options.maxEpiceries = plan.maxEpiceries;
+  }
+  if (plan) options.nom = options.nom || plan.nom;
   if (!articles.length) {
-    avisEphemere("liste", "Écrivez d'abord ce dont vous avez besoin.", "warn");
+    avisEphemere("liste", plan
+      ? `Le plan « ${plan.nom} » ne contient aucun article.`
+      : "Écrivez d'abord ce dont vous avez besoin.", "warn");
     return;
   }
 
@@ -1089,7 +1228,7 @@ function rendreResultat() {
               : "";
             return `<tr>
               <td><input type="checkbox" data-coche="${echapper(cle)}"${coches[cle] ? " checked" : ""}></td>
-              <td>${echapper(ligne.requete)}${ligne.quantite > 1 ? ` <span class="etiquette">× ${ligne.quantite}</span>` : ""}
+              <td>${ligne.priorite ? '<span class="etoile on" title="Article prioritaire du plan">★</span> ' : ""}${echapper(ligne.requete)}${ligne.quantite > 1 ? ` <span class="etiquette">× ${ligne.quantite}</span>` : ""}
                 ${ligne.note ? `<div class="small muted">${echapper(ligne.note)}</div>` : ""}</td>
               <td>${echapper(ligne.meilleure.nom)}${alternatives}</td>
               <td class="small muted">${echapper(optimiseur.etiquetteTaille(ligne.meilleure))}</td>
@@ -1177,6 +1316,16 @@ $("#carte-listes-enregistrees").addEventListener("click", (evenement) => {
 });
 
 $("#btn-generer").addEventListener("click", genererListe);
+
+// Le bandeau est reconstruit à chaque rendu : on écoute le conteneur, pas le
+// bouton, qui n'existe plus après le rendu suivant.
+$("#bandeau-plan").addEventListener("click", (evenement) => {
+  if (!evenement.target.closest("#btn-voir-plan")) return;
+  $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.onglet === "plans")));
+  for (const vue of ["liste", "plans", "aubaines", "circulaires"]) {
+    $(`#vue-${vue}`).hidden = vue !== "plans";
+  }
+});
 $("#btn-imprimer").addEventListener("click", () => {
   if (!resultatCourant) genererListe();
   if (resultatCourant) window.print();
@@ -1217,8 +1366,32 @@ function rendre() {
   rendreCirculaires();
   rendreCorrection();
   rendreAubaines();
+  rendrePlans();
+  rendreBandeauPlan();
   rendreListesEnregistrees();
   rendreResultat();
+}
+
+/**
+ * Dit dans l'onglet Liste quel plan alimente la génération. Sans ça, la zone
+ * de saisie resterait visible tout en étant ignorée : on croirait à un bogue.
+ */
+function rendreBandeauPlan() {
+  const zone = $("#bandeau-plan");
+  if (!zone) return;
+  const plan = planActif();
+  if (!plan) {
+    zone.innerHTML = "";
+    $("#articles").disabled = false;
+    return;
+  }
+  const articles = plan.articles || [];
+  const prio = articles.filter((a) => a.priorite).length;
+  zone.innerHTML = `<p class="banner">Le plan <strong>${echapper(plan.nom)}</strong> est actif :
+    la liste se génère à partir de ses ${articles.length} article(s)${
+    prio ? `, dont ${prio} prioritaire(s)` : ""} — la zone ci-dessous est ignorée.
+    <button class="btn btn-ghost" id="btn-voir-plan">Modifier le plan</button></p>`;
+  $("#articles").disabled = true;
 }
 
 /* ==================== Démarrage ==================== */
@@ -1239,4 +1412,8 @@ window.bgfoods = {
   rendre,
   formatPrix,
   formatNombre,
+  // Le résultat courant n'est pas dans l'état : le banc en a besoin pour
+  // vérifier que c'est bien le plan actif qui a produit la liste.
+  resultat: () => resultatCourant,
+  planActif,
 };

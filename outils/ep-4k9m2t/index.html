@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>BGFoods — circulaires et listes d'épicerie</title>
-  <link rel="stylesheet" href="css/style.css?v=20260812103557">
+  <link rel="stylesheet" href="css/style.css?v=20260812123144">
 </head>
 <body>
 <!-- Même éclair que le tableau de bord marketing : un lancement sur BG001. -->
@@ -33,6 +33,7 @@
 
 <nav class="tabs" id="onglets" hidden>
   <button class="tab" role="tab" data-onglet="liste" aria-selected="true">Liste d'épicerie</button>
+  <button class="tab" role="tab" data-onglet="plans" aria-selected="false">Plans</button>
   <button class="tab" role="tab" data-onglet="aubaines" aria-selected="false">Aubaines</button>
   <button class="tab" role="tab" data-onglet="circulaires" aria-selected="false">Circulaires</button>
 </nav>
@@ -46,6 +47,7 @@
       <p class="small muted">Un article par ligne : générer enregistre aussi la liste sous son nom, pour la retrouver au magasin. Commence par une quantité
         (<code>2 lait 2 %</code>) et ajoute une note entre parenthèses
         (<code>poulet (bio)</code>).</p>
+      <div id="bandeau-plan"></div>
       <textarea id="articles" rows="8" placeholder="2 lait 2 %&#10;poitrine de poulet&#10;fraises&#10;pain tranché"></textarea>
       <div class="champs" style="margin-top:10px">
         <div>
@@ -77,6 +79,33 @@
       <h2>Listes enregistrées</h2>
       <div id="listes-enregistrees"></div>
     </div>
+  </section>
+
+  <!-- ══════════ Plans d'épicerie ══════════ -->
+  <section id="vue-plans" hidden>
+    <div class="card no-print">
+      <h2>Plans d'épicerie</h2>
+      <p class="small muted">Un plan garde ce que vous achetez d'une semaine à l'autre.
+        Activez-en un : c'est lui qui alimente la génération de la liste, à la place
+        de la zone de saisie. Marquez d'une étoile les articles auxquels vous ne
+        voulez pas renoncer — quand vous limitez le nombre d'épiceries, ce sont eux
+        qui décident des magasins retenus.</p>
+      <div class="champs">
+        <div>
+          <label for="plan-nom">Nom du plan</label>
+          <input type="text" id="plan-nom" placeholder="Semaine type">
+        </div>
+        <div>
+          <label for="plan-max">Maximum d'épiceries</label>
+          <input type="number" id="plan-max" min="1" max="10" placeholder="illimité">
+        </div>
+      </div>
+      <div class="barre">
+        <button class="btn" id="btn-creer-plan">Créer le plan</button>
+      </div>
+    </div>
+
+    <div id="liste-plans"></div>
   </section>
 
   <!-- ══════════ Aubaines ══════════ -->
@@ -202,6 +231,6 @@
 
 </main>
 
-<script type="module" src="js/app.js?v=20260812103557"></script>
+<script type="module" src="js/app.js?v=20260812123144"></script>
 </body>
 </html>
