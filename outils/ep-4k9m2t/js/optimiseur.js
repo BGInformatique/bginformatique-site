@@ -187,6 +187,117 @@ export function articlesVersTexte(lignes) {
     .join("\n");
 }
 
+/* ---------- Taille du foyer ----------
+ *
+ * Les quantités d'un plan sont écrites POUR UN MÉNAGE DE DEUX ADULTES, et
+ * multipliées ensuite selon qui mange. Un adolescent compte pour davantage
+ * qu'un adulte — c'est l'âge où l'on mange le plus — et un enfant pour moins.
+ *
+ * Ce sont des ordres de grandeur, pas une science : ils servent à éviter
+ * d'acheter pour deux quand on est cinq. Ils sont écrits ici, en clair, pour
+ * qu'on puisse les contester.
+ */
+export const PARTS = { adultes: 1, ados: 1.2, enfants: 0.6 };
+export const FOYER_REFERENCE = 2;   // deux adultes
+
+export function partsFoyer(foyer = {}) {
+  const n = (v) => Math.max(0, parseInt(v, 10) || 0);
+  return n(foyer.adultes) * PARTS.adultes
+    + n(foyer.ados) * PARTS.ados
+    + n(foyer.enfants) * PARTS.enfants;
+}
+
+/** Multiplicateur de quantité. Un foyer non renseigné ne change rien. */
+export function facteurFoyer(foyer = {}) {
+  const parts = partsFoyer(foyer);
+  return parts > 0 ? parts / FOYER_REFERENCE : 1;
+}
+
+export function quantiteAjustee(quantite, foyer) {
+  const base = Math.max(1, parseInt(quantite, 10) || 1);
+  return Math.max(1, Math.round(base * facteurFoyer(foyer)));
+}
+
+/* ---------- Panier bâti sur les spéciaux ----------
+ *
+ * Quand on demande un plan sans avoir rien choisi, on en propose un à partir
+ * des rabais en cours. Le panier est réparti par catégorie plutôt que pris
+ * dans l'ordre du meilleur rabais : sinon une semaine à fort rabais sur la
+ * viande donnerait douze viandes et aucun légume.
+ */
+export const QUOTAS_PANIER = {
+  "Viandes et poissons": 3,
+  "Fruits et légumes": 4,
+  "Produits laitiers et œufs": 2,
+  "Épicerie": 2,
+  "Boulangerie": 1,
+  "Surgelés": 1,
+};
+
+/** Les repas se bâtissent autour des protéines : elles arrivent étoilées. */
+export const CATEGORIE_PRIORITAIRE = "Viandes et poissons";
+export const NB_PRIORITAIRES = 2;
+
+/**
+ * Rabais relatif, quand la circulaire annonce un prix régulier.
+ * Sans prix régulier on ne peut RIEN affirmer : on rend null plutôt que zéro,
+ * pour ne pas faire passer un article non comparé pour un article sans rabais.
+ */
+export function rabaisRelatif(aubaine) {
+  const regulier = aubaine.prixRegulierCents;
+  if (!regulier || !aubaine.prixCents || regulier <= aubaine.prixCents) return null;
+  return (regulier - aubaine.prixCents) / regulier;
+}
+
+/**
+ * Meilleurs spéciaux de la semaine, en articles prêts pour un plan.
+ * Classement : d'abord ce dont on connaît le rabais, du plus fort au plus
+ * faible; ensuite le reste, au meilleur prix unitaire. Un même produit n'est
+ * pris qu'une fois, même s'il est en rabais dans deux épiceries.
+ */
+export function meilleursSpeciaux(etat, options = {}) {
+  const {
+    dateCible = new Date().toISOString().slice(0, 10),
+    valideesSeulement = false,
+    quotas = QUOTAS_PANIER,
+    foyer = null,
+  } = options;
+
+  const disponibles = aubainesActives(etat, dateCible, { valideesSeulement });
+  const parNom = new Map();
+  for (const a of disponibles) {
+    const cle = a.nomNormalise || a.nom;
+    const connu = parNom.get(cle);
+    if (!connu || coutUnitaire(a) < coutUnitaire(connu)) parNom.set(cle, a);
+  }
+
+  const classer = (x, y) => {
+    const rx = rabaisRelatif(x);
+    const ry = rabaisRelatif(y);
+    if (rx !== null && ry !== null) return ry - rx;
+    if (rx !== null) return -1;
+    if (ry !== null) return 1;
+    return (x.prixParUnite || Infinity) - (y.prixParUnite || Infinity);
+  };
+
+  const articles = [];
+  for (const [categorie, quota] of Object.entries(quotas)) {
+    const candidats = [...parNom.values()]
+      .filter((a) => a.categorie === categorie)
+      .sort(classer)
+      .slice(0, quota);
+    candidats.forEach((a, rang) => {
+      articles.push({
+        requete: a.nom,
+        quantite: foyer ? quantiteAjustee(1, foyer) : 1,
+        note: null,
+        priorite: categorie === CATEGORIE_PRIORITAIRE && rang < NB_PRIORITAIRES,
+      });
+    });
+  }
+  return articles;
+}
+
 /* ---------- Limitation du nombre d'épiceries ---------- */
 
 /**

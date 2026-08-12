@@ -1114,6 +1114,9 @@ function rendrePlans() {
   contenant.innerHTML = plans.map((plan) => {
     const articles = plan.articles || [];
     const prioritaires = articles.filter((a) => a.priorite).length;
+    const foyer = plan.foyer || {};
+    const parts = optimiseur.partsFoyer(foyer);
+    const facteur = optimiseur.facteurFoyer(foyer);
     return `<div class="card${plan.actif ? " plan-actif" : ""}" data-plan="${echapper(plan.id)}">
       <div class="barre">
         <h2 style="flex:1">${echapper(plan.nom || "Plan")}${plan.actif
@@ -1124,6 +1127,17 @@ function rendrePlans() {
       </div>
       <p class="small muted">${articles.length} article(s), dont ${prioritaires} prioritaire(s).
         ${plan.maxEpiceries ? `Maximum ${plan.maxEpiceries} épicerie(s).` : "Sans limite d'épiceries."}</p>
+      <div class="champs">
+        <div><label>Adultes</label>
+          <input type="number" min="0" max="20" data-foyer="adultes" value="${Number(foyer.adultes) || 0}"></div>
+        <div><label>Ados</label>
+          <input type="number" min="0" max="20" data-foyer="ados" value="${Number(foyer.ados) || 0}"></div>
+        <div><label>Enfants</label>
+          <input type="number" min="0" max="20" data-foyer="enfants" value="${Number(foyer.enfants) || 0}"></div>
+        <div><label>Quantités</label>
+          <p class="small muted" style="margin:6px 0 0">${formatNombre(parts)} part(s) —
+            × ${formatNombre(facteur)}</p></div>
+      </div>
       <table class="deals">
         <thead><tr><th style="width:3rem">Prio</th><th>Article</th>
           <th style="width:4rem">Qté</th><th>En aubaine cette semaine</th>
@@ -1135,7 +1149,9 @@ function rendrePlans() {
             title="${a.priorite ? "Retirer la priorité" : "Marquer prioritaire"}"
             aria-pressed="${a.priorite ? "true" : "false"}">★</button></td>
           <td>${echapper(a.requete)}${a.note ? ` <span class="small muted">(${echapper(a.note)})</span>` : ""}</td>
-          <td>${a.quantite > 1 ? a.quantite : ""}</td>
+          <td>${optimiseur.quantiteAjustee(a.quantite, foyer)}${
+            optimiseur.quantiteAjustee(a.quantite, foyer) !== (a.quantite || 1)
+              ? ` <span class="small muted">(${a.quantite || 1} × ${formatNombre(facteur)})</span>` : ""}</td>
           <td class="small">${offre
             ? `${echapper(offre.epicerie)} — <span class="prix">${echapper(optimiseur.etiquettePrix(offre))}</span>`
             : '<span class="muted">à prix courant</span>'}</td>
@@ -1156,14 +1172,44 @@ $("#btn-creer-plan").addEventListener("click", () => {
   const nom = $("#plan-nom").value.trim();
   if (!nom) return avisEphemere("plan", "Donnez un nom au plan.", "warn");
   const max = parseInt($("#plan-max").value, 10);
+  const foyer = {
+    adultes: parseInt($("#plan-adultes").value, 10) || 0,
+    ados: parseInt($("#plan-ados").value, 10) || 0,
+    enfants: parseInt($("#plan-enfants").value, 10) || 0,
+  };
+
+  // Rien de choisi : on propose un panier bâti sur les rabais en cours plutôt
+  // qu'un plan vide, qui n'apprendrait rien et qu'il faudrait remplir à la main.
+  const articles = optimiseur.meilleursSpeciaux(etat, { dateCible: aujourdHui(), foyer });
+
   etatMod.ajouter(etat, "plans", {
     nom,
     maxEpiceries: Number.isFinite(max) && max > 0 ? max : null,
-    articles: [],
+    foyer,
+    articles,
     actif: etat.plans.length ? 0 : 1,   // le premier plan créé sert tout de suite
   });
   $("#plan-nom").value = "";
   $("#plan-max").value = "";
+  enregistrer();
+  avisEphemere("plan", articles.length
+    ? `Plan « ${nom} » créé avec ${articles.length} article(s) tirés des spéciaux — `
+      + "retirez ce qui ne vous sert pas."
+    : `Plan « ${nom} » créé. Aucune aubaine en cours : ajoutez vos articles à la main.`,
+    "ok", 9000);
+});
+
+// Le foyer se modifie à même la carte : changer « 2 adultes » en « 2 adultes,
+// 3 ados » doit se voir tout de suite sur les quantités, sans recréer le plan.
+$("#liste-plans").addEventListener("change", (evenement) => {
+  const champ = evenement.target.closest("[data-foyer]");
+  if (!champ) return;
+  const carte = champ.closest("[data-plan]");
+  const plan = etat.plans.find((p) => p.id === carte.dataset.plan);
+  if (!plan) return;
+  const foyer = { ...(plan.foyer || {}) };
+  foyer[champ.dataset.foyer] = Math.max(0, parseInt(champ.value, 10) || 0);
+  etatMod.remplacer(etat, "plans", plan.id, { foyer });
   enregistrer();
 });
 
@@ -1226,8 +1272,12 @@ function genererListe() {
   const plan = planActif();
   // Le plan actif fait foi : sans cette règle, la zone de saisie et le plan se
   // contrediraient et on ne saurait pas lequel a produit la liste.
+  // Les quantités d'un plan sont écrites pour deux adultes : c'est ici qu'on
+  // les met à l'échelle du foyer, une seule fois, juste avant le calcul.
   const articles = plan
-    ? (plan.articles || [])
+    ? (plan.articles || []).map((a) => ({
+      ...a, quantite: optimiseur.quantiteAjustee(a.quantite, plan.foyer),
+    }))
     : optimiseur.analyserArticles($("#articles").value);
   if (plan && plan.maxEpiceries && !options.maxEpiceries) {
     options.maxEpiceries = plan.maxEpiceries;

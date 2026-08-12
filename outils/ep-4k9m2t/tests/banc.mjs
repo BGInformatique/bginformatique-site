@@ -244,6 +244,90 @@ const ETAT = etatDepuis([
   egal("IGA est le meilleur compromis", resultat.groupes[0].epicerie, "IGA");
 }
 
+/* ---------- Taille du foyer ---------- */
+{
+  egal("deux adultes valent la référence", optimiseur.partsFoyer({ adultes: 2 }), 2);
+  egal("un foyer vide ne multiplie rien", optimiseur.facteurFoyer({}), 1);
+  egal("un foyer non renseigné ne multiplie rien", optimiseur.facteurFoyer(), 1);
+  proche("un ado compte plus qu'un adulte",
+    optimiseur.partsFoyer({ adultes: 2, ados: 1 }), 3.2, 0.001);
+  proche("un enfant compte moins",
+    optimiseur.partsFoyer({ adultes: 2, enfants: 1 }), 2.6, 0.001);
+
+  egal("deux adultes : quantités inchangées", optimiseur.quantiteAjustee(1, { adultes: 2 }), 1);
+  egal("quatre adultes : quantités doublées", optimiseur.quantiteAjustee(1, { adultes: 4 }), 2);
+  egal("2 adultes + 2 ados + 1 enfant",
+    optimiseur.quantiteAjustee(1, { adultes: 2, ados: 2, enfants: 1 }), 3);
+  egal("une quantité ne descend jamais sous 1",
+    optimiseur.quantiteAjustee(1, { adultes: 1 }), 1);
+  egal("la quantité écrite est multipliée, pas remplacée",
+    optimiseur.quantiteAjustee(3, { adultes: 4 }), 6);
+  egal("une saisie absurde ne casse rien", optimiseur.quantiteAjustee(null, { adultes: -5 }), 1);
+}
+
+/* ---------- Panier bâti sur les spéciaux ---------- */
+{
+  const ETAT_PANIER = etatDepuis([
+    ["IGA",
+      "Poitrines de poulet désossées 3,99 $/lb Rég. 7,99 $\n"
+      + "Longe de porc désossée 1,85 $/lb\n"
+      + "Cubes de boeuf à ragoût 6,99 $/lb\n"
+      + "Bifteck d'aloyau 10,99 $/lb\n"
+      + "Fraises du Québec 454 g 1,99 $ Rég. 3,99 $\n"
+      + "Brocoli 1,47 $\nCarottes 340 g 1,50 $\nPommes 2,99 $\nTomates 1,50 $/lb\n"
+      + "Lait 2 % Natrel 2 L 4,49 $\nFromage Cheddar 400 g 5,49 $\n"
+      + "Pain tranché 675 g 2,99 $\n"],
+  ]);
+
+  const panier = optimiseur.meilleursSpeciaux(ETAT_PANIER, { dateCible: AUJOURDHUI });
+  verifier("un panier est proposé", panier.length > 0, `${panier.length} article(s)`);
+
+  const parCategorie = {};
+  for (const article of panier) {
+    const a = ETAT_PANIER.aubaines.find((x) => x.nom === article.requete);
+    parCategorie[a.categorie] = (parCategorie[a.categorie] || 0) + 1;
+  }
+  verifier("le panier est réparti, pas rempli d'une seule catégorie",
+    Object.keys(parCategorie).length >= 2, JSON.stringify(parCategorie));
+  verifier("les quotas par catégorie sont respectés",
+    Object.entries(parCategorie).every(([c, n]) => n <= optimiseur.QUOTAS_PANIER[c]),
+    JSON.stringify(parCategorie));
+
+  // Le poulet a le plus fort rabais annoncé : il doit passer devant l'aloyau,
+  // qui est plus cher et sans prix régulier.
+  const viandes = panier.filter((x) => /poulet|porc|boeuf|aloyau/i.test(x.requete));
+  verifier("la viande au plus fort rabais est retenue",
+    viandes.some((v) => /poulet/i.test(v.requete)), JSON.stringify(viandes.map((v) => v.requete)));
+
+  const prioritaires = panier.filter((x) => x.priorite);
+  egal("deux protéines arrivent étoilées", prioritaires.length, optimiseur.NB_PRIORITAIRES);
+  verifier("et ce sont bien des viandes",
+    prioritaires.every((p) => /poulet|porc|boeuf|aloyau/i.test(p.requete)),
+    JSON.stringify(prioritaires.map((p) => p.requete)));
+
+  const grandFoyer = optimiseur.meilleursSpeciaux(ETAT_PANIER,
+    { dateCible: AUJOURDHUI, foyer: { adultes: 2, ados: 2 } });
+  verifier("le panier d'un grand foyer porte des quantités plus élevées",
+    grandFoyer.every((a) => a.quantite === 2), JSON.stringify(grandFoyer.map((a) => a.quantite)));
+
+  // Un même produit en rabais dans deux épiceries ne doit apparaître qu'une fois.
+  const ETAT_DOUBLE = etatDepuis([
+    ["IGA", "Fraises du Québec 454 g 2,99 $\n"],
+    ["Maxi", "Fraises du Québec 454 g 2,49 $\n"],
+  ]);
+  const sansDoublon = optimiseur.meilleursSpeciaux(ETAT_DOUBLE, { dateCible: AUJOURDHUI });
+  egal("un produit en rabais dans deux épiceries n'est pris qu'une fois", sansDoublon.length, 1);
+
+  egal("sans aubaine, pas de panier inventé",
+    optimiseur.meilleursSpeciaux({ circulaires: [], aubaines: [] }, { dateCible: AUJOURDHUI }).length, 0);
+
+  // Sans prix régulier, on ne peut rien affirmer sur le rabais.
+  egal("aucun rabais annoncé : on ne l'invente pas",
+    optimiseur.rabaisRelatif({ prixCents: 299, prixRegulierCents: null }), null);
+  proche("rabais lu quand la circulaire l'annonce",
+    optimiseur.rabaisRelatif({ prixCents: 200, prixRegulierCents: 400 }), 0.5, 0.001);
+}
+
 /* ---------- Priorités d'un plan ----------
    L'étoile doit peser sur le CHOIX des épiceries, pas seulement s'afficher.
    Le montage ci-dessous est fait pour que la priorité renverse la décision :

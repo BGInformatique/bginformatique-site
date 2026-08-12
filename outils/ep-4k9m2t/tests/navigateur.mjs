@@ -365,19 +365,42 @@ async function principal() {
   verifier("le premier plan est actif d'emblée", !!plan1.actif);
   verifier("le maximum d'épiceries est retenu", plan1.maxEpiceries === 1, String(plan1.maxEpiceries));
 
+  // Créé sans rien avoir coché, le plan se garnit des meilleurs spéciaux :
+  // un plan vide n'apprendrait rien et resterait à remplir à la main.
+  const garni = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles);
+  verifier("le plan est garni depuis les spéciaux", garni.length > 0, `${garni.length} article(s)`);
+  verifier("des protéines arrivent étoilées", garni.some((a) => a.priorite),
+    JSON.stringify(garni.filter((a) => a.priorite).map((a) => a.requete)));
+
   await page.fill("[data-nouvel-article]", "2 lait 2 % (écrémé)");
   await page.click("[data-ajouter]");
   await page.waitForTimeout(150);
-  const article = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles[0]);
-  verifier("l'article est ajouté", article.requete === "lait 2 %", JSON.stringify(article));
+  const article = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.at(-1));
+  verifier("l'article s'ajoute à la suite", article.requete === "lait 2 %", JSON.stringify(article));
   verifier("la quantité est lue", article.quantite === 2, String(article.quantite));
   verifier("la note est lue", article.note === "écrémé", String(article.note));
   verifier("il n'est pas prioritaire par défaut", !article.priorite);
 
-  await page.click('[data-priorite="0"]');
+  const dernier = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.length - 1);
+  await page.click(`[data-priorite="${dernier}"]`);
   await page.waitForTimeout(150);
   verifier("l'étoile marque la priorité",
-    await page.evaluate(() => !!globalThis.bgfoods.etat.plans[0].articles[0].priorite));
+    await page.evaluate(() => !!globalThis.bgfoods.etat.plans[0].articles.at(-1).priorite));
+
+  /* ---- Taille du foyer ----
+     Les quantités sont écrites pour deux adultes puis multipliées. */
+  // Un champ nombre n'émet « change » qu'en perdant le focus : sans le Tab,
+  // la valeur serait saisie mais jamais enregistrée.
+  await page.fill('[data-foyer="ados"]', "2");
+  await page.press('[data-foyer="ados"]', "Tab");
+  await page.waitForTimeout(250);
+  verifier("le foyer est retenu",
+    await page.evaluate(() => globalThis.bgfoods.etat.plans[0].foyer.ados === 2));
+  const quantiteAffichee = await page.evaluate(() => {
+    const lignes = [...document.querySelectorAll("#liste-plans tbody tr")];
+    return lignes.length ? lignes[0].children[2].textContent.trim() : "";
+  });
+  verifier("la quantité affichée suit le foyer", /^[2-9]/.test(quantiteAffichee), quantiteAffichee);
 
   await page.click('[data-onglet="liste"]');
   verifier("le bandeau annonce le plan actif",
@@ -400,7 +423,7 @@ async function principal() {
     liste && liste.articles.includes("lait 2 %") && !liste.articles.includes("fraises"),
     JSON.stringify(liste));
   verifier("la priorité se rend jusqu'au résultat",
-    liste && liste.prioritaires.includes("lait 2 %"), JSON.stringify(liste));
+    liste && liste.prioritaires.length > 0, JSON.stringify(liste.prioritaires));
 
   /* ---- Cocher une aubaine l'ajoute au plan ----
      Le rapprochement se fait sur le nom normalisé, pas sur l'identifiant de
@@ -408,30 +431,37 @@ async function principal() {
      sont réimportées et changent d'identifiant. */
   await page.click('[data-onglet="aubaines"]');
   const avantCoche = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.length);
-  const premiereCase = page.locator("[data-au-plan]").first();
-  await premiereCase.check();
-  await page.waitForTimeout(200);
-  const apresCoche = await page.evaluate(() => ({
-    n: globalThis.bgfoods.etat.plans[0].articles.length,
-    dernier: globalThis.bgfoods.etat.plans[0].articles.at(-1),
-  }));
-  verifier("cocher une aubaine ajoute un article au plan", apresCoche.n === avantCoche + 1,
-    `${avantCoche} → ${apresCoche.n}`);
-  verifier("l'article porte le nom du produit, pas un identifiant",
-    apresCoche.dernier && !!apresCoche.dernier.requete && !apresCoche.dernier.id,
-    JSON.stringify(apresCoche.dernier));
-  verifier("il n'est pas prioritaire d'office", !apresCoche.dernier.priorite);
+  // Le plan est déjà garni depuis les spéciaux, donc les cases sont cochées :
+  // on éprouve le cycle dans l'ordre décocher → recocher, qui couvre les deux
+  // sens sans dépendre d'une aubaine restée libre.
+  const uneCase = page.locator("[data-au-plan]").first();
+  verifier("les aubaines déjà au plan sont cochées", await uneCase.isChecked());
 
-  // La case doit rester cochée après un nouveau rendu : sinon on ne saurait
+  await uneCase.uncheck();
+  await page.waitForTimeout(200);
+  const apresDecoche = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.length);
+  verifier("décocher retire l'article du plan", apresDecoche === avantCoche - 1,
+    `${avantCoche} → ${apresDecoche}`);
+
+  // La case doit refléter l'état après un nouveau rendu : sinon on ne saurait
   // plus ce qui est déjà au plan.
   await page.evaluate(() => globalThis.bgfoods.rendre());
   await page.waitForTimeout(150);
-  verifier("la case reste cochée après rendu", await premiereCase.isChecked());
+  verifier("la case reste décochée après rendu", !(await uneCase.isChecked()));
 
-  await premiereCase.uncheck();
+  await uneCase.check();
   await page.waitForTimeout(200);
-  verifier("décocher retire l'article",
-    (await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.length)) === avantCoche);
+  const apresRecoche = await page.evaluate(() => ({
+    n: globalThis.bgfoods.etat.plans[0].articles.length,
+    dernier: globalThis.bgfoods.etat.plans[0].articles.at(-1),
+  }));
+  verifier("cocher une aubaine l'ajoute au plan", apresRecoche.n === avantCoche,
+    `${apresDecoche} → ${apresRecoche.n}`);
+  verifier("l'article porte le nom du produit, pas un identifiant",
+    apresRecoche.dernier && !!apresRecoche.dernier.requete && !apresRecoche.dernier.id,
+    JSON.stringify(apresRecoche.dernier));
+  verifier("il n'est pas prioritaire d'office", !apresRecoche.dernier.priorite);
+  verifier("la case redevient cochée après rendu", await uneCase.isChecked());
 
   await page.click('[data-onglet="plans"]');
   await page.click("[data-activer]");

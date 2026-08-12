@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>BGFoods — circulaires et listes d'épicerie</title>
-  <link rel="stylesheet" href="css/style.css?v=20260812130625">
+  <link rel="stylesheet" href="css/style.css?v=20260812133156">
 </head>
 <body>
 <!-- Même éclair que le tableau de bord marketing : un lancement sur BG001. -->
@@ -103,10 +103,28 @@
           <label for="plan-max">Maximum d'épiceries</label>
           <input type="number" id="plan-max" min="1" max="10" placeholder="illimité">
         </div>
+        <div>
+          <label for="plan-adultes">Adultes</label>
+          <input type="number" id="plan-adultes" min="0" max="20" value="2">
+        </div>
+        <div>
+          <label for="plan-ados">Ados</label>
+          <input type="number" id="plan-ados" min="0" max="20" value="0">
+        </div>
+        <div>
+          <label for="plan-enfants">Enfants</label>
+          <input type="number" id="plan-enfants" min="0" max="20" value="0">
+        </div>
       </div>
+      <p class="small muted">Les quantités sont écrites pour deux adultes puis multipliées
+        selon le foyer : un ado compte pour 1,2 et un enfant pour 0,6. Des ordres de
+        grandeur, pour éviter d'acheter pour deux quand on est cinq.</p>
       <div class="barre">
         <button class="btn" id="btn-creer-plan">Créer le plan</button>
       </div>
+      <p class="small muted">Créé sans rien avoir coché dans <strong>Aubaines</strong>,
+        le plan se garnit tout seul avec les meilleurs spéciaux de la semaine —
+        réparti par catégorie, les deux meilleures protéines étoilées.</p>
     </div>
 
     <div id="liste-plans"></div>
@@ -235,6 +253,6 @@
 
 </main>
 
-<script type="module" src="js/app.js?v=20260812130625"></script>
+<script type="module" src="js/app.js?v=20260812133156"></script>
 </body>
 </html>
