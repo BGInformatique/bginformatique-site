@@ -357,6 +357,33 @@ const ETAT = etatDepuis([
     verifier(`non laitier non signalé : ${nom}`, !laitDeVache(nom));
   }
 
+  /* Les circulaires n'ont pas le droit d'écrire « lait » pour une boisson
+     végétale : elles alternent « Lait d'avoine » et « Boisson à base de
+     plantes ». Les deux doivent être reconnues, sans quoi le même produit
+     serait retenu ou ignoré selon le mot choisi par l'épicerie. */
+  for (const nom of [
+    "Lait d'avoine Earth's Own 1,89 L", "Lait d'amande non sucré 1,89 L",
+    "Boisson de cajou 946 ml", "Boisson de soya vanille 1,89 L",
+    "Boisson à base de plantes Earth's Own 1,89 L", "Breuvage d'avoine bio",
+  ]) verifier(`boisson végétale reconnue : ${nom}`, normalisation.estBoissonVegetale(nom));
+
+  for (const nom of [
+    "Lait 2 % Natrel 2 L", "Fromage Oka 300 g", "Beurre d'arachide Jif 1 kg",
+    "Céréales d'avoine Quaker 510 g", "Poitrines de poulet 3,99 $/lb",
+  ]) verifier(`n'est pas une boisson végétale : ${nom}`, !normalisation.estBoissonVegetale(nom));
+
+  const ETAT_BOISSON = etatDepuis([
+    ["IGA",
+      "Boisson à base de plantes Earth's Own 1,89 L 3,99 $\n"
+      + "Lait 2 % Natrel 2 L 4,49 $\nFromage Oka 300 g 5,99 $\n"
+      + "Poitrines de poulet désossées 3,99 $/lb\nFraises du Québec 454 g 2,99 $\n"],
+  ]);
+  const panierBoisson = optimiseur.meilleursSpeciaux(ETAT_BOISSON,
+    { dateCible: AUJOURDHUI, sansLaitDeVache: true });
+  verifier("la boisson végétale entre au panier malgré sa catégorie « Boissons »",
+    panierBoisson.some((a) => /base de plantes/i.test(a.requete)),
+    JSON.stringify(panierBoisson.map((a) => a.requete)));
+
   const ETAT_LAIT = etatDepuis([
     ["IGA",
       "Lait 2 % Natrel 2 L 4,49 $\nBoisson à base de plantes Earth's Own 1,89 L 3,99 $\n"

@@ -13,6 +13,7 @@ import {
   UNITE,
   categorieDevinee,
   contientLaitDeVache,
+  estBoissonVegetale,
   formatPrixEtiquette,
   formatTaille,
   nomNormalise,
@@ -237,6 +238,7 @@ export const QUOTAS_PANIER = {
 
 /** Les repas se bâtissent autour des protéines : elles arrivent étoilées. */
 export const CATEGORIE_PRIORITAIRE = "Viandes et poissons";
+export const CATEGORIE_LAITIERE = "Produits laitiers et œufs";
 export const NB_PRIORITAIRES = 2;
 
 /**
@@ -285,10 +287,16 @@ export function meilleursSpeciaux(etat, options = {}) {
     return (x.prixParUnite || Infinity) - (y.prixParUnite || Infinity);
   };
 
+  // Sans lait de vache, la boisson végétale prend la place du lait dans le
+  // quota laitier — sinon celui-ci se remplirait de fromage seul, ou resterait
+  // à moitié vide selon que la circulaire écrit « lait » ou « boisson ».
+  const categorieDe = (a) => (
+    sansLaitDeVache && estBoissonVegetale(a.nom) ? CATEGORIE_LAITIERE : a.categorie);
+
   const articles = [];
   for (const [categorie, quota] of Object.entries(quotas)) {
     const candidats = [...parNom.values()]
-      .filter((a) => a.categorie === categorie)
+      .filter((a) => categorieDe(a) === categorie)
       .sort(classer)
       .slice(0, quota);
     candidats.forEach((a, rang) => {

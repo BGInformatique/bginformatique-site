@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Boîtes de courriel — tableau de bord</title>
+  <link rel="stylesheet" href="css/style.css?v=20260812141638">
+</head>
+<body>
+  <header class="app-header">
+    <h1>📬 Boîtes de courriel</h1>
+    <p class="subtitle">Ce qui attend une réponse, dans toutes les boîtes à la fois</p>
+    <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
+  </header>
+
+  <div id="auth-gate" class="auth-gate">
+    <div class="card auth-card">
+      <h2>Connexion requise</h2>
+      <p>Connecte-toi avec ton compte Microsoft BGInformatique pour voir tes boîtes.</p>
+      <button id="btn-login" class="btn btn-primary btn-lg">Se connecter avec Microsoft</button>
+      <p class="form-error" id="auth-error" hidden></p>
+    </div>
+  </div>
+
+  <!-- Avis : relève vieille, écart avec Thunderbird, règles illisibles, listes coupées -->
+  <div id="banners" class="banners" aria-live="polite"></div>
+
+  <main hidden>
+    <!-- ── Ce qui attend un geste : le seul chiffre en tête ────────────────
+         Un seul nombre héros par vue, et c'est celui-là : « combien de
+         courriels attendent quelque chose de moi ». Les autres compteurs sont
+         des tuiles, pas des graphiques — un nombre unique n'a pas besoin d'un
+         diagramme à une barre pour être lu. -->
+    <section class="card hero-card">
+      <div class="hero-bloc">
+        <div class="hero-figure" id="hero-action">—</div>
+        <div class="hero-legende">
+          <div class="hero-label">à traiter</div>
+          <div class="hero-detail" id="hero-detail">en attente d'une relève</div>
+        </div>
+      </div>
+      <ul class="hero-raisons" id="hero-raisons"></ul>
+    </section>
+
+    <!-- État actuel des boîtes. NON borné dans le temps, et l'intertitre le
+         dit : « non lus » est un état d'aujourd'hui, pas un compte de période.
+         Le filtre de période plus bas ne s'y applique donc pas. -->
+    <h2 class="section-titre">
+      État actuel
+      <span class="section-note" id="portee-etat">toutes les boîtes</span>
+    </h2>
+    <section class="tuiles" id="tuiles"></section>
+
+    <section class="card boites-card">
+      <h3 class="carte-titre">Chaque boîte</h3>
+      <div class="table-defilable">
+        <table class="tableau" id="table-boites">
+          <thead>
+            <tr>
+              <th scope="col">Boîte</th>
+              <th scope="col" class="num">Courriels</th>
+              <th scope="col" class="num">Non lus</th>
+              <th scope="col" class="num">À traiter</th>
+              <th scope="col" class="num">Plus vieux non lu</th>
+              <th scope="col">Index lu</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Filtres : une seule rangée, au-dessus de tout ce qu'ils cadrent ──
+         Ils portent sur la file, les catégories, les courbes et les
+         expéditeurs. Tout ce qui est au-dessus est l'état complet. -->
+    <div class="filtres" role="group" aria-label="Filtres">
+      <div class="filtre">
+        <label for="filtre-periode">Période</label>
+        <select id="filtre-periode">
+          <option value="7">7 derniers jours</option>
+          <option value="30" selected>30 derniers jours</option>
+          <option value="90">90 derniers jours</option>
+        </select>
+      </div>
+      <div class="filtre">
+        <label for="filtre-boite">Boîte</label>
+        <select id="filtre-boite">
+          <option value="">Toutes les boîtes</option>
+        </select>
+      </div>
+      <button id="btn-tableaux" class="btn btn-ghost btn-sm" aria-pressed="false">
+        Voir les graphiques en tableaux
+      </button>
+    </div>
+
+    <!-- ── La file d'action ───────────────────────────────────────────────── -->
+    <section class="card">
+      <h3 class="carte-titre">
+        File d'action
+        <span class="carte-note" id="note-file"></span>
+      </h3>
+      <div class="table-defilable">
+        <table class="tableau tableau-file" id="table-file">
+          <thead>
+            <tr>
+              <th scope="col">Raison</th>
+              <th scope="col" class="num">Âge</th>
+              <th scope="col">Catégorie</th>
+              <th scope="col">Expéditeur</th>
+              <th scope="col">Objet</th>
+              <th scope="col">Boîte</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="vide" id="file-vide" hidden>Rien n'attend de geste dans cette tranche.</p>
+    </section>
+
+    <!-- ── Catégories : barres à teinte unique, triées par grandeur ────────
+         Sept catégories qui portent toutes du sens : la forme juste est un
+         tableau à barres, pas sept couleurs. La longueur dit la grandeur, la
+         valeur est écrite au bout, et la teinte ne code rien. -->
+    <section class="card">
+      <h3 class="carte-titre">
+        Par catégorie
+        <span class="carte-note" id="note-categories"></span>
+      </h3>
+      <div id="graph-categories" class="graphique"></div>
+      <div class="table-defilable" id="table-categories-boite" hidden>
+        <table class="tableau" id="table-categories">
+          <thead>
+            <tr>
+              <th scope="col">Catégorie</th>
+              <th scope="col" class="num">Courriels</th>
+              <th scope="col" class="num">Non lus</th>
+              <th scope="col" class="num">À traiter</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Volume reçu par jour ────────────────────────────────────────────── -->
+    <section class="card">
+      <h3 class="carte-titre">
+        Courriels reçus par jour
+        <span class="carte-note" id="note-volume"></span>
+      </h3>
+      <div class="legende" id="legende-volume"></div>
+      <div id="graph-volume" class="graphique"></div>
+      <div class="table-defilable" id="table-volume-boite" hidden>
+        <table class="tableau" id="table-volume">
+          <thead><tr><th scope="col">Jour</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Évolution du retard ─────────────────────────────────────────────
+         La seule courbe qui demande une mémoire : elle se dessine à partir du
+         journal des relèves, pas de la boîte. Elle est donc vide au début et se
+         remplit une relève à la fois. -->
+    <section class="card">
+      <h3 class="carte-titre">
+        Évolution du non-lu
+        <span class="carte-note" id="note-evolution"></span>
+      </h3>
+      <div class="legende" id="legende-evolution"></div>
+      <div id="graph-evolution" class="graphique"></div>
+      <div class="table-defilable" id="table-evolution-boite" hidden>
+        <table class="tableau" id="table-evolution">
+          <thead>
+            <tr>
+              <th scope="col">Jour</th>
+              <th scope="col" class="num">Non lus</th>
+              <th scope="col" class="num">À traiter</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="vide" id="evolution-vide" hidden>
+        Il faut au moins deux relèves de deux jours différents pour dessiner une
+        évolution. Elle apparaîtra d'elle-même.
+      </p>
+    </section>
+
+    <!-- ── Principaux expéditeurs ──────────────────────────────────────────── -->
+    <section class="card">
+      <h3 class="carte-titre">
+        Principaux expéditeurs
+        <span class="carte-note" id="note-expediteurs"></span>
+      </h3>
+      <div id="graph-expediteurs" class="graphique"></div>
+      <div class="table-defilable" id="table-expediteurs-boite" hidden>
+        <table class="tableau" id="table-expediteurs">
+          <thead>
+            <tr>
+              <th scope="col">Expéditeur</th>
+              <th scope="col" class="num">Courriels</th>
+              <th scope="col" class="num">Non lus</th>
+              <th scope="col">Catégorie</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Santé de la relève : anomalies et contrôle ──────────────────────
+         Hors filtres à dessein : ce sont des diagnostics sur la collecte
+         elle-même, pas une tranche des courriels. -->
+    <h2 class="section-titre">Santé de la relève</h2>
+
+    <section class="card">
+      <h3 class="carte-titre">Anomalies</h3>
+      <ul class="anomalies" id="anomalies"></ul>
+      <p class="vide" id="anomalies-vide" hidden>Rien d'inhabituel.</p>
+    </section>
+
+    <section class="card">
+      <h3 class="carte-titre">
+        Contrôle contre les compteurs de Thunderbird
+        <span class="carte-note">le comptage de l'outil doit égaler celui de Thunderbird</span>
+      </h3>
+      <div class="table-defilable">
+        <table class="tableau" id="table-controle">
+          <thead>
+            <tr>
+              <th scope="col">Boîte</th>
+              <th scope="col">Dossier</th>
+              <th scope="col" class="num">Compté</th>
+              <th scope="col" class="num">Annoncé</th>
+              <th scope="col" class="num">Non lus comptés</th>
+              <th scope="col" class="num">Non lus annoncés</th>
+              <th scope="col">Verdict</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="pied">
+      <p id="pied-releve">—</p>
+      <p class="pied-note">
+        Lecture seule : l'outil lit les index de Thunderbird sur BG001 et ne
+        touche jamais au courrier. Aucun courriel n'est déplacé, marqué ni
+        supprimé depuis cette page.
+      </p>
+    </footer>
+  </main>
+
+  <div id="infobulle" class="infobulle" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="js/app.js?v=20260812141638"></script>
+</body>
+</html>

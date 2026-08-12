@@ -328,6 +328,23 @@ export function contientLaitDeVache(nom) {
   return MOTS_LAIT_DE_VACHE.some((m) => t.includes(m));
 }
 
+/**
+ * Boisson végétale qui remplace le lait — avoine, amande, cajou, soya…
+ *
+ * POURQUOI CETTE FONCTION EXISTE. Les circulaires n'ont pas le droit d'appeler
+ * ça du « lait » : elles écrivent tantôt « Lait d'avoine », tantôt « Boisson à
+ * base de plantes ». Les deux tombaient dans des catégories différentes —
+ * produits laitiers pour l'un, boissons pour l'autre — et le panier n'avait de
+ * quota que pour la première. Le même produit était donc retenu ou ignoré
+ * selon le mot choisi par l'épicerie.
+ */
+export function estBoissonVegetale(nom) {
+  const t = sansAccents(String(nom || "").toLowerCase());
+  if (MOTS_FROMAGE.some((m) => t.includes(m))) return false;
+  const contenant = /\b(lait|boisson|breuvage)\b/.test(t) || t.includes("base de plantes");
+  return contenant && MOTS_VEGETAL.some((m) => t.includes(m));
+}
+
 export function categorieDevinee(nom) {
   const normalise = sansAccents((nom || "").toLowerCase());
   for (const [categorie, mots] of Object.entries(MOTS_CATEGORIES)) {
