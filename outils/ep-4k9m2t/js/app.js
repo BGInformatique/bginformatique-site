@@ -229,13 +229,16 @@ onAuthStateChanged(auth, (compte) => {
 
 /* ==================== Onglets ==================== */
 
+const VUES = ["liste", "plans", "aubaines", "circulaires"];
+
+/** Change d'onglet. Écrit une fois : trois boutons y mènent maintenant. */
+function ouvrirOnglet(nom) {
+  $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.onglet === nom)));
+  for (const vue of VUES) $(`#vue-${vue}`).hidden = vue !== nom;
+}
+
 $$(".tab").forEach((onglet) => {
-  onglet.addEventListener("click", () => {
-    $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t === onglet)));
-    for (const vue of ["liste", "plans", "aubaines", "circulaires"]) {
-      $(`#vue-${vue}`).hidden = vue !== onglet.dataset.onglet;
-    }
-  });
+  onglet.addEventListener("click", () => ouvrirOnglet(onglet.dataset.onglet));
 });
 
 /* ==================== Import des circulaires ==================== */
@@ -1122,6 +1125,52 @@ function basculerAubaineDansPlan(idAubaine, coche) {
   enregistrer();
 }
 
+/**
+ * Barre d'action de l'onglet Aubaines : ce qui est coché, et de quoi lancer.
+ *
+ * Sans elle, on cochait des aubaines sans voir où elles allaient, puis il
+ * fallait changer d'onglet pour générer. Le parcours « je coche ce qui
+ * m'intéresse, je lance » se termine ici.
+ */
+function rendreBarrePlanAubaines() {
+  const zone = $("#barre-plan-aubaines");
+  if (!zone) return;
+  const plan = planActif();
+  if (!plan) {
+    zone.innerHTML = '<p class="small muted">Cochez la colonne <strong>Plan</strong> '
+      + "sur les aubaines qui vous intéressent : un plan se crée au premier clic.</p>";
+    return;
+  }
+  const articles = plan.articles || [];
+  const prio = articles.filter((a) => a.priorite).length;
+  zone.innerHTML = `<div class="banner">
+    <strong>${articles.length}</strong> article(s) dans « ${echapper(plan.nom)} »${
+    prio ? `, dont ${prio} prioritaire(s)` : ""}.
+    <button class="btn" id="btn-lancer-plan"${articles.length ? "" : " disabled"}>Lancer le plan</button>
+    <button class="btn btn-ghost" id="btn-ouvrir-plan">Ajuster le plan</button>
+    ${articles.length ? '<button class="btn btn-ghost" id="btn-vider-plan">Tout décocher</button>' : ""}
+  </div>`;
+}
+
+$("#barre-plan-aubaines").addEventListener("click", (evenement) => {
+  const plan = planActif();
+  if (evenement.target.closest("#btn-ouvrir-plan")) return ouvrirOnglet("plans");
+
+  if (evenement.target.closest("#btn-vider-plan")) {
+    if (!plan || !confirm(`Retirer les ${(plan.articles || []).length} article(s) `
+      + `du plan « ${plan.nom} » ?`)) return;
+    etatMod.remplacer(etat, "plans", plan.id, { articles: [] });
+    return enregistrer();
+  }
+
+  if (evenement.target.closest("#btn-lancer-plan")) {
+    // Générer PUIS montrer le résultat : arriver sur un onglet vide donnerait
+    // l'impression que le bouton n'a rien fait.
+    genererListe();
+    ouvrirOnglet("liste");
+  }
+});
+
 $("#resultat-aubaines").addEventListener("change", (evenement) => {
   const case_ = evenement.target.closest("[data-au-plan]");
   if (!case_) return;
@@ -1535,11 +1584,7 @@ $("#btn-generer").addEventListener("click", genererListe);
 // Le bandeau est reconstruit à chaque rendu : on écoute le conteneur, pas le
 // bouton, qui n'existe plus après le rendu suivant.
 $("#bandeau-plan").addEventListener("click", (evenement) => {
-  if (!evenement.target.closest("#btn-voir-plan")) return;
-  $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.onglet === "plans")));
-  for (const vue of ["liste", "plans", "aubaines", "circulaires"]) {
-    $(`#vue-${vue}`).hidden = vue !== "plans";
-  }
+  if (evenement.target.closest("#btn-voir-plan")) ouvrirOnglet("plans");
 });
 $("#btn-imprimer").addEventListener("click", () => {
   if (!resultatCourant) genererListe();
@@ -1583,6 +1628,7 @@ function rendre() {
   rendreAubaines();
   rendrePlans();
   rendreBandeauPlan();
+  rendreBarrePlanAubaines();
   rendreListesEnregistrees();
   rendreResultat();
 }

@@ -551,6 +551,36 @@ async function principal() {
   verifier("il ne se garnit pas tout seul des spéciaux", cree[0].articles.length === 1);
   verifier("la case reste cochée", await page.locator("[data-au-plan]").first().isChecked());
 
+  /* ---- Le parcours complet : cocher, voir, lancer ----
+     Sans la barre d'action, on cochait sans voir où ça allait, puis il fallait
+     changer d'onglet pour générer. */
+  verifier("la barre annonce le plan et son compte",
+    (await page.locator("#barre-plan-aubaines").innerText()).includes("Mon plan"));
+
+  await page.locator("[data-au-plan]").nth(1).check();
+  await page.waitForTimeout(200);
+  verifier("le compte suit les cases cochées",
+    (await page.locator("#barre-plan-aubaines").innerText()).includes("2 article"),
+    await page.locator("#barre-plan-aubaines").innerText());
+
+  await page.click("#btn-lancer-plan");
+  await page.waitForTimeout(300);
+  verifier("lancer bascule sur la liste", await page.locator("#vue-liste").isVisible());
+  const lance = await page.evaluate(() => {
+    const r = globalThis.bgfoods.resultat();
+    return r && r.groupes.flatMap((g) => g.lignes.map((l) => l.requete))
+      .concat(r.sansAubaine.map((l) => l.requete));
+  });
+  verifier("la liste contient les articles cochés", lance && lance.length === 2,
+    JSON.stringify(lance));
+
+  // « Ajuster le plan » mène à l'onglet Plans.
+  await page.click('[data-onglet="aubaines"]');
+  await page.click("#btn-ouvrir-plan");
+  verifier("« Ajuster le plan » ouvre l'onglet Plans",
+    await page.locator("#vue-plans").isVisible());
+  await page.click('[data-onglet="aubaines"]');
+
   // Décocher ne doit pas recréer un plan par ricochet.
   await page.evaluate(() => {
     globalThis.bgfoods.etat = { ...globalThis.bgfoods.etat, plans: [] };
