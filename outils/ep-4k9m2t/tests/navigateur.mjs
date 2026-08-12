@@ -463,6 +463,31 @@ async function principal() {
   verifier("il n'est pas prioritaire d'office", !apresRecoche.dernier.priorite);
   verifier("la case redevient cochée après rendu", await uneCase.isChecked());
 
+  /* ---- Budget ----
+     Saisi en dollars, rangé en cents, appliqué à la génération. */
+  await page.click('[data-onglet="plans"]');
+  await page.fill("[data-budget]", "12");
+  await page.press("[data-budget]", "Tab");
+  await page.waitForTimeout(250);
+  verifier("le budget est rangé en cents",
+    (await page.evaluate(() => globalThis.bgfoods.etat.plans[0].budgetCents)) === 1200,
+    String(await page.evaluate(() => globalThis.bgfoods.etat.plans[0].budgetCents)));
+
+  await page.click('[data-onglet="liste"]');
+  await page.click("#btn-generer");
+  await page.waitForTimeout(250);
+  const avecBudget = await page.evaluate(() => {
+    const r = globalThis.bgfoods.resultat();
+    return r && { total: r.total, budget: r.budgetCents, retires: r.retiresBudget.length,
+      depasse: r.budgetDepasse };
+  });
+  verifier("le budget est appliqué au calcul", avecBudget && avecBudget.budget === 1200,
+    JSON.stringify(avecBudget));
+  verifier("le total respecte le budget, ou le dépassement est annoncé",
+    avecBudget.total <= 1200 || avecBudget.depasse, JSON.stringify(avecBudget));
+  verifier("la carte Budget s'affiche",
+    (await page.locator("#resultat-liste").innerText()).includes("Budget"));
+
   await page.click('[data-onglet="plans"]');
   await page.click("[data-activer]");
   await page.waitForTimeout(150);

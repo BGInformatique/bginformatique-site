@@ -1134,6 +1134,10 @@ function rendrePlans() {
           <input type="number" min="0" max="20" data-foyer="ados" value="${Number(foyer.ados) || 0}"></div>
         <div><label>Enfants</label>
           <input type="number" min="0" max="20" data-foyer="enfants" value="${Number(foyer.enfants) || 0}"></div>
+        <div><label>Budget ($)</label>
+          <input type="number" min="0" step="5" data-budget
+            value="${plan.budgetCents ? (plan.budgetCents / 100).toFixed(2) : ""}"
+            placeholder="sans limite"></div>
         <div><label>Quantités</label>
           <p class="small muted" style="margin:6px 0 0">${formatNombre(parts)} part(s) —
             × ${formatNombre(facteur)}</p></div>
@@ -1177,6 +1181,11 @@ $("#btn-creer-plan").addEventListener("click", () => {
     ados: parseInt($("#plan-ados").value, 10) || 0,
     enfants: parseInt($("#plan-enfants").value, 10) || 0,
   };
+  // Le budget est saisi en dollars et rangé en cents, comme tous les montants
+  // de l'outil : mélanger les deux unités finit toujours par coûter un facteur
+  // cent quelque part.
+  const budget = parseFloat(String($("#plan-budget").value).replace(",", "."));
+  const budgetCents = Number.isFinite(budget) && budget > 0 ? Math.round(budget * 100) : null;
 
   // Rien de choisi : on propose un panier bâti sur les rabais en cours plutôt
   // qu'un plan vide, qui n'apprendrait rien et qu'il faudrait remplir à la main.
@@ -1186,6 +1195,7 @@ $("#btn-creer-plan").addEventListener("click", () => {
     nom,
     maxEpiceries: Number.isFinite(max) && max > 0 ? max : null,
     foyer,
+    budgetCents,
     articles,
     actif: etat.plans.length ? 0 : 1,   // le premier plan créé sert tout de suite
   });
@@ -1202,15 +1212,27 @@ $("#btn-creer-plan").addEventListener("click", () => {
 // Le foyer se modifie à même la carte : changer « 2 adultes » en « 2 adultes,
 // 3 ados » doit se voir tout de suite sur les quantités, sans recréer le plan.
 $("#liste-plans").addEventListener("change", (evenement) => {
-  const champ = evenement.target.closest("[data-foyer]");
-  if (!champ) return;
-  const carte = champ.closest("[data-plan]");
+  const carte = evenement.target.closest("[data-plan]");
+  if (!carte) return;
   const plan = etat.plans.find((p) => p.id === carte.dataset.plan);
   if (!plan) return;
-  const foyer = { ...(plan.foyer || {}) };
-  foyer[champ.dataset.foyer] = Math.max(0, parseInt(champ.value, 10) || 0);
-  etatMod.remplacer(etat, "plans", plan.id, { foyer });
-  enregistrer();
+
+  const champFoyer = evenement.target.closest("[data-foyer]");
+  if (champFoyer) {
+    const foyer = { ...(plan.foyer || {}) };
+    foyer[champFoyer.dataset.foyer] = Math.max(0, parseInt(champFoyer.value, 10) || 0);
+    etatMod.remplacer(etat, "plans", plan.id, { foyer });
+    return enregistrer();
+  }
+
+  const champBudget = evenement.target.closest("[data-budget]");
+  if (champBudget) {
+    const dollars = parseFloat(String(champBudget.value).replace(",", "."));
+    etatMod.remplacer(etat, "plans", plan.id, {
+      budgetCents: Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : null,
+    });
+    return enregistrer();
+  }
 });
 
 $("#liste-plans").addEventListener("click", (evenement) => {
@@ -1282,6 +1304,7 @@ function genererListe() {
   if (plan && plan.maxEpiceries && !options.maxEpiceries) {
     options.maxEpiceries = plan.maxEpiceries;
   }
+  if (plan && plan.budgetCents) options.budgetCents = plan.budgetCents;
   if (plan) options.nom = options.nom || plan.nom;
   if (!articles.length) {
     avisEphemere("liste", plan
@@ -1362,6 +1385,30 @@ function rendreResultat() {
     )
     .join("");
 
+  // Le budget : ce qu'on a mis de côté pour y rentrer, et l'aveu franc quand
+  // les prioritaires seuls le dépassent.
+  const budget = resultat.budgetCents
+    ? `<div class="card">
+        <h2>Budget</h2>
+        <p>${echapper(formatPrix(resultat.total))} sur ${echapper(formatPrix(resultat.budgetCents))}
+          — ${resultat.resteBudget >= 0
+            ? `<strong>${echapper(formatPrix(resultat.resteBudget))} de marge</strong>`
+            : `<strong>${echapper(formatPrix(-resultat.resteBudget))} de dépassement</strong>`}</p>
+        ${resultat.budgetDepasse
+          ? '<p class="banner warn">Les articles prioritaires dépassent à eux seuls le budget. '
+            + "Rien n'a été retiré : retirez une étoile, augmentez le budget, ou assumez le dépassement.</p>"
+          : ""}
+        ${resultat.retiresBudget.length
+          ? `<p class="small muted">Mis de côté pour rentrer dans le budget — ce qui coûtait
+              le plus cher sans être une aubaine :</p>
+            <ul class="small">${resultat.retiresBudget
+              .map((l) => `<li>${echapper(l.requete)}${l.quantite > 1 ? ` × ${l.quantite}` : ""}
+                — ${echapper(formatPrix(l.cout))} chez ${echapper(l.meilleure.epicerie)}</li>`)
+              .join("")}</ul>`
+          : '<p class="small muted">Rien n\'a eu besoin d\'être retiré.</p>'}
+      </div>`
+    : "";
+
   const orphelins = resultat.sansAubaine.length
     ? `<div class="card">
         <h2>Sans aubaine — prix courant</h2>
@@ -1376,7 +1423,7 @@ function rendreResultat() {
       </div>`
     : "";
 
-  contenant.innerHTML = entete + groupes + orphelins;
+  contenant.innerHTML = entete + budget + groupes + orphelins;
 }
 
 $("#resultat-liste").addEventListener("change", (evenement) => {

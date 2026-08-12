@@ -363,6 +363,7 @@ export function optimiser(etat, articles, options = {}) {
     valideesSeulement = false,
     seuil = SEUIL_CORRESPONDANCE,
     nom = "Liste d'épicerie",
+    budgetCents = null,
   } = options;
 
   const disponibles = aubainesActives(etat, dateCible, { valideesSeulement });
@@ -382,8 +383,8 @@ export function optimiser(etat, articles, options = {}) {
     if (nonVides.length) autorisees = choisirEpiceries(nonVides, maxEpiceries, poids);
   }
 
-  const groupes = new Map();
   const sansAubaine = [];
+  const achetables = [];
 
   demandes.forEach((demande, index) => {
     const candidats = candidatsParLigne[index];
@@ -402,19 +403,49 @@ export function optimiser(etat, articles, options = {}) {
       cout: meilleure ? coutUnitaire(meilleure) * quantite : 0,
       economie: meilleure ? economieUnitaire(meilleure) * quantite : 0,
     };
+    (meilleure ? achetables : sansAubaine).push(ligne);
+  });
 
-    if (!meilleure) {
-      sansAubaine.push(ligne);
-      return;
+  /* ---------- Budget ----------
+   *
+   * DEUX RÈGLES, ET LA PREMIÈRE PRIME. Un article étoilé n'est JAMAIS retiré
+   * par le budget : vous avez dit qu'il comptait, l'outil n'a pas à le décider
+   * à votre place. Si les seuls prioritaires dépassent déjà la somme, on le
+   * dit franchement plutôt que de rogner en douce.
+   *
+   * Ce qu'on retire d'abord, ce n'est pas le plus cher : c'est ce qui coûte
+   * cher SANS être une aubaine. On garde donc les bons rabais et on sacrifie
+   * ce qui se paie plein prix — c'est tout l'objet de l'outil.
+   */
+  const retiresBudget = [];
+  let budgetDepasse = false;
+  if (budgetCents && budgetCents > 0) {
+    const valeur = (l) => (l.cout > 0 ? l.economie / l.cout : 0);
+    const sacrifiables = achetables
+      .filter((l) => !l.priorite)
+      .sort((a, b) => valeur(a) - valeur(b) || b.cout - a.cout);
+
+    let total = achetables.reduce((s, l) => s + l.cout, 0);
+    while (total > budgetCents && sacrifiables.length) {
+      const retire = sacrifiables.shift();
+      achetables.splice(achetables.indexOf(retire), 1);
+      retiresBudget.push(retire);
+      total -= retire.cout;
     }
-    if (!groupes.has(meilleure.epicerie)) {
-      groupes.set(meilleure.epicerie, { epicerie: meilleure.epicerie, lignes: [], total: 0, economies: 0 });
+    budgetDepasse = total > budgetCents;
+  }
+
+  const groupes = new Map();
+  for (const ligne of achetables) {
+    const epicerie = ligne.meilleure.epicerie;
+    if (!groupes.has(epicerie)) {
+      groupes.set(epicerie, { epicerie, lignes: [], total: 0, economies: 0 });
     }
-    const groupe = groupes.get(meilleure.epicerie);
+    const groupe = groupes.get(epicerie);
     groupe.lignes.push(ligne);
     groupe.total += ligne.cout;
     groupe.economies += ligne.economie;
-  });
+  }
 
   // Dans chaque magasin, les prioritaires en tête : au rayon, c'est ce qu'on
   // met dans le panier avant de se laisser distraire.
@@ -422,6 +453,7 @@ export function optimiser(etat, articles, options = {}) {
     groupe.lignes.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0));
   }
   sansAubaine.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0));
+  retiresBudget.sort((a, b) => b.cout - a.cout);
 
   // La plus grosse facture en premier : c'est l'épicerie principale de la sortie.
   const ordonnes = [...groupes.values()].sort((a, b) => b.total - a.total || a.epicerie.localeCompare(b.epicerie));
@@ -434,6 +466,12 @@ export function optimiser(etat, articles, options = {}) {
     maxEpiceries: maxEpiceries || null,
     groupes: ordonnes,
     sansAubaine,
+    budgetCents: budgetCents || null,
+    retiresBudget,
+    // Vrai seulement quand les prioritaires seuls dépassent déjà la somme :
+    // l'outil n'a alors plus rien à retirer sans trahir ce que vous avez étoilé.
+    budgetDepasse,
+    resteBudget: budgetCents ? budgetCents - total : null,
     total,
     economies,
     nbArticles: ordonnes.reduce((somme, g) => somme + g.lignes.length, 0),

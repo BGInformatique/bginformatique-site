@@ -328,6 +328,67 @@ const ETAT = etatDepuis([
     optimiseur.rabaisRelatif({ prixCents: 200, prixRegulierCents: 400 }), 0.5, 0.001);
 }
 
+/* ---------- Budget ----------
+   Deux règles, et la première prime : un article étoilé n'est jamais retiré,
+   et ce qu'on sacrifie d'abord est ce qui coûte cher SANS être une aubaine. */
+{
+  const ETAT_BUDGET = etatDepuis([
+    ["IGA",
+      // Grosse aubaine : cher, mais moitié prix. À garder.
+      "Rôti de boeuf 20,00 $ Rég. 40,00 $\n"
+      // Cher et plein prix : le premier à sauter.
+      + "Huile d'olive 15,00 $\n"
+      // Bon marché, sans rabais annoncé.
+      + "Pain tranché 675 g 3,00 $\n"],
+  ]);
+  const articles = [
+    { requete: "rôti de boeuf", quantite: 1 },
+    { requete: "huile d'olive", quantite: 1 },
+    { requete: "pain tranché", quantite: 1 },
+  ];
+
+  const sansBudget = optimiseur.optimiser(ETAT_BUDGET, articles, { dateCible: AUJOURDHUI });
+  proche("sans budget, tout est acheté", sansBudget.total, 3800, 1);
+  egal("et rien n'est mis de côté", sansBudget.retiresBudget.length, 0);
+  egal("le budget n'est pas inventé", sansBudget.budgetCents, null);
+
+  const avecBudget = optimiseur.optimiser(ETAT_BUDGET, articles,
+    { dateCible: AUJOURDHUI, budgetCents: 2500 });
+  verifier("le total rentre dans le budget", avecBudget.total <= 2500,
+    `${avecBudget.total} > 2500`);
+  egal("un seul article a suffi à rentrer", avecBudget.retiresBudget.length, 1);
+  egal("c'est le cher sans rabais qui saute",
+    avecBudget.retiresBudget[0].requete, "huile d'olive");
+  verifier("la grosse aubaine est gardée",
+    avecBudget.groupes.some((g) => g.lignes.some((l) => l.requete === "rôti de boeuf")));
+  proche("la marge restante est rapportée", avecBudget.resteBudget, 2500 - avecBudget.total, 1);
+  verifier("aucun dépassement signalé", !avecBudget.budgetDepasse);
+
+  // Un article étoilé ne se retire pas, même s'il fait exploser le budget.
+  const prioritaire = optimiseur.optimiser(
+    ETAT_BUDGET,
+    articles.map((a) => (a.requete === "huile d'olive" ? { ...a, priorite: true } : a)),
+    { dateCible: AUJOURDHUI, budgetCents: 2500 },
+  );
+  verifier("un article prioritaire n'est jamais retiré par le budget",
+    !prioritaire.retiresBudget.some((l) => l.requete === "huile d'olive"),
+    JSON.stringify(prioritaire.retiresBudget.map((l) => l.requete)));
+
+  // Budget si serré que même les prioritaires ne rentrent pas : on le dit.
+  const tropSerre = optimiseur.optimiser(
+    ETAT_BUDGET,
+    articles.map((a) => ({ ...a, priorite: true })),
+    { dateCible: AUJOURDHUI, budgetCents: 500 },
+  );
+  verifier("un budget intenable est annoncé, pas contourné", tropSerre.budgetDepasse);
+  egal("et rien n'a été retiré en douce", tropSerre.retiresBudget.length, 0);
+  verifier("le dépassement est chiffré", tropSerre.resteBudget < 0, String(tropSerre.resteBudget));
+
+  const large = optimiseur.optimiser(ETAT_BUDGET, articles,
+    { dateCible: AUJOURDHUI, budgetCents: 100000 });
+  egal("un budget large ne retire rien", large.retiresBudget.length, 0);
+}
+
 /* ---------- Priorités d'un plan ----------
    L'étoile doit peser sur le CHOIX des épiceries, pas seulement s'afficher.
    Le montage ci-dessous est fait pour que la priorité renverse la décision :
