@@ -19,6 +19,10 @@ import * as analyseur from "../js/analyseur.js";
 import * as optimiseur from "../js/optimiseur.js";
 import * as etatMod from "../js/etat.js";
 import { lignesDepuisFragments, enImages } from "../js/lecture-pdf.js";
+import * as circulairesCom from "../js/circulaires-com.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 let reussis = 0;
 const echecs = [];
@@ -366,6 +370,80 @@ function fragment(texte, x, y, largeur = texte.length * 5) {
     "Céréales Kellogg's 320-500 g 3,49 $\nPain tranché 675 g 2,99 $\n".repeat(6),
   ];
   verifier("circulaire textuelle non confondue", enImages(vraiTexte) === false);
+}
+
+/* ==================== Récupération depuis circulaires.com ====================
+   Les fonctions d'extraction sont éprouvées sur les VRAIES pages du site,
+   enregistrées le 11 août 2026 dans tests/echantillons/. On lit du HTML écrit
+   pour des yeux : le jour où leur mise en page changera, ces essais tomberont
+   — c'est précisément leur rôle. */
+
+const ICI = dirname(fileURLToPath(import.meta.url));
+const echantillon = (nom) =>
+  readFileSync(join(ICI, `echantillons/circulaires-com-${nom}.html`), "utf-8");
+
+{
+  const lien = circulairesCom.extraireLienVisionneuse(echantillon("epicerie"));
+  verifier("lien de la visionneuse trouvé", !!lien && lien.includes("/circulaire/?"), String(lien));
+
+  const vue = circulairesCom.extraireVisionneuse(echantillon("visionneuse"), lien);
+  egal("dates de validité lues", vue.validite, { debut: "2026-08-06", fin: "2026-08-12" });
+  egal("pages de cette feuille", vue.pages.length, 2);
+  egal("feuilles paginées", vue.pagination.length, 7);
+
+  // Le paramètre `flyer` est du base64url : « *iga-01.jpg**imageform**<empreinte> ».
+  const jeton = /flyer=([A-Za-z0-9_-]+)/.exec(vue.pages[0].formulaire)[1];
+  verifier(
+    "le lien de page mène au formulaire d'image",
+    circulairesCom.decodeJeton(jeton).includes("**imageform**"),
+    circulairesCom.decodeJeton(jeton),
+  );
+  verifier("chaque page porte sa vignette", vue.pages.every((p) => p.vignette.startsWith("https://")));
+}
+
+{
+  // L'image pleine résolution est portée par un `src`, pas par un `href` :
+  // ne chercher que les liens laissait passer la seule chose qu'on cherchait.
+  const image = circulairesCom.extraireImagePleine(echantillon("imageform"));
+  verifier("adresse de l'image pleine résolution trouvée", !!image, String(image));
+  const jeton = /flyer=([A-Za-z0-9_-]+)/.exec(image)[1];
+  verifier(
+    "et c'est bien l'image, pas son formulaire",
+    circulairesCom.decodeJeton(jeton).includes("**image**"),
+    circulairesCom.decodeJeton(jeton),
+  );
+}
+
+{
+  egal("adresse protocol-relative complétée",
+    circulairesCom.absolu("//www.circulaires.com/x/"), "https://www.circulaires.com/x/");
+  egal("page sans circulaire : rien plutôt qu'une invention",
+    circulairesCom.extraireLienVisionneuse("<html><body>rien ici</body></html>"), null);
+  egal("HTML méconnaissable : aucune page inventée",
+    circulairesCom.extraireVisionneuse("<html></html>").pages.length, 0);
+  egal("jeton illisible toléré", circulairesCom.decodeJeton("!!!pas du base64!!!"), "");
+  verifier("les épiceries d'alimentation sont listées", circulairesCom.EPICERIES.length >= 18);
+}
+
+{
+  // La récupération complète, servie par les échantillons : aucun appel réseau.
+  const parUrl = (url) => {
+    if (url.endsWith("/supermarche-iga/")) return echantillon("epicerie");
+    if (url.includes("/circulaire/?")) return echantillon("visionneuse");
+    return "<html></html>";
+  };
+  const recuperer = async (url) => ({ ok: true, status: 200, text: async () => parUrl(url) });
+  const circulaire = await circulairesCom.chercherCirculaire("supermarche-iga", { recuperer });
+  egal("épicerie nommée", circulaire.epicerie, "IGA");
+  egal("dates rapportées", circulaire.validite, { debut: "2026-08-06", fin: "2026-08-12" });
+  verifier("des pages sont rapportées", circulaire.pages.length >= 2, String(circulaire.pages.length));
+
+  const vide = async () => ({ ok: true, status: 200, text: async () => "<html></html>" });
+  let messageErreur = "";
+  await circulairesCom.chercherCirculaire("epicerie-sans-circulaire", { recuperer: vide })
+    .catch((e) => { messageErreur = e.message; });
+  verifier("absence de circulaire annoncée clairement",
+    messageErreur.includes("Aucune circulaire trouvée"), messageErreur);
 }
 
 /* ==================== Fusion multi-appareils ====================

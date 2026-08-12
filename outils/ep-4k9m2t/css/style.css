@@ -193,3 +193,22 @@ table.correction tr.validee { background: rgba(22, 163, 74, .07); }
   .epicerie-titre { border-bottom: 2px solid #000; margin-top: 12px; }
   tr, .card { break-inside: avoid; }
 }
+
+/* Pages d'une circulaire récupérée : vignettes cliquables. */
+.pages {
+  display: grid; gap: 10px; margin-top: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.pages a {
+  display: block; border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; background: var(--surface); text-decoration: none;
+}
+.pages img { display: block; width: 100%; height: auto; }
+.pages .indisponible {
+  display: block; padding: 18px 10px; text-align: center; font-size: 13px;
+  color: var(--text-muted);
+}
+.pages .numero {
+  display: block; padding: 4px 8px; font-size: 12px; color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}

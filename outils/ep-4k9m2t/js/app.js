@@ -49,6 +49,7 @@ import {
   formatNombre,
 } from "./normalisation.js";
 import { ErreurLecture, lireFichier } from "./lecture-pdf.js";
+import * as circulairesCom from "./circulaires-com.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -342,6 +343,97 @@ $("#btn-importer-texte").addEventListener("click", () => {
     source: "Texte collé",
   });
   $("#texte-circulaire").value = "";
+});
+
+/* ==================== Récupération depuis circulaires.com ==================== */
+
+function rendreChoixEpiceries() {
+  const selecteur = $("#cc-epicerie");
+  if (selecteur.options.length) return;
+  selecteur.innerHTML = circulairesCom.EPICERIES.map(
+    (e) => `<option value="${e.slug}">${echapper(e.nom)}</option>`,
+  ).join("");
+}
+
+/**
+ * Affiche les pages récupérées. Les vignettes pointent directement chez eux :
+ * une image s'affiche sans rien demander à CORS. Si leur serveur refuse la
+ * requête venue d'ici, l'image ne charge pas — on montre alors un lien plutôt
+ * qu'un cadre vide.
+ */
+function rendreCirculaireTrouvee(circulaire) {
+  const contenant = $("#cc-resultat");
+  if (!circulaire.pages.length) {
+    contenant.innerHTML =
+      '<p class="vide">Circulaire trouvée, mais aucune page n\'a pu être lue. ' +
+      "La mise en page du site a peut-être changé.</p>";
+    return;
+  }
+  const validite = circulaire.validite
+    ? `du ${circulaire.validite.debut} au ${circulaire.validite.fin}`
+    : "dates non annoncées";
+  contenant.innerHTML = `
+    <p class="small muted">${circulaire.pages.length} page(s) — ${echapper(circulaire.epicerie)},
+      ${echapper(validite)}.
+      <a href="${echapper(circulaire.source)}" target="_blank" rel="noopener">Voir sur circulaires.com</a></p>
+    <div class="pages">${circulaire.pages
+      .map(
+        (page, index) => `<a href="#" data-page="${index}" title="Ouvrir en pleine résolution">
+          <img src="${echapper(page.vignette)}" alt="Page ${index + 1}" loading="lazy" referrerpolicy="no-referrer"
+               onerror="this.replaceWith(Object.assign(document.createElement('span'),
+                        {className:'indisponible', textContent:'Page ${index + 1} — ouvrir'}))">
+          <span class="numero">Page ${index + 1}</span></a>`,
+      )
+      .join("")}</div>`;
+  contenant.dataset.pages = JSON.stringify(circulaire.pages);
+}
+
+$("#btn-cc-chercher").addEventListener("click", async () => {
+  const bouton = $("#btn-cc-chercher");
+  const slug = $("#cc-epicerie").value;
+  bouton.disabled = true;
+  bouton.textContent = "Recherche…";
+  retirerAvis("circulaires-com");
+  try {
+    const circulaire = await circulairesCom.chercherCirculaire(slug);
+    rendreCirculaireTrouvee(circulaire);
+    // Ce qu'on a récolté sert tout de suite : les champs d'import sont remplis,
+    // il ne reste qu'à saisir les aubaines en regardant les pages.
+    $("#import-epicerie").value = circulaire.epicerie;
+    if (circulaire.validite) {
+      $("#import-debut").value = circulaire.validite.debut;
+      $("#import-fin").value = circulaire.validite.fin;
+    }
+    $("#texte-circulaire").focus();
+  } catch (e) {
+    avis(
+      "circulaires-com",
+      e instanceof circulairesCom.ErreurCirculaire
+        ? e.message
+        : `Impossible de joindre circulaires.com : ${e.message}`,
+      "err",
+    );
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = "Chercher la circulaire";
+  }
+});
+
+$("#cc-resultat").addEventListener("click", async (evenement) => {
+  const lien = evenement.target.closest("[data-page]");
+  if (!lien) return;
+  evenement.preventDefault();
+  const pages = JSON.parse($("#cc-resultat").dataset.pages || "[]");
+  const page = pages[Number(lien.dataset.page)];
+  if (!page) return;
+  // L'adresse de l'image pleine résolution demande un aller-retour de plus :
+  // on l'ouvre dans un onglet, où le site sert l'image comme pour ses visiteurs.
+  try {
+    const image = await circulairesCom.imagePleine(page);
+    window.open(image || page.formulaire, "_blank", "noopener");
+  } catch (e) {
+    window.open(page.formulaire, "_blank", "noopener");
+  }
 });
 
 /* ==================== Écran des circulaires ==================== */
@@ -780,6 +872,7 @@ function rendreSelecteurs() {
 
 function rendre() {
   if (!utilisateur) return;
+  rendreChoixEpiceries();
   rendreSelecteurs();
   rendreCirculaires();
   rendreCorrection();

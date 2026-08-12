@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>BGFoods — circulaires et listes d'épicerie</title>
-  <link rel="stylesheet" href="css/style.css?v=20260811213936">
+  <link rel="stylesheet" href="css/style.css?v=20260811222905">
 </head>
 <body>
 <header class="app-header">
@@ -106,6 +106,23 @@
 
   <!-- ══════════ Circulaires ══════════ -->
   <section id="vue-circulaires" hidden>
+    <div class="card">
+      <h2>Depuis circulaires.com</h2>
+      <p class="small muted">Va chercher la circulaire de la semaine : l'épicerie, les dates
+        et les pages. Les prix, eux, ne s'y lisent pas — les bannières publient des images.
+        Saisissez ensuite les aubaines qui vous intéressent en regardant les pages.</p>
+      <div class="barre-filtres">
+        <div>
+          <label for="cc-epicerie">Épicerie</label>
+          <select id="cc-epicerie"></select>
+        </div>
+      </div>
+      <div class="barre">
+        <button class="btn" id="btn-cc-chercher">Chercher la circulaire</button>
+      </div>
+      <div id="cc-resultat"></div>
+    </div>
+
     <div class="deux-colonnes">
       <div class="card">
         <h2>Téléverser une circulaire</h2>
@@ -153,6 +170,6 @@
 
 </main>
 
-<script type="module" src="js/app.js?v=20260811213936"></script>
+<script type="module" src="js/app.js?v=20260811222905"></script>
 </body>
 </html>

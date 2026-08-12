@@ -42,7 +42,20 @@ outils ne se voient pas et ne peuvent pas s'écraser.
 
 ### 1. Injecter — onglet « Circulaires »
 
-Deux entrées : **téléverser** un PDF (lu dans le navigateur par pdf.js, le fichier ne
+**Depuis circulaires.com** — choisir une épicerie et cliquer : l'outil récupère la
+circulaire de la semaine (épicerie, dates, pages en images) et remplit les champs
+d'import. Possible sans serveur parce que le site répond
+`access-control-allow-origin: *`, et les vignettes s'affichent en `<img>`, ce qui n'a
+jamais rien demandé à CORS. Leur `robots.txt` accueille les robots en demandant de
+ménager les ressources du serveur : c'est un clic de l'utilisateur qui déclenche
+chaque récupération, jamais une boucle. On lit du HTML écrit pour des yeux, donc
+l'extraction cassera le jour où leur mise en page changera — les échantillons de
+`tests/echantillons/` figent la structure du 11 août 2026 et le banc le dira.
+
+Les prix ne s'y lisent pas davantage : ce sont les mêmes images. Ce que ça enlève,
+c'est la chasse au PDF et la saisie des dates.
+
+Deux autres entrées : **téléverser** un PDF (lu dans le navigateur par pdf.js, le fichier ne
 part nulle part) ou **coller le texte**. L'épicerie et les dates de validité sont
 détectées dans le texte; les deux restent modifiables avant l'import.
 

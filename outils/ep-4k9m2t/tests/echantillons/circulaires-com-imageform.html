@@ -1,0 +1,96 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"><html><head><link rel="stylesheet" type="text/css" href="/supermarche-iga/circulaire/index.do?flyer=KioqY3NzKio2ZTA3YWNjN2ZmOGQzZTE4MmY4YmNkZDJiMDI5NzhmNw"><script type="text/javascript" src="/js/sfpg.js"></script><meta http-equiv="Content-Type" content="text/html;charset=utf-8"><title> </title><script language="JavaScript" TYPE="text/javascript">
+      <!--
+
+      var img_full_x, img_full_y, win_x, win_y, extra_x, extra_y, action;
+
+      extra_x = 98;
+      extra_y = 193;
+
+      function resize_window(x, y)
+      {
+        win_x = x + extra_x;
+        win_y = y + extra_y;
+        if (win_x < 300) win_x = 300;
+        if (win_y < 300) win_y = 300;
+        if (win_x > window.screen.availWidth)
+        {
+          win_x = window.screen.availWidth;
+          win_y = win_y + 17;
+        }
+        if (win_y > window.screen.availHeight)
+        {
+          win_y = window.screen.availHeight;
+          win_x = win_x + 17;
+        }
+        if (win_x > window.screen.availWidth) win_x = window.screen.availWidth;
+        window.moveTo(((window.screen.availWidth - win_x) / 2),((window.screen.availHeight - win_y) / 2));
+        window.resizeTo(win_x, win_y);
+        window.moveTo(((window.screen.availWidth - win_x) / 2),((window.screen.availHeight - win_y) / 2));
+        window.focus();
+      }
+
+      function windowchange()
+      {
+        var avail_x, avail_y, aspect_x, aspect_y, new_img_x, new_img_y;
+        self.focus();
+        if (document.images)
+        {
+          img_full_x = document.images['fullimage'].width;
+          img_full_y = document.images['fullimage'].height;
+          avail_x = window.screen.availWidth - extra_x;
+          avail_y = window.screen.availHeight - extra_y;
+          if (((img_full_x > avail_x) || (img_full_y > avail_y)) && false)
+          {
+            action = 0;
+            document.all['click_image'].innerHTML = '';
+            aspect_x = img_full_x / avail_x;
+            aspect_y = img_full_y / avail_y;
+            if (aspect_x > aspect_y)
+            {
+              new_img_x = avail_x;
+              new_img_y = img_full_y / aspect_x;
+            }
+            else
+            {
+              new_img_x = img_full_x / aspect_y;
+              new_img_y = avail_y;
+            }
+            document.images['fullimage'].width = new_img_x;
+            document.images['fullimage'].height = new_img_y;
+          }
+          else
+          {
+            action = 1;
+            new_img_x = img_full_x;
+            new_img_y = img_full_y;
+          }
+          resize_window(new_img_x, new_img_y);
+        }
+      }
+
+      function full_res_close()
+      {
+        if (action == 1)
+        {
+          window.close();
+        }
+        else
+        {
+          action = 1;
+          document.all['click_image'].innerHTML = '';
+          document.images['fullimage'].width = img_full_x;
+          document.images['fullimage'].height = img_full_y;
+          resize_window(img_full_x, img_full_y);
+        }
+      }
+
+      //-->
+      </script>
+<script>function mNavig(event) { 
+if (event.keyCode == "39") {  location.href="/supermarche-iga/circulaire/index.do?flyer=KmlnYS0wMi5qcGcqMSppbWFnZWZvcm0qKjRlMDkzNTM2MTZjODYyODdhNWRiMTNlODg5MjkzNGY1";  }
+if (event.keyCode == "37") {  }
+if (event.keyCode == "27") { window.close(); }
+}
+</script>
+
+</head><body onkeydown="mNavig(event);" class="sfpg" OnLoad="javascript:windowchange();"><div align="center"><br>&nbsp;<br>&nbsp;<br>&nbsp;<br><big><<&nbsp;&nbsp;1/14&nbsp;&nbsp;<a class="navinorm" href="/supermarche-iga/circulaire/index.do?flyer=KmlnYS0wMi5qcGcqMSppbWFnZWZvcm0qKjRlMDkzNTM2MTZjODYyODdhNWRiMTNlODg5MjkzNGY1">Suivant &gt;&gt;</a></big><br><br><table class="sfpg" cellspacing="0" border="0"><tr><td class="fullimg"><a href="javascript:full_res_close()"><img width="1160" id="fullimage" alt="" src="/supermarche-iga/circulaire/index.do?flyer=KmlnYS0wMS5qcGcqKmltYWdlKipjZTg4MzJlNGU0MzJkYjZiZGRhMTdiOTI4ODFhYTJhOQ"></a></td></tr></table><br>&nbsp;<br>&nbsp;<br>&nbsp;<br><big><<&nbsp;&nbsp;1/14&nbsp;&nbsp;<a class="navinorm" href="/supermarche-iga/circulaire/index.do?flyer=KmlnYS0wMi5qcGcqMSppbWFnZWZvcm0qKjRlMDkzNTM2MTZjODYyODdhNWRiMTNlODg5MjkzNGY1">Suivant &gt;&gt;</a></big><br><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p></div></body></html>
