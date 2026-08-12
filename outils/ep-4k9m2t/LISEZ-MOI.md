@@ -127,10 +127,25 @@ Playwright l'attend : `BGFOODS_CHROMIUM=/chemin/vers/chrome`.
   le CDN change, l'outil le dit et propose de coller le texte. Pour changer de
   version, modifier les **deux** liens ensemble — la bibliothèque refuse un worker
   d'une autre version — et repasser une vraie circulaire dans l'outil.
-- **Les circulaires scannées ne se lisent pas.** Un PDF sans couche de texte n'a rien
-  à extraire; il n'y a pas d'OCR ici (tesseract.js pèse une dizaine de mégaoctets pour
-  un résultat médiocre sur des mises en page de circulaire). Coller le texte reste la
-  porte de sortie.
+- **Les circulaires des grandes bannières sont faites d'images, et rien ne les lira.**
+  Mesuré sur la circulaire IGA du 6 au 12 août 2026 : 8 pages, dont une seule portant
+  du texte — la ligne des dates. L'outil le reconnaît (`enImages()`), le dit, et
+  reporte l'épicerie et les dates dans le formulaire pour la saisie à la main.
+
+  L'OCR a été essayé et **écarté sur mesure**, pas par principe : page rendue à
+  300 dpi, coupée en deux pour ne pas lire en travers des colonnes, tesseract en mode
+  « texte épars » → 6 285 caractères en 1 270 lignes, et **2 aubaines reconnues, toutes
+  deux fausses** (« Panier 13 Asset Ré. 6498 à » à 895,00 $). Les gros prix à cents en
+  exposant ressortent détachés de leur produit. tesseract.js dans le navigateur
+  donnerait la même chose, en dix mégaoctets et deux minutes par circulaire — pour des
+  prix inventés dans une comparaison censée faire économiser.
+
+  Les agrégateurs (circulaires.com) n'aident pas : ils servent les mêmes images dans
+  une visionneuse, sans données de produit.
+
+  Ce qui marche : le site des bannières (`iga.net`, `metro.ca`, `provigo.ca`…) publie
+  la circulaire en HTML, texte sélectionnable — copier-coller dans « Coller le texte ».
+  Ou saisir à la main les quelques articles qui comptent, une ligne chacun.
 - **Les formats variables** (« 320-500 g ») sont ramenés à la borne basse : le prix
   unitaire affiché est donc prudent, jamais flatteur.
 - **Les prix affichés viennent des circulaires importées** et doivent être confirmés

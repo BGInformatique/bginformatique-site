@@ -158,6 +158,41 @@ async function principal() {
     compte.dates.join(),
   );
 
+  /* ---- Circulaire sans rien à extraire ----
+     Rien ne doit être créé, et ce qui a été récupéré doit atterrir dans le
+     formulaire pour servir à la saisie à la main.
+
+     Le texte collé emprunte ce chemin-ci; la formulation propre aux circulaires
+     EN IMAGES dépend de `imagesProbables`, que seule la lecture d'un PDF peut
+     établir — pdf.js venant d'un CDN, ce banc ne peut pas l'exercer. C'est
+     `enImages()` qui la couvre, dans banc.js, sur le cas IGA réel. */
+  const circulairesAvant = await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length);
+  await page.fill("#import-debut", "");
+  await page.fill("#import-fin", "");
+  await page.fill("#texte-circulaire", "IGA\nValide du jeudi 6 août au mercredi 12 août 2026");
+  await page.click("#btn-importer-texte");
+  await page.waitForTimeout(150);
+
+  verifier(
+    "aucune circulaire vide n'est créée",
+    (await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)) === circulairesAvant,
+  );
+  verifier(
+    "les dates récupérées sont reportées dans le formulaire",
+    (await page.inputValue("#import-debut")) === "2026-08-06" &&
+      (await page.inputValue("#import-fin")) === "2026-08-12",
+    `${await page.inputValue("#import-debut")} → ${await page.inputValue("#import-fin")}`,
+  );
+  verifier("l'épicerie est reportée", (await page.inputValue("#import-epicerie")) === "IGA");
+  const avis = await page.locator('[data-avis="import-vide"]').innerText();
+  verifier(
+    "le message explique quoi faire",
+    avis.includes("Aucune aubaine n'a été reconnue") && avis.includes("Coller le texte"),
+    avis.slice(0, 90),
+  );
+  await page.fill("#import-epicerie", "");
+  await page.fill("#texte-circulaire", "");
+
   /* ---- Correction d'une aubaine ---- */
   // La circulaire IGA, nommément : l'ordre d'affichage dépend des dates.
   await page.click('#liste-circulaires tr:has-text("IGA") [data-ouvrir]');

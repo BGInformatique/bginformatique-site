@@ -18,7 +18,7 @@ import * as normalisation from "../js/normalisation.js";
 import * as analyseur from "../js/analyseur.js";
 import * as optimiseur from "../js/optimiseur.js";
 import * as etatMod from "../js/etat.js";
-import { lignesDepuisFragments } from "../js/lecture-pdf.js";
+import { lignesDepuisFragments, enImages } from "../js/lecture-pdf.js";
 
 let reussis = 0;
 const echecs = [];
@@ -340,6 +340,32 @@ function fragment(texte, x, y, largeur = texte.length * 5) {
 {
   const lignes = lignesDepuisFragments([fragment("Haut", 60, 900, 20), fragment("Bas", 60, 100, 20), fragment("   ", 60, 500, 5)]);
   egal("lecture du haut vers le bas, fragments vides ignorés", lignes, ["Haut", "Bas"]);
+}
+
+/* ==================== Circulaires faites d'images ====================
+   Cas mesuré sur une vraie circulaire IGA : 8 pages, dont une seule portant du
+   texte — la ligne des dates. L'outil doit le reconnaître et le DIRE, au lieu
+   de renvoyer l'utilisateur vers un texte en colonnes qui n'existe pas. */
+
+{
+  const igaReelle = ["Valide du jeudi 6 août au mercredi 12 août 2026", "", "", "", "", "", "", ""];
+  verifier("circulaire en images reconnue", enImages(igaReelle) === true);
+
+  // Les dates restent récupérables même sans une seule aubaine : c'est tout ce
+  // que ce genre de PDF donne, et c'est déjà utile pour la saisie à la main.
+  egal("dates lues malgré l'absence de texte utile", analyseur.devinerValidite(igaReelle.join("\n")), {
+    debut: "2026-08-06",
+    fin: "2026-08-12",
+  });
+  egal("aucune aubaine inventée", analyseur.analyserPages(igaReelle).length, 0);
+}
+
+{
+  const vraiTexte = [
+    "Fraises du Québec 454 g 2,99 $\nPoitrines de poulet 3,99 $/lb\nLait 2 % 2 L 4,49 $\n".repeat(6),
+    "Céréales Kellogg's 320-500 g 3,49 $\nPain tranché 675 g 2,99 $\n".repeat(6),
+  ];
+  verifier("circulaire textuelle non confondue", enImages(vraiTexte) === false);
 }
 
 /* ==================== Fusion multi-appareils ====================

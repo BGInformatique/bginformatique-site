@@ -126,5 +126,28 @@ export async function lireFichier(fichier) {
   }
   if (vides) avertissements.push(`${vides} page(s) sans texte ont été ignorées.`);
 
-  return { pages, methode: "pdf", avertissements };
+  return {
+    pages,
+    methode: "pdf",
+    avertissements,
+    imagesProbables: enImages(pages),
+  };
+}
+
+/**
+ * Une circulaire faite d'images se reconnaît à sa maigreur : les grandes
+ * bannières publient un PDF où tout est aplati en image, avec au mieux une
+ * ligne de texte pour les dates de validité.
+ *
+ * Sans ce contrôle, l'outil disait « le texte est peut-être en colonnes
+ * illisibles » — trompeur, puisqu'il n'y a pas de texte du tout à lire.
+ * Distinguer les deux cas change la consigne donnée à l'utilisateur : dans un
+ * cas relancer autrement, dans l'autre cesser d'essayer.
+ */
+export function enImages(pages) {
+  if (!pages.length) return true;
+  const caracteres = pages.reduce((somme, p) => somme + p.replace(/\s/g, "").length, 0);
+  const pagesAvecTexte = pages.filter((p) => p.replace(/\s/g, "").length >= 40).length;
+  // Une vraie circulaire textuelle porte des milliers de caractères par page.
+  return caracteres / pages.length < 120 || pagesAvecTexte < pages.length / 2;
 }

@@ -249,6 +249,33 @@ function importerPages(pages, options = {}) {
   }
   if (fin < debut) [debut, fin] = [fin, debut];
 
+  const aubaines = analyseur.analyserPages(pages);
+
+  if (!aubaines.length) {
+    // Une circulaire sans aubaine n'a aucune utilité et encombrerait la liste.
+    // Ce qu'on a quand même tiré du fichier — l'épicerie et les dates — est
+    // reporté dans le formulaire : la saisie à la main part de là.
+    $("#import-epicerie").value = options.epicerie || epicerie;
+    $("#import-debut").value = debut;
+    $("#import-fin").value = fin;
+    retirerAvis("import");
+    avis(
+      "import-vide",
+      options.imagesProbables
+        ? `Cette circulaire est faite d'images : elle ne contient pas de texte à lire ` +
+          `(les grandes bannières publient presque toutes leur circulaire ainsi). ` +
+          `L'épicerie et les dates ont été récupérées et reportées ci-dessus — ` +
+          `saisissez les aubaines qui vous intéressent dans « Coller le texte », ` +
+          `une par ligne, par exemple « Poitrines de poulet 3,99 $/lb ».`
+        : `Aucune aubaine n'a été reconnue. Le texte du PDF est peut-être disposé en ` +
+          `colonnes que la lecture ne recompose pas : collez-le à la main dans ` +
+          `l'encadré « Coller le texte ».`,
+      "warn",
+    );
+    return;
+  }
+  retirerAvis("import-vide");
+
   const maintenant = Date.now();
   const circulaire = etatMod.ajouter(
     etat,
@@ -256,8 +283,6 @@ function importerPages(pages, options = {}) {
     { epicerie, debut, fin, source: options.source || "", pages: pages.length, statut: "brouillon" },
     maintenant,
   );
-
-  const aubaines = analyseur.analyserPages(pages);
   for (const aubaine of aubaines) {
     etatMod.ajouter(etat, "aubaines", { ...aubaine, circulaireId: circulaire.id, validee: 0 }, maintenant);
   }
@@ -270,19 +295,9 @@ function importerPages(pages, options = {}) {
     "import",
     `${aubaines.length} aubaine(s) extraite(s) de ${pages.length} page(s) — ${epicerie}, ` +
       `du ${debut} au ${fin}.${detail}`,
-    aubaines.length ? "ok" : "warn",
+    "ok",
     9000,
   );
-  if (!aubaines.length) {
-    avis(
-      "import-vide",
-      "Aucune aubaine n'a été reconnue. Le texte du PDF est peut-être disposé en " +
-        "colonnes illisibles : collez-le à la main dans l'encadré prévu à cet effet.",
-      "warn",
-    );
-  } else {
-    retirerAvis("import-vide");
-  }
 }
 
 $("#btn-importer-fichier").addEventListener("click", async () => {
@@ -303,6 +318,7 @@ $("#btn-importer-fichier").addEventListener("click", async () => {
       fin: $("#import-fin").value,
       source: fichier.name,
       avertissements: lu.avertissements,
+      imagesProbables: lu.imagesProbables,
     });
     champ.value = "";
   } catch (e) {
