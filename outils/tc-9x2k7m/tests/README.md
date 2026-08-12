@@ -10,15 +10,16 @@ ni npm, aucune dépendance à installer.
 
 ## Ce qui est testé
 
-130 tests en 19 sections : formats et calendrier (y compris les changements
+133 tests en 19 sections : formats et calendrier (y compris les changements
 d'heure de mars et novembre), saisie des heures, normalisation des données,
 fusion entre appareils (pierres tombales comprises), enregistrement local,
 authentification, réception des instantanés Firestore — dont le cas qui a
 déjà effacé des données : l'instantané « document inexistant » venu du cache —
 punch in/out et punch oublié, formulaires, interventions, filtres, rendu
 (échappement XSS compris), exports CSV, rapport hebdomadaire, Rapport Simple — dont ce qu'il ne doit
-PAS contenir, et les punchs d'une même journée jamais fusionnés —,
-import/export
+PAS contenir, les punchs d'une même journée jamais fusionnés, et le total
+arrondi au quart d'heure : arrondi une seule fois sur la somme, jamais ligne
+par ligne, l'égalité tranchée vers le haut —, import/export
 JSON, deux onglets simultanés, raccourcis clavier, et les interventions
 chronométrées : plusieurs chronos à la fois, démarrage au moment présent,
 heures conservées au millième, chrono maintenu tant que rien n'est

@@ -1290,11 +1290,12 @@ async function sectionO() {
     contient(html, "Feuille de temps");
     contient(html, "09:00", "heure de départ");
     contient(html, "11:30", "heure de fin");
-    absent(html, "2 h 30", "aucune durée");
-    absent(html, "Total", "aucun total");
+    contient(html, "Total des heures travaillées");
+    contient(html, "2 h 30 (2,50 h)", "total, seul chiffre du rapport");
     absent(html, "Client", "aucune intervention, donc aucun client");
     absent(html, "T-9", "aucun billet");
     absent(html, "Sommaire", "aucun sommaire de facturation");
+    absent(html, "Dépannage", "aucune catégorie");
   });
 
   await test("le Rapport Simple ne fusionne pas les punchs d'une même journée", async () => {
@@ -1311,7 +1312,54 @@ async function sectionO() {
     contient(html, "12:00", "fin du matin — la pause reste visible");
     contient(html, "13:00", "retour de pause");
     contient(html, "17:00", "fin de la journée");
-    egal((html.match(/<tr/g) || []).length, 3, "en-tête plus deux lignes, rien de fusionné");
+    egal((html.match(/<tr/g) || []).length, 4, "en-tête, deux lignes non fusionnées, total");
+    contient(html, "8 h 00 (8,00 h)", "total des deux périodes, la pause exclue");
+  });
+
+  // L'arrondi porte sur le total et sur lui seul : c'est ce qui se facture.
+  await test("le total du Rapport Simple est arrondi au quart d'heure", async () => {
+    await reinitialiser();
+    // 9 h 00 à 11 h 08 = 2 h 08 : 8 min dépassent le quart d'heure, donc 2 h 15.
+    tc.state.punches.push({ id: "ar", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 11, 8).getTime(), updatedAt: 1 });
+    tc.render();
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateSimpleReport();
+    window.open = openOriginal;
+    contient(html, "2 h 15 (2,25 h)", "arrondi vers le haut");
+    contient(html, "11:08", "l'heure réelle reste affichée telle quelle");
+    contient(html, "arrondi au quart d'heure", "l'arrondi est annoncé au lecteur");
+  });
+
+  await test("l'arrondi additionne d'abord, arrondit ensuite", async () => {
+    await reinitialiser();
+    // Deux périodes de 1 h 07 : arrondies séparément ça ferait 2 h 00,
+    // additionnées d'abord ça fait 2 h 14, donc 2 h 15.
+    tc.state.punches.push({ id: "a1", start: ceJour(0, 8, 0).getTime(), end: ceJour(0, 9, 7).getTime(), updatedAt: 1 });
+    tc.state.punches.push({ id: "a2", start: ceJour(0, 10, 0).getTime(), end: ceJour(0, 11, 7).getTime(), updatedAt: 1 });
+    tc.render();
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateSimpleReport();
+    window.open = openOriginal;
+    contient(html, "2 h 15 (2,25 h)", "un seul arrondi, sur la somme");
+    absent(html, "2 h 00 (2,00 h)", "pas d'arrondi ligne par ligne");
+  });
+
+  await test("règle d'arrondi : au plus près, l'égalité vers le haut", async () => {
+    egal(tc.roundToQuarterHour(0), 0);
+    egal(tc.roundToQuarterHour(7), 0, "sous la moitié : vers le bas");
+    egal(tc.roundToQuarterHour(8), 15, "au-dessus de la moitié : vers le haut");
+    egal(tc.roundToQuarterHour(15), 15, "déjà un quart d'heure : inchangé");
+    egal(tc.roundToQuarterHour(480), 480, "8 h pile : inchangé");
+    egal(tc.roundToQuarterHour(487), 480);
+    egal(tc.roundToQuarterHour(488), 495);
+    // L'égalité stricte est hors d'atteinte avec des minutes entières, mais la
+    // règle doit être la bonne le jour où une durée arrive au demi-quart près.
+    egal(tc.roundToQuarterHour(7.5), 15, "égalité tranchée vers le haut");
+    egal(tc.roundToQuarterHour(22.5), 30, "égalité tranchée vers le haut");
   });
 
   await test("Rapport Simple sans période travaillée : avis plutôt que page vide", async () => {

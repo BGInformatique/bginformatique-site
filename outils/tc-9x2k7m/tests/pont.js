@@ -201,6 +201,7 @@ globalThis.__tc = {
   exportSummaryCsv,
   isoWeekLabel,
   generateWeeklyReport,
+  roundToQuarterHour,
   generateSimpleReport,
   exportJson,
   importJson,

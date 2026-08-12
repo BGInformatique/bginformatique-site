@@ -442,6 +442,15 @@ function fmtDecimalHours(minutes) {
   return (minutes / 60).toFixed(2).replace(".", ",");
 }
 
+// Arrondi au quart d'heure le plus près, l'égalité tranchée vers le haut :
+// 7 min 30 devient 15 min, jamais 0. Le + 0.5 avant le plancher, plutôt que
+// Math.round, pour que la règle soit celle-là et pas celle du moteur JS.
+// Un seul arrondi, sur le total : arrondir chaque ligne puis additionner
+// donnerait un autre nombre, et c'est le total qu'on facture.
+function roundToQuarterHour(minutes) {
+  return Math.floor(minutes / 15 + 0.5) * 15;
+}
+
 /* Toute l'arithmétique de dates passe par le calendrier local et jamais par
  * des additions de millisecondes : « le lendemain à 6 h » n'est pas « dans
  * 24 h » les nuits de changement d'heure (mars et novembre au Québec). */
@@ -2279,6 +2288,9 @@ function generateSimpleReport() {
     return s.charAt(0).toUpperCase() + s.slice(1);
   };
 
+  const totalReel = punches.reduce((sum, p) => sum + minutesBetween(p.start, p.end), 0);
+  const totalArrondi = roundToQuarterHour(totalReel);
+
   let dernierJour = null;
   const rows = punches
     .map((p) => {
@@ -2314,6 +2326,8 @@ function generateSimpleReport() {
   th, td { border: 1px solid #e1e6eb; padding: 7px 10px; text-align: left; }
   th { background: #eef2f6; font-weight: 600; }
   tr.jour-neuf td { border-top: 2px solid #c3ccd6; }
+  tfoot td { background: #f7f9fb; font-weight: 700; border-top: 2px solid #1a3a5c; }
+  .note-arrondi { font-size: 0.8rem; color: #667; margin: 8px 0 0; }
   .print-bar { margin-bottom: 20px; }
   .print-bar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #1a3a5c; background: #1a3a5c; color: #fff; cursor: pointer; }
   @media print {
@@ -2333,7 +2347,9 @@ function generateSimpleReport() {
   <table>
     <thead><tr><th>Date</th><th>Jour</th><th>Début</th><th>Fin</th></tr></thead>
     <tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="2">Total des heures travaillées</td><td colspan="2">${fmtDuration(totalArrondi)} (${fmtDecimalHours(totalArrondi)} h)</td></tr></tfoot>
   </table>
+  <p class="note-arrondi">Total arrondi au quart d'heure le plus près.</p>
 </body>
 </html>`;
 
