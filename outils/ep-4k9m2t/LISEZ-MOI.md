@@ -105,11 +105,11 @@ et les exécute directement.
 ./outils/ep-4k9m2t/tests/lancer.sh
 ```
 
-- `tests/banc.js` (node) — 109 vérifications : formats de prix, conversions d'unités,
+- `tests/banc.mjs` (node) — 113 vérifications : formats de prix, conversions d'unités,
   appariement des noms, meilleur prix, limite d'épiceries, reconstruction des lignes
   d'un PDF, et **fusion multi-appareils** (les quatre façons de perdre du travail
   entre l'ordinateur et le téléphone).
-- `tests/navigateur.mjs` (Playwright) — 25 vérifications sur la page complète, avec
+- `tests/navigateur.mjs` (Playwright) — 29 vérifications sur la page complète, avec
   les bouchons de `tests/bouchons/` à la place de Firebase : connexion, import,
   correction, génération, cases cochées, écriture Firestore, fusion, écran mobile.
 

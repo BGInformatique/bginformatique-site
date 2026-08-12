@@ -8,7 +8,7 @@
 # le push échoue après la mise en ligne — trop tard.
 #
 # Deux étapes, toutes deux sur les VRAIS modules de js/, jamais sur une copie :
-#   1. le calcul (banc.js) : formats de prix, unités, appariement des noms,
+#   1. le calcul (banc.mjs) : formats de prix, unités, appariement des noms,
 #      choix du meilleur prix, fusion multi-appareils, lecture des PDF;
 #   2. la page complète (navigateur.mjs), Firebase remplacé par les bouchons.
 #
@@ -26,8 +26,8 @@ if ! command -v node >/dev/null; then
   exit 2
 fi
 
-echo "── Calcul (banc.js)"
-if ! node "$ICI/banc.js"; then
+echo "── Calcul (banc.mjs)"
+if ! node "$ICI/banc.mjs"; then
   echo "  ✗ Banc échoué à l'étape calcul." >&2
   exit 1
 fi

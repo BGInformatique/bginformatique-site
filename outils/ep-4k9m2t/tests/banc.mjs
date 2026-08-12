@@ -1,7 +1,7 @@
 /*
  * Banc d'essai de BGFoods.
  *
- *   node outils/ep-4k9m2t/tests/banc.js
+ *   node outils/ep-4k9m2t/tests/banc.mjs
  *
  * Il n'y a AUCUNE copie de la logique ici : le banc importe les vrais modules
  * de js/ et les exécute. Une copie divergerait, et un test qui teste sa propre

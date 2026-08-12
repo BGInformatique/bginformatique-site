@@ -3,7 +3,7 @@
  *
  *   node outils/ep-4k9m2t/tests/navigateur.mjs
  *
- * Le banc de banc.js couvre le calcul; celui-ci couvre ce que le calcul ne
+ * Le banc de banc.mjs couvre le calcul; celui-ci couvre ce que le calcul ne
  * voit pas — le rendu, les écouteurs d'événements, la connexion, l'écriture
  * vers Firestore. Les modules gstatic sont remplacés à la volée par les
  * bouchons de tests/bouchons/ : aucun réseau, aucun compte, aucune donnée
@@ -165,7 +165,7 @@ async function principal() {
      Le texte collé emprunte ce chemin-ci; la formulation propre aux circulaires
      EN IMAGES dépend de `imagesProbables`, que seule la lecture d'un PDF peut
      établir — pdf.js venant d'un CDN, ce banc ne peut pas l'exercer. C'est
-     `enImages()` qui la couvre, dans banc.js, sur le cas IGA réel. */
+     `enImages()` qui la couvre, dans banc.mjs, sur le cas IGA réel. */
   const circulairesAvant = await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length);
   await page.fill("#import-debut", "");
   await page.fill("#import-fin", "");
