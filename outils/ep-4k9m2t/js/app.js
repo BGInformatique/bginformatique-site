@@ -621,9 +621,21 @@ function rendreEtatLancement(l) {
   const zone = $("#cc-lancement");
   if (!zone || !circulaireCourante || l.slug !== circulaireCourante.slug) return;
   const quand = l.finiLe || l.debuteLe || l.demandeLe;
+  // Deux pièges d'affichage, corrigés ici :
+  //   « 10 h 21 min 00 s » se lisait comme une DURÉE alors que c'est l'heure ;
+  //   « 2,28 $ US » se lisait comme une FACTURE alors que claude ne fait que
+  //   chiffrer les jetons consommés — sur BG001 il travaille sous abonnement,
+  //   sans facturation à l'unité.
+  const heure = quand
+    ? new Date(quand).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })
+    : "";
   zone.innerHTML = `<span class="small muted">${echapper(LIB_LANCEMENT[l.statut] || l.statut)}`
-    + (quand ? ` · ${echapper(new Date(quand).toLocaleTimeString("fr-CA"))}` : "")
-    + (typeof l.coutUsd === "number" ? ` · ${l.coutUsd.toFixed(2)} $ US` : "")
+    + (heure ? ` · à ${echapper(heure)}` : "")
+    + (typeof l.coutUsd === "number"
+      ? ` · <span title="Valeur des jetons consommés, telle que rapportée par claude. `
+        + `BG001 travaille sous abonnement : ce n'est pas une facture.">`
+        + `≈ ${echapper(l.coutUsd.toFixed(2).replace(".", ","))} $ US de jetons</span>`
+      : "")
     + "</span>"
     + (l.erreur ? `<div class="banner err">${echapper(l.erreur)}</div>` : "");
 }
