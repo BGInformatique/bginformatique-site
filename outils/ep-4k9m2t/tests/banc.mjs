@@ -328,6 +328,76 @@ const ETAT = etatDepuis([
     optimiseur.rabaisRelatif({ prixCents: 200, prixRegulierCents: 400 }), 0.5, 0.001);
 }
 
+/* ---------- Sans lait de vache, fromage excepté ---------- */
+{
+  const laitDeVache = (nom) => normalisation.contientLaitDeVache(nom);
+
+  for (const nom of [
+    "Lait 2 % Natrel 2 L", "Crème Lactantia 1 L", "Yogourt grec Liberté 650 g",
+    "Beurre salé Compliments 250 g", "Crème glacée Chapman's 2 L",
+    "Yogourt à boire Yoplait Yop", "Lait au chocolat Natrel 2 L",
+    "Lait 2 % sans lactose 2 L",
+  ]) verifier(`lait de vache reconnu : ${nom}`, laitDeVache(nom));
+
+  // L'exception demandée.
+  for (const nom of [
+    "Fromage Oka 300 g", "Cheddar Perron 400 g", "Fromage à la crème Tre Stelle",
+    "Mozzarella râpée 320 g", "Fromage féta Compliments 400 g",
+    "Parmigiano Reggiano râpé 100 g", "Fromage cottage 500 g",
+  ]) verifier(`fromage permis : ${nom}`, !laitDeVache(nom));
+
+  // Les pièges : mots du lait sans lait de vache.
+  for (const nom of [
+    "Beurre d'arachide Jif 1 kg", "Lait de coco Compliments 400 ml",
+    "Boisson à base de plantes Earth's Own 1,89 L", "Lait d'amande 1,89 L",
+    "Boisson de soya vanille", "Crème de coco 400 ml",
+  ]) verifier(`piège évité : ${nom}`, !laitDeVache(nom));
+
+  for (const nom of ["Poitrines de poulet 3,99 $/lb", "Fraises du Québec 454 g", "Pain tranché"]) {
+    verifier(`non laitier non signalé : ${nom}`, !laitDeVache(nom));
+  }
+
+  const ETAT_LAIT = etatDepuis([
+    ["IGA",
+      "Lait 2 % Natrel 2 L 4,49 $\nBoisson à base de plantes Earth's Own 1,89 L 3,99 $\n"
+      + "Fromage Oka 300 g 5,99 $\nYogourt grec Liberté 650 g 6,97 $\n"
+      + "Poitrines de poulet désossées 3,99 $/lb\nFraises du Québec 454 g 2,99 $\n"
+      + "Brocoli 1,47 $\nPain tranché 675 g 2,99 $\nHuile d'olive 500 ml 10,99 $\n"],
+  ]);
+
+  const panier = optimiseur.meilleursSpeciaux(ETAT_LAIT,
+    { dateCible: AUJOURDHUI, sansLaitDeVache: true });
+  verifier("le panier sans lait de vache n'en contient aucun",
+    panier.every((a) => !laitDeVache(a.requete)), JSON.stringify(panier.map((a) => a.requete)));
+  // Le quota « Produits laitiers » ne doit pas rester vide à cause de l'option :
+  // le fromage est permis, donc il prend la place du lait écarté.
+  verifier("le fromage prend la place laissée par le lait",
+    panier.some((a) => /fromage|oka/i.test(a.requete)),
+    JSON.stringify(panier.map((a) => a.requete)));
+  verifier("et le lait, lui, a bien disparu du panier",
+    !panier.some((a) => /^lait |yogourt/i.test(a.requete)),
+    JSON.stringify(panier.map((a) => a.requete)));
+
+  const sansOption = optimiseur.meilleursSpeciaux(ETAT_LAIT, { dateCible: AUJOURDHUI });
+  verifier("sans l'option, le lait revient",
+    sansOption.some((a) => laitDeVache(a.requete)),
+    JSON.stringify(sansOption.map((a) => a.requete)));
+
+  // FAVORISER, pas interdire : « lait » demandé explicitement doit préférer la
+  // boisson végétale quand elle correspond…
+  const prefere = optimiseur.optimiser(ETAT_LAIT, [{ requete: "boisson à base de plantes" }],
+    { dateCible: AUJOURDHUI, sansLaitDeVache: true });
+  verifier("l'option ne casse pas une demande explicite",
+    prefere.groupes.length + prefere.sansAubaine.length === 1);
+
+  // …et un article sans autre choix reste proposé plutôt que de disparaître.
+  const ETAT_UNIQUE = etatDepuis([["IGA", "Lait 2 % Natrel 2 L 4,49 $\n"]]);
+  const force = optimiseur.optimiser(ETAT_UNIQUE, [{ requete: "lait 2 %" }],
+    { dateCible: AUJOURDHUI, sansLaitDeVache: true });
+  egal("faute d'alternative, l'article demandé est quand même proposé",
+    force.groupes.length, 1);
+}
+
 /* ---------- Budget ----------
    Deux règles, et la première prime : un article étoilé n'est jamais retiré,
    et ce qu'on sacrifie d'abord est ce qui coûte cher SANS être une aubaine. */

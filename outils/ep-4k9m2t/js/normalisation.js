@@ -284,6 +284,50 @@ export const MOTS_CATEGORIES = {
 
 export const CATEGORIES = Object.keys(MOTS_CATEGORIES);
 
+/* ---------- Lait de vache ----------
+ *
+ * Sert à favoriser les produits sans lait de vache, LE FROMAGE EXCEPTÉ.
+ *
+ * L'ordre des trois listes est ce qui rend la reconnaissance correcte, et
+ * chacune répare un piège précis :
+ *
+ *   1. Le fromage passe d'abord — c'est l'exception demandée, et « fromage à
+ *      la crème » ne doit pas être écarté à cause du mot « crème ».
+ *   2. Puis le végétal : « lait de coco », « boisson d'amande » et surtout
+ *      « beurre d'arachide » contiennent les mots du lait sans en être.
+ *   3. Ce qui reste et porte un mot du lait est du lait de vache.
+ *
+ * « Sans lactose » n'est PAS une exception : c'est du lait de vache dont on a
+ * retiré le sucre, pas un produit d'une autre origine.
+ */
+export const MOTS_FROMAGE = [
+  "fromage", "cheddar", "mozzarella", "brie", "camembert", "feta", "parmesan",
+  "parmigiano", "gouda", "havarti", "gorgonzola", "ricotta", "mascarpone",
+  "raclette", "emmental", "gruyere", "bocconcini", "halloumi", "oka",
+  "boursin", "cottage", "suisse",
+];
+
+export const MOTS_VEGETAL = [
+  "amande", "soya", "soja", "avoine", "coco", "cajou", "noisette", "chanvre",
+  "arachide", "cacahuete", "vegetal", "vegetale", "plantes", "riz",
+];
+
+export const MOTS_LAIT_DE_VACHE = [
+  "lait", "creme", "yogourt", "yaourt", "beurre", "babeurre", "kefir",
+  "lactantia", "natrel", "quebon",
+];
+
+/**
+ * Ce produit contient-il du lait de vache ? Le fromage rend toujours false :
+ * c'est l'exception voulue, pas un oubli.
+ */
+export function contientLaitDeVache(nom) {
+  const t = sansAccents(String(nom || "").toLowerCase());
+  if (MOTS_FROMAGE.some((m) => t.includes(m))) return false;
+  if (MOTS_VEGETAL.some((m) => t.includes(m))) return false;
+  return MOTS_LAIT_DE_VACHE.some((m) => t.includes(m));
+}
+
 export function categorieDevinee(nom) {
   const normalise = sansAccents((nom || "").toLowerCase());
   for (const [categorie, mots] of Object.entries(MOTS_CATEGORIES)) {

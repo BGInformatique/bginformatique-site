@@ -12,6 +12,7 @@
 import {
   UNITE,
   categorieDevinee,
+  contientLaitDeVache,
   formatPrixEtiquette,
   formatTaille,
   nomNormalise,
@@ -261,9 +262,13 @@ export function meilleursSpeciaux(etat, options = {}) {
     valideesSeulement = false,
     quotas = QUOTAS_PANIER,
     foyer = null,
+    sansLaitDeVache = false,
   } = options;
 
-  const disponibles = aubainesActives(etat, dateCible, { valideesSeulement });
+  const disponibles = aubainesActives(etat, dateCible, { valideesSeulement })
+    // Le panier est proposé par l'outil : autant ne rien y mettre qu'on
+    // écarterait ensuite à la main.
+    .filter((a) => !sansLaitDeVache || !contientLaitDeVache(a.nom));
   const parNom = new Map();
   for (const a of disponibles) {
     const cle = a.nomNormalise || a.nom;
@@ -364,11 +369,23 @@ export function optimiser(etat, articles, options = {}) {
     seuil = SEUIL_CORRESPONDANCE,
     nom = "Liste d'épicerie",
     budgetCents = null,
+    sansLaitDeVache = false,
   } = options;
 
   const disponibles = aubainesActives(etat, dateCible, { valideesSeulement });
   const demandes = (articles || []).filter((l) => l && String(l.requete || "").trim());
-  const candidatsParLigne = demandes.map((l) => trouverCandidats(disponibles, l.requete, seuil));
+  // FAVORISER, pas interdire. Les produits sans lait de vache passent devant à
+  // coût égal de pertinence; s'il n'existe aucune autre option pour un article
+  // demandé, on la propose quand même plutôt que de rendre la ligne introuvable
+  // — c'est vous qui l'avez inscrite au plan.
+  const preferer = (candidats) => {
+    if (!sansLaitDeVache) return candidats;
+    const sans = candidats.filter((c) => !contientLaitDeVache(c.nom));
+    const avec = candidats.filter((c) => contientLaitDeVache(c.nom));
+    return [...sans, ...avec];
+  };
+  const candidatsParLigne = demandes.map(
+    (l) => preferer(trouverCandidats(disponibles, l.requete, seuil)));
 
   let autorisees = null;
   if (maxEpiceries && maxEpiceries > 0) {

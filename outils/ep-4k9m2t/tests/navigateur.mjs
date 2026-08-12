@@ -463,6 +463,37 @@ async function principal() {
   verifier("il n'est pas prioritaire d'office", !apresRecoche.dernier.priorite);
   verifier("la case redevient cochée après rendu", await uneCase.isChecked());
 
+  /* ---- Sans lait de vache ---- */
+  await page.click('[data-onglet="plans"]');
+  await page.check("[data-sans-lait]");
+  await page.waitForTimeout(200);
+  verifier("le régime est retenu sur le plan",
+    !!(await page.evaluate(() => globalThis.bgfoods.etat.plans[0].sansLaitDeVache)));
+
+  // Le plan est créé sans l'option cochée : on vérifie ici qu'un plan CRÉÉ avec
+  // la case ne rapporte aucun produit au lait de vache.
+  await page.fill("#plan-nom", "Sans lait");
+  await page.check("#plan-sans-lait");
+  await page.click("#btn-creer-plan");
+  await page.waitForTimeout(250);
+  const sansLait = await page.evaluate(() => {
+    const p = globalThis.bgfoods.etat.plans.find((x) => x.nom === "Sans lait");
+    return p && p.articles.map((a) => a.requete);
+  });
+  verifier("le plan sans lait est créé", Array.isArray(sansLait), JSON.stringify(sansLait));
+  verifier("son panier ne contient ni lait ni yogourt",
+    sansLait.every((r) => !/^lait |yogourt|cr[èe]me glac/i.test(r)), JSON.stringify(sansLait));
+  await page.evaluate(() => {
+    const p = globalThis.bgfoods.etat.plans.find((x) => x.nom === "Sans lait");
+    globalThis.bgfoods.etat = {
+      ...globalThis.bgfoods.etat,
+      plans: globalThis.bgfoods.etat.plans.filter((x) => x.id !== p.id),
+    };
+  });
+  await page.waitForTimeout(150);
+  await page.uncheck("[data-sans-lait]");
+  await page.waitForTimeout(200);
+
   /* ---- Budget ----
      Saisi en dollars, rangé en cents, appliqué à la génération. */
   await page.click('[data-onglet="plans"]');

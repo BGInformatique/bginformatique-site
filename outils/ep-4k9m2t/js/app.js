@@ -1138,6 +1138,10 @@ function rendrePlans() {
           <input type="number" min="0" step="5" data-budget
             value="${plan.budgetCents ? (plan.budgetCents / 100).toFixed(2) : ""}"
             placeholder="sans limite"></div>
+        <div><label>Régime</label>
+          <label class="case"><input type="checkbox" data-sans-lait
+            ${plan.sansLaitDeVache ? "checked" : ""}>
+            sans lait de vache (fromage permis)</label></div>
         <div><label>Quantités</label>
           <p class="small muted" style="margin:6px 0 0">${formatNombre(parts)} part(s) —
             × ${formatNombre(facteur)}</p></div>
@@ -1187,15 +1191,20 @@ $("#btn-creer-plan").addEventListener("click", () => {
   const budget = parseFloat(String($("#plan-budget").value).replace(",", "."));
   const budgetCents = Number.isFinite(budget) && budget > 0 ? Math.round(budget * 100) : null;
 
+  const sansLaitDeVache = $("#plan-sans-lait").checked;
+
   // Rien de choisi : on propose un panier bâti sur les rabais en cours plutôt
   // qu'un plan vide, qui n'apprendrait rien et qu'il faudrait remplir à la main.
-  const articles = optimiseur.meilleursSpeciaux(etat, { dateCible: aujourdHui(), foyer });
+  const articles = optimiseur.meilleursSpeciaux(etat, {
+    dateCible: aujourdHui(), foyer, sansLaitDeVache,
+  });
 
   etatMod.ajouter(etat, "plans", {
     nom,
     maxEpiceries: Number.isFinite(max) && max > 0 ? max : null,
     foyer,
     budgetCents,
+    sansLaitDeVache: sansLaitDeVache ? 1 : 0,
     articles,
     actif: etat.plans.length ? 0 : 1,   // le premier plan créé sert tout de suite
   });
@@ -1222,6 +1231,12 @@ $("#liste-plans").addEventListener("change", (evenement) => {
     const foyer = { ...(plan.foyer || {}) };
     foyer[champFoyer.dataset.foyer] = Math.max(0, parseInt(champFoyer.value, 10) || 0);
     etatMod.remplacer(etat, "plans", plan.id, { foyer });
+    return enregistrer();
+  }
+
+  const caseSansLait = evenement.target.closest("[data-sans-lait]");
+  if (caseSansLait) {
+    etatMod.remplacer(etat, "plans", plan.id, { sansLaitDeVache: caseSansLait.checked ? 1 : 0 });
     return enregistrer();
   }
 
@@ -1305,6 +1320,7 @@ function genererListe() {
     options.maxEpiceries = plan.maxEpiceries;
   }
   if (plan && plan.budgetCents) options.budgetCents = plan.budgetCents;
+  if (plan && plan.sansLaitDeVache) options.sansLaitDeVache = true;
   if (plan) options.nom = options.nom || plan.nom;
   if (!articles.length) {
     avisEphemere("liste", plan
