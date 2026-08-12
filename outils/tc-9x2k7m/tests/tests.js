@@ -1269,6 +1269,71 @@ async function sectionO() {
     egal(alertes.length, 1);
     contient(alertes[0], "Aucune donnée");
   });
+
+  // Le Rapport Simple ne vaut que par ce qu'il NE contient pas : si une durée,
+  // un total ou une intervention se glisse dedans un jour, ces tests le disent.
+  await test("le Rapport Simple ne montre que le jour et les deux heures", async () => {
+    await reinitialiser();
+    tc.state.punches.push({ id: "rs", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 11, 30).getTime(), updatedAt: 1 });
+    tc.state.interventions.push({
+      id: "rsi", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(),
+      client: "Client <script>", ticket: "T-9", category: "Dépannage",
+      description: "d", billable: true, toVerify: true, verifyNote: "n", updatedAt: 1,
+    });
+    tc.render();
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateSimpleReport();
+    window.open = openOriginal;
+    vrai(html, "rapport produit");
+    contient(html, "Feuille de temps");
+    contient(html, "09:00", "heure de départ");
+    contient(html, "11:30", "heure de fin");
+    absent(html, "2 h 30", "aucune durée");
+    absent(html, "Total", "aucun total");
+    absent(html, "Client", "aucune intervention, donc aucun client");
+    absent(html, "T-9", "aucun billet");
+    absent(html, "Sommaire", "aucun sommaire de facturation");
+  });
+
+  await test("le Rapport Simple ne fusionne pas les punchs d'une même journée", async () => {
+    await reinitialiser();
+    tc.state.punches.push({ id: "rs1", start: ceJour(0, 8, 0).getTime(), end: ceJour(0, 12, 0).getTime(), updatedAt: 1 });
+    tc.state.punches.push({ id: "rs2", start: ceJour(0, 13, 0).getTime(), end: ceJour(0, 17, 0).getTime(), updatedAt: 1 });
+    tc.render();
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateSimpleReport();
+    window.open = openOriginal;
+    contient(html, "08:00", "début du matin");
+    contient(html, "12:00", "fin du matin — la pause reste visible");
+    contient(html, "13:00", "retour de pause");
+    contient(html, "17:00", "fin de la journée");
+    egal((html.match(/<tr/g) || []).length, 3, "en-tête plus deux lignes, rien de fusionné");
+  });
+
+  await test("Rapport Simple sans période travaillée : avis plutôt que page vide", async () => {
+    await reinitialiser();
+    alertes.length = 0;
+    tc.generateSimpleReport();
+    egal(alertes.length, 1);
+    contient(alertes[0], "Aucune période travaillée");
+  });
+
+  await test("Rapport Simple, fenêtre bloquée : explication claire", async () => {
+    await reinitialiser();
+    tc.state.punches.push({ id: "rs3", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(), updatedAt: 1 });
+    tc.render();
+    alertes.length = 0;
+    const openOriginal = window.open;
+    window.open = () => null;
+    tc.generateSimpleReport();
+    window.open = openOriginal;
+    egal(alertes.length, 1);
+    contient(alertes[0], "pop-up");
+  });
 }
 
 /* =====================================================================

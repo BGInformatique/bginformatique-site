@@ -64,6 +64,19 @@ Aucune urgence : publier au prochain moment calme, jamais un vendredi de paye.
    - `get`    authentifié avec cet uid → **autorisé**
    - `get`    non authentifié → **refusé**
 
+   Boîtes de courriel — `users/<uid>/courriel/etat` (bloc ajouté le 2026-08-12).
+   Trois essais, et le troisième est celui qui compte : ce bloc est le seul
+   dont l'écriture doit être REFUSÉE au navigateur.
+   - `get`    authentifié avec cet uid → **autorisé**
+   - `get`    non authentifié → **refusé**
+   - `update` authentifié avec cet uid → **refusé** ← si c'est autorisé,
+     les règles collées ne sont pas les bonnes : ne pas publier.
+
+   Tant que ce bloc n'est pas publié, la page cr-8h4m2v affiche
+   « Lecture impossible : Missing or insufficient permissions ». La relève, elle,
+   continue d'écrire normalement — le compte de service n'est pas soumis aux
+   règles. Rien n'est perdu en attendant.
+
    Si un essai « autorisé » échoue : **ne pas publier** (verrouillage du
    propriétaire). Si un essai « refusé » est accepté : **ne pas publier** (fuite).
 5. **Publier**, attendre une minute (propagation).

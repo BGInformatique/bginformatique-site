@@ -499,6 +499,7 @@ const els = {
   filterClient: $("filter-client"),
   filterToVerify: $("filter-to-verify"),
   btnExportReport: $("btn-export-report"),
+  btnSimpleReport: $("btn-simple-report"),
   btnPrint: $("btn-print"),
   btnExportJson: $("btn-export-json"),
   btnImport: $("btn-import"),
@@ -2256,6 +2257,96 @@ function generateWeeklyReport() {
   reportWindow.document.close();
 }
 
+/* ---------- Rapport Simple (impression / PDF) ---------- */
+
+// Feuille de temps dépouillée : une ligne par période travaillée, rien d'autre
+// que le jour et les deux heures. Pas de durée, pas de total, pas d'intervention,
+// pas de rapprochement — c'est le document qu'on remet à quelqu'un qui veut
+// seulement savoir quand on est arrivé et quand on est parti. Les punchs ne sont
+// pas fusionnés par jour : une pause reste lisible comme un trou entre deux
+// lignes, alors qu'un « 08:00 à 17:00 » fusionné ferait mentir la journée.
+function generateSimpleReport() {
+  const [from, to] = filterRange();
+  const punches = state.punches.filter((p) => inRange(p, from, to)).sort((a, b) => a.start - b.start);
+
+  if (punches.length === 0) {
+    alert("Aucune période travaillée pour cette période.");
+    return;
+  }
+
+  const weekdayOf = (d) => {
+    const s = d.toLocaleDateString("fr-CA", { weekday: "long" });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+
+  let dernierJour = null;
+  const rows = punches
+    .map((p) => {
+      const s = new Date(p.start);
+      const e = new Date(p.end);
+      const jour = dateISO(s);
+      // Un trait de séparation dès que la date change : sur papier, c'est ce qui
+      // permet de voir d'un coup d'œil les journées coupées en deux.
+      const nouveauJour = jour !== dernierJour;
+      dernierJour = jour;
+      return `<tr${nouveauJour ? ' class="jour-neuf"' : ""}>
+        <td>${jour}</td>
+        <td>${escapeHtml(weekdayOf(s))}</td>
+        <td>${timeHM(s)}</td>
+        <td>${timeHM(e)}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Feuille de temps — TimeCalculator</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 32px; color: #1a1a1a; background: #fff; }
+  .report-header { border-bottom: 3px solid #1a3a5c; padding-bottom: 12px; margin-bottom: 20px; }
+  .report-header h1 { margin: 0 0 4px; font-size: 1.4rem; color: #1a3a5c; }
+  .report-header .meta { font-size: 0.85rem; color: #555; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  th, td { border: 1px solid #e1e6eb; padding: 7px 10px; text-align: left; }
+  th { background: #eef2f6; font-weight: 600; }
+  tr.jour-neuf td { border-top: 2px solid #c3ccd6; }
+  .print-bar { margin-bottom: 20px; }
+  .print-bar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #1a3a5c; background: #1a3a5c; color: #fff; cursor: pointer; }
+  @media print {
+    .print-bar { display: none; }
+    body { padding: 0; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+  <div class="print-bar"><button onclick="window.print()">Imprimer / Enregistrer en PDF</button></div>
+  <div class="report-header">
+    <h1>Feuille de temps</h1>
+    <div class="meta">Période : ${escapeHtml(rangeLabel())}</div>
+  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Jour</th><th>Début</th><th>Fin</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`;
+
+  const reportWindow = window.open("", "_blank");
+  if (!reportWindow) {
+    alert("Le navigateur a bloqué l'ouverture du rapport. Autorisez les fenêtres pop-up pour ce site.");
+    return;
+  }
+  reportWindow.document.open();
+  reportWindow.document.write(html);
+  reportWindow.document.close();
+}
+
 function exportJson() {
   downloadFile(
     `timecalculator-sauvegarde-${dateISO(new Date())}.json`,
@@ -2499,6 +2590,7 @@ els.btnExportPunches.addEventListener("click", exportPunchesCsv);
 els.btnExportInterventions.addEventListener("click", exportInterventionsCsv);
 els.btnExportSummary.addEventListener("click", exportSummaryCsv);
 els.btnExportReport.addEventListener("click", generateWeeklyReport);
+els.btnSimpleReport.addEventListener("click", generateSimpleReport);
 els.btnExportJson.addEventListener("click", exportJson);
 els.btnPrint.addEventListener("click", () => window.print());
 els.btnImport.addEventListener("click", () => els.inputImport.click());

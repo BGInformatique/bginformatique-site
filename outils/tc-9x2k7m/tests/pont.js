@@ -201,6 +201,7 @@ globalThis.__tc = {
   exportSummaryCsv,
   isoWeekLabel,
   generateWeeklyReport,
+  generateSimpleReport,
   exportJson,
   importJson,
 
