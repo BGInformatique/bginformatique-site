@@ -400,7 +400,7 @@ function rendreCirculaireTrouvee(circulaire) {
       <a href="${echapper(circulaire.source)}" target="_blank" rel="noopener">Voir sur circulaires.com</a></p>
     <div class="barre">
       <button class="btn" id="btn-cc-extraire">Extraire les aubaines de ces ${circulaire.pages.length} pages</button>
-      <button class="btn btn-clair" id="btn-cc-ordre">Copier l'ordre pour le terminal</button>
+      <button class="btn btn-ghost" id="btn-cc-ordre">Copier l'ordre pour le terminal</button>
     </div>
     <div id="cc-progres" class="small muted"></div>
     <div class="pages">${circulaire.pages
