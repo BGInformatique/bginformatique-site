@@ -402,6 +402,37 @@ async function principal() {
   verifier("la priorité se rend jusqu'au résultat",
     liste && liste.prioritaires.includes("lait 2 %"), JSON.stringify(liste));
 
+  /* ---- Cocher une aubaine l'ajoute au plan ----
+     Le rapprochement se fait sur le nom normalisé, pas sur l'identifiant de
+     l'aubaine : un plan sert d'une semaine à l'autre, alors que les aubaines
+     sont réimportées et changent d'identifiant. */
+  await page.click('[data-onglet="aubaines"]');
+  const avantCoche = await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.length);
+  const premiereCase = page.locator("[data-au-plan]").first();
+  await premiereCase.check();
+  await page.waitForTimeout(200);
+  const apresCoche = await page.evaluate(() => ({
+    n: globalThis.bgfoods.etat.plans[0].articles.length,
+    dernier: globalThis.bgfoods.etat.plans[0].articles.at(-1),
+  }));
+  verifier("cocher une aubaine ajoute un article au plan", apresCoche.n === avantCoche + 1,
+    `${avantCoche} → ${apresCoche.n}`);
+  verifier("l'article porte le nom du produit, pas un identifiant",
+    apresCoche.dernier && !!apresCoche.dernier.requete && !apresCoche.dernier.id,
+    JSON.stringify(apresCoche.dernier));
+  verifier("il n'est pas prioritaire d'office", !apresCoche.dernier.priorite);
+
+  // La case doit rester cochée après un nouveau rendu : sinon on ne saurait
+  // plus ce qui est déjà au plan.
+  await page.evaluate(() => globalThis.bgfoods.rendre());
+  await page.waitForTimeout(150);
+  verifier("la case reste cochée après rendu", await premiereCase.isChecked());
+
+  await premiereCase.uncheck();
+  await page.waitForTimeout(200);
+  verifier("décocher retire l'article",
+    (await page.evaluate(() => globalThis.bgfoods.etat.plans[0].articles.length)) === avantCoche);
+
   await page.click('[data-onglet="plans"]');
   await page.click("[data-activer]");
   await page.waitForTimeout(150);

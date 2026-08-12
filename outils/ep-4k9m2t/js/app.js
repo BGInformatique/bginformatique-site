@@ -50,6 +50,7 @@ import {
   formatPrixUnitaire,
   formatTaille,
   formatNombre,
+  nomNormalise,
 } from "./normalisation.js";
 import { ErreurLecture, lireFichier } from "./lecture-pdf.js";
 import * as circulairesCom from "./circulaires-com.js";
@@ -985,10 +986,14 @@ function rendreAubaines() {
         .map(
           (categorie) => `<h3 class="small muted" style="margin-top:12px">${echapper(categorie.categorie)}</h3>
         <div class="defilant"><table>
-          <thead><tr><th>Produit</th><th>Format</th><th>Prix</th><th>Prix unitaire</th><th>Régulier</th></tr></thead>
+          <thead><tr><th style="width:3rem" title="Ajouter au plan actif">Plan</th>
+            <th>Produit</th><th>Format</th><th>Prix</th><th>Prix unitaire</th><th>Régulier</th></tr></thead>
           <tbody>${categorie.aubaines
             .map(
               (a) => `<tr>
+              <td><input type="checkbox" data-au-plan="${echapper(a.id)}"
+                ${dansLePlan(a) ? "checked" : ""}
+                title="Ajouter cette aubaine au plan actif"></td>
               <td>${echapper(a.nom)}</td>
               <td class="small muted">${echapper(formatTaille(a.tailleValeur, a.tailleUnite))}</td>
               <td class="prix">${echapper(optimiseur.etiquettePrix(a))}</td>
@@ -1041,6 +1046,53 @@ function planActif() {
   return etat.plans.find((p) => p.actif) || null;
 }
 
+/**
+ * Un article de plan pointe-t-il cette aubaine ?
+ *
+ * Le rapprochement se fait sur le NOM NORMALISÉ, pas sur l'identifiant de
+ * l'aubaine. Un plan sert d'une semaine à l'autre, alors que les aubaines sont
+ * réimportées et changent d'identifiant à chaque circulaire : lier par id
+ * décrocherait toutes les cases le jeudi suivant. C'est aussi ce que fait
+ * l'optimiseur, qui cherche les aubaines à partir du texte de l'article.
+ */
+function dansLePlan(aubaine) {
+  const plan = planActif();
+  if (!plan) return false;
+  const cible = aubaine.nomNormalise || nomNormalise(aubaine.nom || "");
+  return (plan.articles || []).some((a) => nomNormalise(a.requete || "") === cible);
+}
+
+/** Coche/décoche une aubaine dans le plan actif. */
+function basculerAubaineDansPlan(idAubaine, coche) {
+  const plan = planActif();
+  const aubaine = etat.aubaines.find((a) => a.id === idAubaine);
+  if (!aubaine) return;
+  if (!plan) {
+    avis("plan", "Aucun plan actif : créez-en un dans l'onglet Plans, ou activez-le, "
+      + "puis cochez les aubaines à y ajouter.", "warn");
+    rendre();   // remet la case dans son état réel
+    return;
+  }
+  const cible = aubaine.nomNormalise || nomNormalise(aubaine.nom || "");
+  const articles = (plan.articles || []).filter(
+    (a) => nomNormalise(a.requete || "") !== cible);
+  if (coche) {
+    // Le nom de l'aubaine devient la REQUÊTE de l'article : c'est ce que
+    // l'optimiseur sait chercher, et ça reste valable la semaine prochaine
+    // même si le prix ou l'épicerie change.
+    articles.push({ requete: aubaine.nom, quantite: 1, note: null, priorite: false });
+  }
+  etatMod.remplacer(etat, "plans", plan.id, { articles });
+  retirerAvis("plan");
+  enregistrer();
+}
+
+$("#resultat-aubaines").addEventListener("change", (evenement) => {
+  const case_ = evenement.target.closest("[data-au-plan]");
+  if (!case_) return;
+  basculerAubaineDansPlan(case_.dataset.auPlan, case_.checked);
+});
+
 function rendrePlans() {
   const contenant = $("#liste-plans");
   if (!contenant) return;
@@ -1051,6 +1103,14 @@ function rendrePlans() {
       + "Créez-en un ci-dessus : « Semaine type », par exemple.</p></div>";
     return;
   }
+  // Aubaines en vigueur aujourd'hui : le plan indique lesquels de ses articles
+  // sont en rabais cette semaine, sinon il faudrait naviguer pour le savoir.
+  const enVigueur = optimiseur.aubainesActives(etat, aujourdHui());
+  const meilleurePour = (requete) => {
+    const candidats = optimiseur.trouverCandidats(enVigueur, requete);
+    return candidats.length ? candidats[0] : null;
+  };
+
   contenant.innerHTML = plans.map((plan) => {
     const articles = plan.articles || [];
     const prioritaires = articles.filter((a) => a.priorite).length;
@@ -1066,15 +1126,22 @@ function rendrePlans() {
         ${plan.maxEpiceries ? `Maximum ${plan.maxEpiceries} épicerie(s).` : "Sans limite d'épiceries."}</p>
       <table class="deals">
         <thead><tr><th style="width:3rem">Prio</th><th>Article</th>
-          <th style="width:4rem">Qté</th><th style="width:3rem"></th></tr></thead>
-        <tbody>${articles.map((a, i) => `<tr>
+          <th style="width:4rem">Qté</th><th>En aubaine cette semaine</th>
+          <th style="width:3rem"></th></tr></thead>
+        <tbody>${articles.map((a, i) => {
+          const offre = meilleurePour(a.requete);
+          return `<tr>
           <td><button class="etoile${a.priorite ? " on" : ""}" data-priorite="${i}"
             title="${a.priorite ? "Retirer la priorité" : "Marquer prioritaire"}"
             aria-pressed="${a.priorite ? "true" : "false"}">★</button></td>
           <td>${echapper(a.requete)}${a.note ? ` <span class="small muted">(${echapper(a.note)})</span>` : ""}</td>
           <td>${a.quantite > 1 ? a.quantite : ""}</td>
+          <td class="small">${offre
+            ? `${echapper(offre.epicerie)} — <span class="prix">${echapper(optimiseur.etiquettePrix(offre))}</span>`
+            : '<span class="muted">à prix courant</span>'}</td>
           <td><button class="ic" data-retirer="${i}" title="Retirer">✕</button></td>
-        </tr>`).join("")}</tbody>
+        </tr>`;
+        }).join("")}</tbody>
       </table>
       <div class="barre">
         <input type="text" data-nouvel-article style="flex:1"
