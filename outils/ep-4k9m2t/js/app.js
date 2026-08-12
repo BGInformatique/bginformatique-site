@@ -35,6 +35,9 @@ import {
   doc,
   setDoc,
   onSnapshot,
+  collection,
+  query,
+  where,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
 
@@ -71,6 +74,11 @@ let premiereLectureFaite = false;
 let minuterieEcriture = null;
 let resultatCourant = null;
 let circulaireOuverte = null;
+// Déclarés ICI et pas près de leur code : onAuthStateChanged appelle son rappel
+// pendant l'évaluation du module, donc avant qu'un `let` situé plus bas existe.
+// Placés plus loin, ils faisaient échouer tout le reste du fichier.
+let arretEcouteLancements = null;
+const lancementsVus = new Map();
 
 /* ==================== Utilitaires d'écran ==================== */
 
@@ -209,10 +217,12 @@ onAuthStateChanged(auth, (compte) => {
   $("#btn-logout").hidden = !compte;
   if (compte) {
     ecouterLeNuage();
+    ecouterLancements();
     rendre();
-  } else if (arretEcoute) {
-    arretEcoute();
-    arretEcoute = null;
+  } else {
+    if (arretEcoute) { arretEcoute(); arretEcoute = null; }
+    if (arretEcouteLancements) { arretEcouteLancements(); arretEcouteLancements = null; }
+    lancementsVus.clear();
   }
 });
 
@@ -399,9 +409,13 @@ function rendreCirculaireTrouvee(circulaire) {
       ${echapper(validite)}.
       <a href="${echapper(circulaire.source)}" target="_blank" rel="noopener">Voir sur circulaires.com</a></p>
     <div class="barre">
-      <button class="btn" id="btn-cc-extraire">Extraire les aubaines de ces ${circulaire.pages.length} pages</button>
+      <button class="btn" id="btn-cc-eclair" title="Faire lire ces pages par Claude sur BG001 — sans frais">
+        <svg class="ic-eclair" width="14" height="14" aria-hidden="true"><use href="#i-eclair"></use></svg>
+        Lire sur BG001</button>
+      <button class="btn btn-ghost" id="btn-cc-extraire">Extraire ici (avec ma clé)</button>
       <button class="btn btn-ghost" id="btn-cc-ordre">Copier l'ordre pour le terminal</button>
     </div>
+    <div id="cc-lancement"></div>
     <div id="cc-progres" class="small muted"></div>
     <div class="pages">${circulaire.pages
       .map(
@@ -490,6 +504,133 @@ $("#btn-cc-chercher").addEventListener("click", async () => {
     bouton.textContent = "Chercher la circulaire";
   }
 });
+
+/* ==================== L'éclair : lancer sur BG001 ====================
+ *
+ * Même mécanisme que le tableau de bord marketing. La page n'exécute rien :
+ * elle DÉPOSE UNE DEMANDE dans Firestore (un document « lancement-* » à côté
+ * de « state »), et le lanceur de BG001 la ramasse, fait lire les pages par
+ * Claude, puis réécrit le résultat dans le même document. La page le regarde
+ * arriver et importe les aubaines toute seule.
+ *
+ * POURQUOI CETTE VOIE PLUTÔT QUE LA CLÉ. Rien n'est facturé : c'est
+ * l'abonnement de la machine qui travaille. En échange, il faut que BG001 soit
+ * allumé — ce qui est déjà le cas quand vous préparez vos repas à la maison.
+ *
+ * CE QUE LA PAGE N'ENVOIE PAS. Aucune consigne d'exécution. Le document ne
+ * porte que des données : l'épicerie, les dates, les adresses des pages. Ce
+ * que la machine s'autorise à faire est écrit dans le lanceur, pas ici — une
+ * page web ne doit pas pouvoir redéfinir le cadre de travail de l'agent.
+ */
+
+function ecouterLancements() {
+  if (arretEcouteLancements) arretEcouteLancements();
+  if (!utilisateur) return;
+  // « state » n'a pas de champ `statut` : le filtre l'écarte de lui-même.
+  const file = query(
+    collection(db, "users", utilisateur.uid, "bgfoods"),
+    where("outil", "==", "BGFoods"),
+  );
+  arretEcouteLancements = onSnapshot(file, (instantane) => {
+    instantane.forEach((document) => {
+      const l = { id: document.id, ...document.data() };
+      const avant = lancementsVus.get(l.id);
+      lancementsVus.set(l.id, l);
+      rendreEtatLancement(l);
+      // Le passage à « fait » n'arrive qu'une fois : c'est là qu'on importe.
+      if (l.statut === "fait" && (!avant || avant.statut !== "fait")) {
+        recolterLancement(l);
+      }
+    });
+  }, (e) => avis("lancement", `File de lancement illisible : ${e.message}`, "err"));
+}
+
+/** Demande à BG001 de lire la circulaire affichée. */
+async function lancerSurBG001() {
+  if (!circulaireCourante || !utilisateur) return;
+  const bouton = $("#btn-cc-eclair");
+  const progres = $("#cc-progres");
+
+  const enCours = [...lancementsVus.values()].find(
+    (l) => l.slug === circulaireCourante.slug && (l.statut === "demande" || l.statut === "en_cours"),
+  );
+  if (enCours) {
+    if (!confirm(`Annuler le lancement en cours pour ${circulaireCourante.epicerie} ?`)) return;
+    return setDoc(doc(db, "users", utilisateur.uid, "bgfoods", enCours.id),
+      { statut: "annule", maj: Date.now() }, { merge: true })
+      .catch((e) => avis("lancement", `Annulation refusée : ${e.message}`, "err"));
+  }
+
+  bouton.disabled = true;
+  retirerAvis("lancement");
+  try {
+    progres.textContent = "Résolution des adresses d'images…";
+    const urls = await adressesPleines(circulaireCourante, (i, n) => {
+      progres.textContent = `Résolution des adresses — page ${i} sur ${n}…`;
+    });
+    if (!urls.length) throw new Error("aucune adresse d'image n'a pu être résolue");
+
+    const validite = circulaireCourante.validite || {};
+    const nom = `lancement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await setDoc(doc(db, "users", utilisateur.uid, "bgfoods", nom), {
+      outil: "BGFoods",
+      statut: "demande",
+      slug: circulaireCourante.slug,
+      epicerie: circulaireCourante.epicerie,
+      debut: validite.debut || "",
+      fin: validite.fin || "",
+      titre: `Lire les ${urls.length} pages de la circulaire ${circulaireCourante.epicerie}`
+        + (validite.debut ? ` (valide du ${validite.debut} au ${validite.fin})` : ""),
+      detail: urls.join("\n"),
+      demandeLe: Date.now(),
+      maj: Date.now(),
+    });
+    progres.textContent = "";
+    avis("lancement",
+      `Demandé à BG001 : ${urls.length} pages de ${circulaireCourante.epicerie}. `
+      + "Les aubaines s'importeront ici toutes seules.", "ok");
+  } catch (e) {
+    progres.textContent = "";
+    avis("lancement", `Lancement impossible : ${e.message}`, "err");
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
+const LIB_LANCEMENT = {
+  demande: "⚡ demandé à BG001", en_cours: "⚡ BG001 lit les pages…",
+  fait: "⚡ lu par BG001", echec: "⚡ échec sur BG001", annule: "⚡ annulé",
+};
+
+function rendreEtatLancement(l) {
+  const zone = $("#cc-lancement");
+  if (!zone || !circulaireCourante || l.slug !== circulaireCourante.slug) return;
+  const quand = l.finiLe || l.debuteLe || l.demandeLe;
+  zone.innerHTML = `<span class="small muted">${echapper(LIB_LANCEMENT[l.statut] || l.statut)}`
+    + (quand ? ` · ${echapper(new Date(quand).toLocaleTimeString("fr-CA"))}` : "")
+    + (typeof l.coutUsd === "number" ? ` · ${l.coutUsd.toFixed(2)} $ US` : "")
+    + "</span>"
+    + (l.erreur ? `<div class="banner err">${echapper(l.erreur)}</div>` : "");
+}
+
+/**
+ * Le résultat est du texte : on le passe par l'analyseur habituel, comme une
+ * saisie à la main. Rien n'entre dans les données sans avoir été lu par lui.
+ */
+function recolterLancement(l) {
+  const texte = (l.resultat || "").trim();
+  if (!texte) {
+    avis("lancement", `BG001 a fini pour ${l.epicerie} sans reconnaître d'aubaine.`, "warn");
+    return;
+  }
+  importerPages([texte], {
+    epicerie: l.epicerie || "",
+    debut: l.debut || "",
+    fin: l.fin || "",
+    source: `BG001 — ${l.epicerie || "circulaire"}`,
+  });
+  avisEphemere("lancement", `Aubaines de ${l.epicerie} importées depuis BG001.`, "ok", 8000);
+}
 
 /* ---------- Envoyer la circulaire à l'extraction ---------- */
 
@@ -584,6 +725,7 @@ async function copierOrdre() {
 }
 
 $("#cc-resultat").addEventListener("click", async (evenement) => {
+  if (evenement.target.closest("#btn-cc-eclair")) return lancerSurBG001();
   if (evenement.target.closest("#btn-cc-extraire")) return extraireCirculaireCourante();
   if (evenement.target.closest("#btn-cc-ordre")) return copierOrdre();
 

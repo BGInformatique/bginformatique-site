@@ -212,3 +212,6 @@ table.correction tr.validee { background: rgba(22, 163, 74, .07); }
   display: block; padding: 4px 8px; font-size: 12px; color: var(--text-muted);
   border-top: 1px solid var(--border);
 }
+
+/* Éclair du lancement sur BG001 : même icône que le tableau de bord. */
+.ic-eclair { fill: currentColor; vertical-align: -2px; margin-right: 4px; }

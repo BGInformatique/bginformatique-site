@@ -280,6 +280,55 @@ async function principal() {
   await telephone.waitForTimeout(150);
   verifier("l'écran du téléphone affiche les onglets", await telephone.locator("#onglets").isVisible());
 
+  /* ---- L'éclair : file de lancement sur BG001 ----
+     La page ne lit rien elle-même : elle dépose une demande, et le lanceur de
+     BG001 réécrit le résultat dans le même document. On simule ici le retour.
+
+     Ce bloc existe parce que la première version se chargeait mal : les
+     variables de la file étaient déclarées après onAuthStateChanged, dont le
+     rappel part PENDANT l'évaluation du module. L'erreur d'initialisation
+     avortait le fichier et plus aucun onglet ne répondait. Un essai qui
+     n'ouvrait pas la page ne l'aurait jamais vu. */
+  verifier("la file de lancement est écoutée", await page.evaluate(() => globalThis.__bouchon.fileActive()));
+  verifier("les deux abonnements coexistent", (await page.evaluate(() => globalThis.__bouchon.abonnements)) >= 2);
+
+  const avantLancement = await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length);
+  await page.evaluate(() => globalThis.__bouchon.emettreLancements([{
+    id: "lancement-1", outil: "BGFoods", statut: "fait", slug: "superc",
+    epicerie: "Super C", debut: "2026-08-06", fin: "2026-08-12",
+    resultat: "Longe de porc entière désossée 1,85 $/lb\nPoulet entier Olymel 2,77 $/lb",
+    demandeLe: 1, finiLe: 2,
+  }]));
+  await page.waitForTimeout(200);
+  const apres = await page.evaluate(() => ({
+    circulaires: globalThis.bgfoods.etat.circulaires.length,
+    derniere: globalThis.bgfoods.etat.circulaires.at(-1),
+    // Les aubaines ne portent pas le nom de l'épicerie : elles sont rattachées
+    // à leur circulaire par circulaireId.
+    aubaines: (() => {
+      const c = globalThis.bgfoods.etat.circulaires.at(-1);
+      return globalThis.bgfoods.etat.aubaines.filter((a) => a.circulaireId === c.id).length;
+    })(),
+  }));
+  verifier("le résultat de BG001 crée la circulaire", apres.circulaires === avantLancement + 1,
+    `${avantLancement} → ${apres.circulaires}`);
+  verifier("l'épicerie et les dates viennent du lancement",
+    apres.derniere.epicerie === "Super C" && apres.derniere.debut === "2026-08-06",
+    JSON.stringify(apres.derniere && { e: apres.derniere.epicerie, d: apres.derniere.debut }));
+  verifier("les aubaines passent par l'analyseur habituel", apres.aubaines === 2, `${apres.aubaines}`);
+
+  // Le même instantané réémis ne doit pas réimporter : Firestore renvoie tout
+  // le lot à chaque changement, et sans garde on doublerait les aubaines.
+  await page.evaluate(() => globalThis.__bouchon.emettreLancements([{
+    id: "lancement-1", outil: "BGFoods", statut: "fait", slug: "superc",
+    epicerie: "Super C", debut: "2026-08-06", fin: "2026-08-12",
+    resultat: "Longe de porc entière désossée 1,85 $/lb\nPoulet entier Olymel 2,77 $/lb",
+    demandeLe: 1, finiLe: 2,
+  }]));
+  await page.waitForTimeout(200);
+  verifier("un instantané répété n'importe pas deux fois",
+    (await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)) === apres.circulaires);
+
   verifier("aucune erreur JavaScript", erreursConsole.length === 0, erreursConsole.join(" | "));
 
   await navigateur.close();
