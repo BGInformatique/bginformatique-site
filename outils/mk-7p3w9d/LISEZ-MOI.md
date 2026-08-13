@@ -169,8 +169,9 @@ l'outil, en direct, y compris depuis un téléphone.
 sous-collection que `state`, donc couverts par le même bloc de règles (propriétaire
 seul, pas de suppression navigateur). Champs écrits par l'outil : `idTache`,
 `titre`, `detail`, `client`, `chantier`, `statut: "demande"`, `demandeLe`. Champs
-écrits par le lanceur : `statut` (`en_cours`, `fait`, `echec`), `debuteLe`,
-`finiLe`, `resultat`, `erreur`, `coutUsd`, `tours`.
+écrits par le lanceur : `statut` (`en_cours`, `fait`, `echec`,
+`attente_autorisation`, `refuse`), `debuteLe`, `finiLe`, `resultat`, `erreur`,
+`coutUsd`, `tours`.
 
 **Annulation (activation accidentelle)** : tant qu'un lancement est « demandé »
 ou « en cours », le même bouton éclair l'annule (`statut: "annule"`, écrit par
@@ -189,6 +190,74 @@ si le lanceur est éteint — les demandes attendent en file.
 
 L'interrogation de la file ne renvoie que les documents au `statut` « demande » :
 `state` n'a pas ce champ et n'est jamais relu par le lanceur.
+
+### Arrêt sur autorisation (12 août 2026)
+
+Une tâche lancée ne se termine plus « faite » quand elle bute sur un geste qui
+n'appartient qu'au propriétaire. Quatre cas, écrits dans le cadre de
+`lanceur.py` (jamais reçus d'un document) : **geste** hors de portée (connexion
+interactive, console, vérification par téléphone), **publication** ou envoi réel
+vers l'extérieur, **dépense** ou engagement, **décision** de fond qui contredit
+une décision plus récente. La tâche livre alors tout ce qu'elle a pu préparer,
+puis termine sa réponse par un bloc `=== AUTORISATION REQUISE ===`
+(`CATEGORIE`, `DEMANDE`, `POURQUOI`, `OPTIONS`, `PRET`, `OU`, `QUAND`, puis
+`--- TEXTE A COLLER ---`).
+
+**Le texte prêt à coller voyage AVEC la demande, jamais en fichier.** Le geste
+se fait à la main, souvent depuis un téléphone : un chemin de fichier n'y sert à
+rien. La tâche met donc l'endroit exact (`OU`), le moment ou la condition à
+lever (`QUAND`), puis le texte intégral sous `--- TEXTE A COLLER ---`, tel qu'il
+doit être collé. Il ressort à trois endroits : dans la carte (bloc
+sélectionnable d'un doigt), dans `autorisations.py voir <n>`, et dans le dossier
+`.md` déposé. La règle vaut aussi quand le mur est externe et qu'aucun accord ne
+le lève (compte verrouillé, service en panne) : le geste attendra, le texte est
+prêt.
+
+Le lanceur lit ce bloc et met le document au statut **`attente_autorisation`** —
+un statut qui n'est pas terminal : la purge des 30 jours l'épargne. Champs
+ajoutés : `autorisationDemande`, `autorisationCategorie`, `autorisationPourquoi`,
+`autorisationOptions`, `autorisationPret`, `autorisationTexte`,
+`autorisationOu`, `autorisationQuand`, `autorisationLe`, `autorisationTours`,
+`autorisationFichier`. La demande est aussi déposée en clair dans
+`Claude_Lanceur/autorisations/<date>-<tâche>.md`, avec le résultat complet.
+
+Dans la carte, la question reste lisible **carte fermée** (bloc `.cl-autor`), et
+l'éclair abandonne le lancement au lieu d'en ouvrir un second. La réponse se
+donne sur le poste, depuis une session Claude interactive :
+
+```
+autorisations.py                      ce qui attend une réponse
+autorisations.py voir <n>             la demande au complet
+autorisations.py accorder <n> "…"     accorde et remet la tâche en file
+autorisations.py refuser <n> "…"      refuse ; statut « refuse », terminal
+```
+
+### Répondre à une réponse rendue (12 août 2026)
+
+Une tâche qui a rendu se discute : le bouton **↩** de la carte (visible dès
+qu'un lancement est `fait` ou `echec`) demande ce qui doit changer et renvoie le
+**même** document au lanceur — `correction`, `resultatPrecedent`, statut
+`demande`. Rien n'est relancé à neuf : la tâche revoit un extrait de sa réponse
+précédente, reçoit la correction du propriétaire (qui prime sur le `detail`
+d'origine partout où les deux se contredisent) et reprend son travail au lieu
+de le refaire. Les livrables déjà déposés se modifient sur place.
+
+Le lanceur archive chaque correction jouée dans le tableau `corrections` puis
+vide `correction` — sans quoi la reprise suivante la rejouerait par-dessus un
+travail déjà corrigé. Les trois dernières restent rappelées à chaque tour :
+une correction ne se perd pas au tour d'après. Même geste depuis le poste :
+
+```
+autorisations.py reponses             les tâches qui ont rendu, récentes
+autorisations.py lire <n>             la réponse au complet
+autorisations.py corriger <n> "…"     relance avec la correction
+```
+
+Accorder remet le document à `demande` : la tâche repart du début avec la
+réponse en tête du prompt et son travail préparatoire déjà dans `Livrables/`.
+Une autorisation dit oui à **un geste nommé** ; elle n'élargit jamais le cadre.
+Une tâche peut redemander après un accord (`autorisationTours` monte) — c'est
+légitime une fois, et le signe qu'il faut refuser ou revoir la tâche ensuite.
 
 ---
 
