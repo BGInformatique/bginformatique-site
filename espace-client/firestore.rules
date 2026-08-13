@@ -1,0 +1,111 @@
+rules_version = '2';
+
+// =============================================================================
+//  BG Informatique — Firestore — projet de l'ESPACE CLIENT
+//  Outil couvert : https://bginformatique.ca/espace-client/
+//
+//  PROJET DISTINCT de « bgtimecalculator ». Les comptes clients n'existent pas
+//  dans le projet qui porte la feuille de temps et le tableau de bord
+//  marketing : ce fichier ne peut donc rien leur ouvrir, même mal écrit.
+//
+//  CE FICHIER EST LA RÉFÉRENCE VERSIONNÉE. La console Firebase ne lit pas ce
+//  dépôt : après toute modification ici, coller le contenu dans
+//  Console → Firestore Database → Règles. La marche à suivre et les essais du
+//  simulateur sont dans LISEZ-MOI.md, étape 4.
+//
+//  DEUX POINTS DE SÉMANTIQUE, repris de tc-9x2k7m/firestore.rules :
+//  1. Le refus est l'état par défaut : un chemin non couvert par un « match »
+//     est inaccessible. Pas de bloc final « if false » : redondant.
+//  2. Quand plusieurs « match » couvrent un document, l'accès est accordé dès
+//     qu'UNE condition est vraie. La sécurité vient de ce qu'on n'écrit PAS.
+//
+//  POURQUOI ON VALIDE LES CHAMPS ICI, alors que les règles des outils internes
+//  s'en abstiennent : là-bas, l'auteur est le propriétaire, et un schéma figé
+//  l'aurait barré au prochain changement de format. Ici, l'auteur est un
+//  CLIENT — une partie extérieure. Et le propriétaire ne passe jamais par ces
+//  règles : BG001 lit et écrit par compte de service (accès serveur, qui les
+//  ignore). Verrouiller le client ne peut donc pas verrouiller BG.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function connecte() {
+      return request.auth != null;
+    }
+
+    // Les champs que le client a le droit de poser lui-même. Tout le reste
+    // (statut d'avancement, réponse, horodatages de traitement) appartient à
+    // BG001 et n'a aucune raison d'arriver d'un navigateur.
+    function champsClient() {
+      return ['clientUid', 'clientNom', 'clientCourriel',
+              'type', 'urgence', 'page', 'description', 'statut', 'creeLe'];
+    }
+
+    // -------------------------------------------------------------------------
+    //  DEMANDES — demandes/{demandeId}
+    //
+    //  Collection RACINE, pas une sous-collection de users/ : le pont de BG001
+    //  doit pouvoir lire toutes les demandes en une requête, sans parcourir les
+    //  comptes un par un. Le cloisonnement ne vient donc pas du chemin, il vient
+    //  du champ « clientUid » — vérifié ci-dessous à la création comme à la
+    //  lecture.
+    // -------------------------------------------------------------------------
+    match /demandes/{demandeId} {
+
+      // LECTURE — chacun ne voit que les siennes.
+      //
+      // Cette règle porte aussi les requêtes (« list ») : Firestore refuse
+      // toute requête qui pourrait renvoyer un document non autorisé. La page
+      // DOIT donc filtrer sur where("clientUid","==",uid) — sans ce filtre,
+      // la requête entière est rejetée, et non silencieusement réduite.
+      allow read: if connecte() && resource.data.clientUid == request.auth.uid;
+
+      // CRÉATION — à son propre nom, et rien de plus.
+      //
+      // « statut == recue » est ce qui empêche un client de déposer une demande
+      // déjà marquée « en ligne » ou de se fabriquer un état d'avancement.
+      // hasOnly() borne la forme : un champ inventé fait échouer l'écriture
+      // plutôt que d'atterrir dans le document que BG001 lira ensuite.
+      allow create: if connecte()
+                    && request.resource.data.clientUid == request.auth.uid
+                    && request.resource.data.statut == 'recue'
+                    && request.resource.data.keys().hasOnly(champsClient())
+                    && request.resource.data.description is string
+                    && request.resource.data.description.size() > 0
+                    && request.resource.data.description.size() <= 5000;
+
+      // MISE À JOUR — une seule est permise : annuler une demande intacte.
+      //
+      // Ni le texte, ni l'auteur, ni l'avancement ne se modifient depuis le
+      // navigateur. Une demande déjà prise en charge ne s'annule plus : le
+      // travail est peut-être fait, et le client écrit alors une nouvelle
+      // demande. C'est aussi ce qui garantit à BG001 que le texte qu'il a lu
+      // à la prise en charge est celui qu'il traite.
+      allow update: if connecte()
+                    && resource.data.clientUid == request.auth.uid
+                    && resource.data.statut == 'recue'
+                    && request.resource.data.statut == 'annulee'
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['statut']);
+
+      // Aucune suppression depuis un navigateur : l'historique d'une demande
+      // est ce qui permet de dire ce qui a été fait et quand. La console et
+      // l'Admin SDK ignorent les règles — BG garde ce pouvoir.
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    //  RIEN D'AUTRE N'EST COUVERT — et c'est le point.
+    //
+    //  Aucun « match /users/{uid}/{document=**} » : un compte connecté ne peut
+    //  pas créer de collections parasites aux frais du projet. Un client n'a
+    //  aucun espace personnel ici — juste le droit d'écrire ses demandes.
+    //
+    //  La table qui relie un compte client à SON site (et donc à un dossier de
+    //  travail) ne vit pas dans Firestore : elle est sur BG001, dans
+    //  ~/.config/bg-lanceur/clients-web.json. Une page web ne doit pas pouvoir
+    //  désigner le dépôt sur lequel la machine va travailler.
+    // -------------------------------------------------------------------------
+  }
+}

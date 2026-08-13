@@ -125,6 +125,38 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
+    //  DEMANDES WEB — users/{uid}/clientsweb/{docId}
+    //  Outil : Demandes web des clients
+    //          https://bginformatique.ca/outils/dw-6r2v8k/
+    //
+    //  Documents : « state » (miroir des demandes, écrit par le pont de BG001),
+    //  « lancement-* » (déposés par l'éclair) et « signal-* » (changements
+    //  d'état demandés par la page, appliqués puis effacés par le pont).
+    //
+    //  CE BLOC N'OUVRE RIEN AUX CLIENTS. Les comptes clients vivent dans un
+    //  AUTRE projet Firebase (espace-client/firestore.rules) et n'ont aucune
+    //  identité ici. Ce qu'on voit dans cet outil est une COPIE déposée par le
+    //  pont, sous le dossier du propriétaire — d'où la même règle
+    //  « propriétaire seul » que les deux blocs précédents, et aucune règle
+    //  inter-utilisateurs nulle part.
+    //
+    //  Même forme et mêmes raisons : portée limitée à la sous-collection, et
+    //  aucune validation de champ (le propriétaire est le seul écrivain côté
+    //  navigateur ; le pont écrit par accès serveur, qui ignore les règles).
+    // -------------------------------------------------------------------------
+    match /users/{uid}/clientsweb/{docId} {
+      allow read: if estProprietaire(uid);
+      allow create, update: if estProprietaire(uid);
+
+      // Contrairement aux deux blocs précédents, la SUPPRESSION est refusée
+      // pour la même raison mais avec un enjeu de plus : un lancement effacé
+      // depuis un navigateur laisserait le lanceur travailler sur une demande
+      // dont plus personne ne suit le résultat. La purge des lancements
+      // terminés appartient au pont (accès serveur), comme pour le marketing.
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
     //  COURRIEL — users/{uid}/courriel/{docId}
     //  Outil : Tableau de bord des boîtes de courriel
     //          https://bginformatique.ca/outils/cr-8h4m2v/
