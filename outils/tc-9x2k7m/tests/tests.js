@@ -1329,7 +1329,7 @@ async function sectionO() {
     window.open = openOriginal;
     contient(html, "2 h 15 (2,25 h)", "arrondi vers le haut");
     contient(html, "11:08", "l'heure réelle reste affichée telle quelle");
-    contient(html, "arrondi au quart d'heure", "l'arrondi est annoncé au lecteur");
+    absent(html, "arrondi au quart", "aucune mention de l'arrondi dans le rapport");
   });
 
   await test("l'arrondi additionne d'abord, arrondit ensuite", async () => {

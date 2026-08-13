@@ -18,8 +18,9 @@ déjà effacé des données : l'instantané « document inexistant » venu du ca
 punch in/out et punch oublié, formulaires, interventions, filtres, rendu
 (échappement XSS compris), exports CSV, rapport hebdomadaire, Rapport Simple — dont ce qu'il ne doit
 PAS contenir, les punchs d'une même journée jamais fusionnés, et le total
-arrondi au quart d'heure : arrondi une seule fois sur la somme, jamais ligne
-par ligne, l'égalité tranchée vers le haut —, import/export
+arrondi au quart d'heure sans mention de l'arrondi : arrondi une seule fois
+sur la somme, jamais ligne par ligne, l'égalité tranchée vers le haut —,
+import/export
 JSON, deux onglets simultanés, raccourcis clavier, et les interventions
 chronométrées : plusieurs chronos à la fois, démarrage au moment présent,
 heures conservées au millième, chrono maintenu tant que rien n'est

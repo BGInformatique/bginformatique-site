@@ -2327,7 +2327,6 @@ function generateSimpleReport() {
   th { background: #eef2f6; font-weight: 600; }
   tr.jour-neuf td { border-top: 2px solid #c3ccd6; }
   tfoot td { background: #f7f9fb; font-weight: 700; border-top: 2px solid #1a3a5c; }
-  .note-arrondi { font-size: 0.8rem; color: #667; margin: 8px 0 0; }
   .print-bar { margin-bottom: 20px; }
   .print-bar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #1a3a5c; background: #1a3a5c; color: #fff; cursor: pointer; }
   @media print {
@@ -2349,7 +2348,6 @@ function generateSimpleReport() {
     <tbody>${rows}</tbody>
     <tfoot><tr><td colspan="2">Total des heures travaillées</td><td colspan="2">${fmtDuration(totalArrondi)} (${fmtDecimalHours(totalArrondi)} h)</td></tr></tfoot>
   </table>
-  <p class="note-arrondi">Total arrondi au quart d'heure le plus près.</p>
 </body>
 </html>`;
 
