@@ -213,6 +213,11 @@ table.correction tr.validee { background: rgba(22, 163, 74, .07); }
   border-top: 1px solid var(--border);
 }
 
+/* Veille : les circulaires parues depuis la dernière visite. */
+.veille-liste { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
+.veille-liste li { margin: 2px 0; }
+.small.err { color: var(--danger); }
+
 /* Éclair du lancement sur BG001 : même icône que le tableau de bord. */
 .ic-eclair { fill: currentColor; vertical-align: -2px; margin-right: 4px; }
 

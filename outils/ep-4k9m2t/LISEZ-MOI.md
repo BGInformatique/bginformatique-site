@@ -55,6 +55,24 @@ l'extraction cassera le jour où leur mise en page changera — les échantillon
 Les prix ne s'y lisent pas davantage : ce sont les mêmes images. Ce que ça enlève,
 c'est la chasse au PDF et la saisie des dates.
 
+**La veille**, en haut de l'onglet. Les aubaines s'éteignent à la date de fin de leur
+circulaire — c'est juste, un rabais expiré n'est pas un rabais. Mais l'outil s'arrêtait
+là : la circulaire suivante, que circulaires.com publie pourtant dès qu'elle est
+disponible, n'entrait que si on repassait à la main par « Chercher la circulaire »,
+épicerie par épicerie. Une semaine sur deux, l'outil s'ouvrait vide.
+
+À l'ouverture, pour chaque épicerie **déjà importée**, l'outil lit les dates de sa
+circulaire courante et les compare à la dernière connue. Le constat est automatique;
+la lecture des pages reste un clic. C'est délibéré : elle occupe BG001 plusieurs
+minutes et fait entrer des centaines d'aubaines — ouvrir la page au magasin, sur le
+téléphone, ne doit pas déclencher tout ça sans qu'on l'ait demandé.
+
+Le constat ne charge pas les pages. `chercherValidite()` s'arrête à la première
+feuille, où les dates sont annoncées : deux ou trois requêtes par épicerie au lieu
+d'une vingtaine. L'identifiant de la bannière chez eux est enregistré avec la
+circulaire (`slug`); pour celles importées avant, il est retrouvé dans leur annuaire
+par le nom.
+
 Deux autres entrées : **téléverser** un PDF (lu dans le navigateur par pdf.js, le fichier ne
 part nulle part) ou **coller le texte**. L'épicerie et les dates de validité sont
 détectées dans le texte; les deux restent modifiables avant l'import.
@@ -163,6 +181,13 @@ Playwright l'attend : `BGFOODS_CHROMIUM=/chemin/vers/chrome`.
   unitaire affiché est donc prudent, jamais flatteur.
 - **Les prix affichés viennent des circulaires importées** et doivent être confirmés
   en magasin.
+- **Le jour, c'est le jour d'ici.** `new Date().toISOString()` rend la date *UTC* :
+  passé 20 h au Québec, elle annonce déjà demain. L'outil déclarait donc expirées,
+  dès la soirée, les aubaines valides jusqu'au jour même, et proposait le lendemain
+  comme date de magasinage. Tout passe désormais par `dateDuJour()`
+  (`js/normalisation.js`), qui décale de l'écart local avant de découper. Le banc
+  compare au calendrier local de la machine, pour rester juste sous n'importe quel
+  fuseau.
 - Une circulaire importée **sans dates** prend la semaine en cours. Si on colle une
   circulaire annonçant d'autres dates, les saisir avant l'import — sinon elle ne
   ressortira pas dans une liste datée hors de cette semaine.

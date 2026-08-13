@@ -50,6 +50,7 @@ import {
   formatPrixUnitaire,
   formatTaille,
   formatNombre,
+  dateDuJour,
   nomNormalise,
 } from "./normalisation.js";
 import { ErreurLecture, lireFichier } from "./lecture-pdf.js";
@@ -80,6 +81,10 @@ let circulaireOuverte = null;
 // Placés plus loin, ils faisaient échouer tout le reste du fichier.
 let arretEcouteLancements = null;
 const lancementsVus = new Map();
+// Veille sur les nouvelles circulaires (voir sa section). Même raison d'être
+// ici : `rendre()` la dessine, et `rendre()` part dès la connexion.
+let veilleFaite = false;
+const veille = { statut: "vide", trouvailles: [], progres: "", note: "", ton: "" };
 
 /* ==================== Utilitaires d'écran ==================== */
 
@@ -93,7 +98,7 @@ function echapper(valeur) {
 }
 
 function aujourdHui() {
-  return new Date().toISOString().slice(0, 10);
+  return dateDuJour();
 }
 
 function avis(id, texte, ton = "") {
@@ -171,6 +176,14 @@ function ecouterLeNuage() {
       premiereLectureFaite = true;
       etatMod.ecrireLocal(window.localStorage, etat);
       rendre();
+      // La veille attend l'état : les épiceries à surveiller sont celles qu'on
+      // a déjà importées. Tant qu'il n'y en a aucune, on ne marque rien comme
+      // fait — un appareil qui reçoit ses données au deuxième instantané doit
+      // profiter de la veille lui aussi.
+      if (!veilleFaite && etat.circulaires.length) {
+        veilleFaite = true;
+        verifierNouvellesCirculaires().catch(() => { /* la carte porte déjà le détail */ });
+      }
       // La fusion a apporté quelque chose que le nuage n'a pas : on le renvoie.
       if (JSON.stringify(etat) !== JSON.stringify(distant) && avant !== JSON.stringify(etat)) {
         planifierEcriture();
@@ -224,6 +237,9 @@ onAuthStateChanged(auth, (compte) => {
     if (arretEcoute) { arretEcoute(); arretEcoute = null; }
     if (arretEcouteLancements) { arretEcouteLancements(); arretEcouteLancements = null; }
     lancementsVus.clear();
+    veilleFaite = false;
+    veille.statut = "vide";
+    veille.trouvailles = [];
   }
 });
 
@@ -296,7 +312,11 @@ function importerPages(pages, options = {}) {
   const circulaire = etatMod.ajouter(
     etat,
     "circulaires",
-    { epicerie, debut, fin, source: options.source || "", pages: pages.length, statut: "brouillon" },
+    // `slug` : l'identifiant de l'épicerie chez circulaires.com. Il ne sert pas
+    // à l'affichage, mais à la veille — sans lui, retrouver la bannière la
+    // semaine suivante demande de fouiller leur annuaire par le nom.
+    { epicerie, slug: options.slug || "", debut, fin,
+      source: options.source || "", pages: pages.length, statut: "brouillon" },
     maintenant,
   );
   for (const aubaine of aubaines) {
@@ -554,6 +574,29 @@ function ecouterLancements() {
   }, (e) => avis("lancement", `File de lancement illisible : ${e.message}`, "err"));
 }
 
+/**
+ * Écrit la demande dans Firestore. Deux appelants : l'éclair (une circulaire
+ * affichée) et la veille (les circulaires parues depuis la dernière visite).
+ * Le document ne porte que des données — voir l'entête de section.
+ */
+async function deposerLancement(circulaire, urls) {
+  const validite = circulaire.validite || {};
+  const nom = `lancement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await setDoc(doc(db, "users", utilisateur.uid, "bgfoods", nom), {
+    outil: "BGFoods",
+    statut: "demande",
+    slug: circulaire.slug,
+    epicerie: circulaire.epicerie,
+    debut: validite.debut || "",
+    fin: validite.fin || "",
+    titre: `Lire les ${urls.length} pages de la circulaire ${circulaire.epicerie}`
+      + (validite.debut ? ` (valide du ${validite.debut} au ${validite.fin})` : ""),
+    detail: urls.join("\n"),
+    demandeLe: Date.now(),
+    maj: Date.now(),
+  });
+}
+
 /** Demande à BG001 de lire la circulaire affichée. */
 async function lancerSurBG001() {
   if (!circulaireCourante || !utilisateur) return;
@@ -579,21 +622,7 @@ async function lancerSurBG001() {
     });
     if (!urls.length) throw new Error("aucune adresse d'image n'a pu être résolue");
 
-    const validite = circulaireCourante.validite || {};
-    const nom = `lancement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await setDoc(doc(db, "users", utilisateur.uid, "bgfoods", nom), {
-      outil: "BGFoods",
-      statut: "demande",
-      slug: circulaireCourante.slug,
-      epicerie: circulaireCourante.epicerie,
-      debut: validite.debut || "",
-      fin: validite.fin || "",
-      titre: `Lire les ${urls.length} pages de la circulaire ${circulaireCourante.epicerie}`
-        + (validite.debut ? ` (valide du ${validite.debut} au ${validite.fin})` : ""),
-      detail: urls.join("\n"),
-      demandeLe: Date.now(),
-      maj: Date.now(),
-    });
+    await deposerLancement(circulaireCourante, urls);
     progres.textContent = "";
     avis("lancement",
       `Demandé à BG001 : ${urls.length} pages de ${circulaireCourante.epicerie}. `
@@ -659,11 +688,228 @@ function recolterLancement(l) {
   }
   importerPages([texte], {
     epicerie: l.epicerie || "",
+    slug: l.slug || "",
     debut: l.debut || "",
     fin: l.fin || "",
     source: `BG001 — ${l.epicerie || "circulaire"}`,
   });
   avisEphemere("lancement", `Aubaines de ${l.epicerie} importées depuis BG001.`, "ok", 8000);
+}
+
+/* ==================== Veille : la circulaire de la semaine ====================
+ *
+ * LE MANQUE QUE ÇA COMBLE. Les aubaines cessent d'exister à la date de fin de
+ * leur circulaire — c'est juste, un rabais expiré n'est pas un rabais. Mais
+ * l'outil s'arrêtait là : la circulaire suivante, que circulaires.com publie
+ * pourtant dès qu'elle est disponible, n'arrivait que si on repassait à la
+ * main par « Chercher la circulaire », épicerie par épicerie. Une semaine sur
+ * deux, l'outil s'ouvrait donc vide.
+ *
+ * CE QUI EST AUTOMATIQUE, ET CE QUI NE L'EST PAS. Le CONSTAT est automatique :
+ * à l'ouverture, pour chaque épicerie déjà suivie, on lit les dates de sa
+ * circulaire courante et on les compare à la dernière connue. La LECTURE des
+ * pages, elle, reste un clic : elle occupe BG001 plusieurs minutes et fait
+ * entrer des centaines d'aubaines. Ouvrir la page au magasin, sur le
+ * téléphone, ne doit pas déclencher tout ça sans qu'on l'ait demandé.
+ *
+ * SOBRIÉTÉ. Le constat ne charge pas les pages : deux ou trois requêtes par
+ * épicerie, sur les seules bannières déjà importées, une fois par ouverture.
+ */
+
+
+/**
+ * Les épiceries déjà suivies, avec la dernière circulaire connue de chacune.
+ * On repart de ce qui a été importé : suivre tout l'annuaire interrogerait
+ * trente bannières dont on n'a jamais rien voulu.
+ */
+function epiceriesSuivies() {
+  const parEpicerie = new Map();
+  for (const c of etat.circulaires) {
+    const nom = (c.epicerie || "").trim();
+    if (!nom) continue;
+    // Objet neuf : on ne touche pas aux enregistrements de l'état.
+    const suivi = parEpicerie.get(nom) || { epicerie: nom, slug: "", fin: "" };
+    if (c.slug) suivi.slug = c.slug;
+    if ((c.fin || "") > suivi.fin) suivi.fin = c.fin || "";
+    parEpicerie.set(nom, suivi);
+  }
+  return [...parEpicerie.values()].sort((a, b) => a.epicerie.localeCompare(b.epicerie, "fr"));
+}
+
+/**
+ * Retrouve l'identifiant circulaires.com des épiceries importées avant que
+ * l'outil ne l'enregistre (ou saisies à la main). Une seule requête pour
+ * toutes, et seulement si au moins une en a besoin.
+ */
+async function resoudreSlugs(suivis, region) {
+  if (suivis.every((s) => s.slug)) return;
+  const annuaire = await circulairesCom.chercherEpiceries({ region });
+  const parNom = new Map(annuaire.map((e) => [nomNormalise(e.nom), e.slug]));
+  for (const suivi of suivis) {
+    if (!suivi.slug) suivi.slug = parNom.get(nomNormalise(suivi.epicerie)) || "";
+  }
+}
+
+/** Une lecture est-elle déjà demandée pour cette circulaire-là ? */
+function lancementEnCours(slug, fin) {
+  return [...lancementsVus.values()].some(
+    (l) => l.slug === slug && (l.statut === "demande" || l.statut === "en_cours")
+      && (!fin || !l.fin || l.fin === fin),
+  );
+}
+
+async function verifierNouvellesCirculaires(options = {}) {
+  if (veille.statut === "verification" || veille.statut === "mise-a-jour") return;
+  const suivis = epiceriesSuivies();
+  if (!suivis.length) {
+    veille.statut = "vide";
+    veille.trouvailles = [];
+    rendreVeille();
+    return;
+  }
+
+  const region = ($("#cc-region") && $("#cc-region").value) || circulairesCom.REGION_DEFAUT;
+  veille.statut = "verification";
+  veille.progres = "";
+  veille.note = "";
+  rendreVeille();
+
+  const trouvailles = [];
+  const muettes = [];
+  try {
+    await resoudreSlugs(suivis, region);
+  } catch (e) {
+    // Annuaire injoignable : on continue avec les identifiants déjà connus
+    // plutôt que d'abandonner la veille entière.
+  }
+  for (const suivi of suivis) {
+    if (!suivi.slug) { muettes.push(suivi.epicerie); continue; }
+    veille.progres = suivi.epicerie;
+    rendreVeille();
+    try {
+      const trouve = await circulairesCom.chercherValidite(suivi.slug, { region });
+      if (trouve && trouve.validite && trouve.validite.fin > suivi.fin) {
+        trouvailles.push({ ...suivi, validite: trouve.validite, pages: trouve.pages, region });
+      }
+    } catch (e) {
+      muettes.push(suivi.epicerie);
+    }
+  }
+
+  veille.progres = "";
+  veille.trouvailles = trouvailles;
+  veille.statut = trouvailles.length ? "trouve" : "ajour";
+  veille.note = muettes.length
+    ? `${muettes.length} épicerie(s) n'ont pas répondu : ${muettes.join(", ")}.`
+    : "";
+  veille.ton = "";
+  rendreVeille();
+
+  retirerAvis("veille");
+  if (trouvailles.length) {
+    const banniere = avis(
+      "veille",
+      `${trouvailles.length} nouvelle(s) circulaire(s) chez circulaires.com : `
+      + trouvailles.map((t) => `${t.epicerie} (jusqu'au ${t.validite.fin})`).join(", ")
+      + ".",
+      "warn",
+    );
+    const bouton = document.createElement("button");
+    bouton.className = "btn btn-ghost";
+    bouton.type = "button";
+    bouton.id = "btn-veille-voir";
+    bouton.textContent = "Mettre à jour";
+    bouton.addEventListener("click", () => ouvrirOnglet("circulaires"));
+    banniere.append(" ", bouton);
+  } else if (options.manuel) {
+    avisEphemere("veille", "Aucune nouvelle circulaire : vos aubaines sont celles de la semaine.", "ok");
+  }
+}
+
+/** Fait lire par BG001 les circulaires repérées par la veille. */
+async function mettreAJourCirculaires(cibles) {
+  if (!cibles.length || !utilisateur) return;
+  veille.statut = "mise-a-jour";
+  veille.note = "";
+  rendreVeille();
+
+  const deposees = [];
+  const echecs = [];
+  for (const cible of cibles) {
+    if (lancementEnCours(cible.slug, cible.validite.fin)) { deposees.push(cible); continue; }
+    veille.progres = `${cible.epicerie} — récupération des pages…`;
+    rendreVeille();
+    try {
+      const circulaire = await circulairesCom.chercherCirculaire(cible.slug, {
+        region: cible.region, nom: cible.epicerie,
+      });
+      const urls = await adressesPleines(circulaire, (i, n) => {
+        veille.progres = `${cible.epicerie} — adresse de la page ${i} sur ${n}…`;
+        rendreVeille();
+      });
+      if (!urls.length) throw new Error("aucune adresse d'image n'a pu être résolue");
+      await deposerLancement(circulaire, urls);
+      deposees.push(cible);
+    } catch (e) {
+      echecs.push(`${cible.epicerie} (${e.message})`);
+    }
+  }
+
+  veille.progres = "";
+  // Ce qui est parti chez BG001 sort de la liste : le résultat reviendra tout
+  // seul par la file de lancement, il n'y a plus rien à demander pour ces
+  // épiceries-là.
+  veille.trouvailles = veille.trouvailles.filter((t) => !deposees.includes(t));
+  veille.statut = veille.trouvailles.length ? "trouve" : "demande";
+  veille.note = echecs.length ? `Échec pour ${echecs.join(", ")}.` : "";
+  veille.ton = echecs.length ? "err" : "";
+  rendreVeille();
+  retirerAvis("veille");
+  if (deposees.length) {
+    avis("lancement",
+      `Demandé à BG001 : ${deposees.map((d) => d.epicerie).join(", ")}. `
+      + "Les aubaines s'importeront ici toutes seules.", "ok");
+  }
+}
+
+const LIB_VEILLE = {
+  verification: "Vérification chez circulaires.com…",
+  "mise-a-jour": "Envoi à BG001…",
+  ajour: "Vos circulaires sont celles de la semaine — rien de neuf chez circulaires.com.",
+  demande: "Demandé à BG001. Les aubaines arriveront d'elles-mêmes.",
+  vide: "Aucune circulaire importée : la veille surveillera les épiceries dès la première.",
+};
+
+function rendreVeille() {
+  const zone = $("#veille");
+  if (!zone) return;
+  const occupe = veille.statut === "verification" || veille.statut === "mise-a-jour";
+  const liste = veille.trouvailles.length
+    ? `<ul class="veille-liste">${veille.trouvailles
+        .map((t) => `<li><strong>${echapper(t.epicerie)}</strong> — du
+          ${echapper(t.validite.debut)} au ${echapper(t.validite.fin)},
+          ${t.pages} page(s)</li>`)
+        .join("")}</ul>`
+    : "";
+
+  zone.innerHTML = `<div class="card no-print">
+    <h2>Circulaire de la semaine</h2>
+    <p class="small muted">${veille.trouvailles.length
+      ? `${veille.trouvailles.length} épicerie(s) ont publié une circulaire plus récente que
+         celle que vous avez. La lecture des pages se fait sur BG001, sans frais.`
+      : echapper(LIB_VEILLE[veille.statut] || "")}</p>
+    ${liste}
+    ${veille.progres ? `<p class="small muted">${echapper(veille.progres)}</p>` : ""}
+    ${veille.note ? `<p class="small ${veille.ton === "err" ? "err" : "muted"}">${echapper(veille.note)}</p>` : ""}
+    <div class="barre">
+      ${veille.trouvailles.length
+        ? `<button class="btn" id="btn-veille-tout"${occupe ? " disabled" : ""}>
+             <svg class="ic-eclair" width="14" height="14" aria-hidden="true"><use href="#i-eclair"></use></svg>
+             Mettre à jour (${veille.trouvailles.length})</button>`
+        : ""}
+      <button class="btn btn-ghost" id="btn-veille-verifier"${occupe ? " disabled" : ""}>Vérifier maintenant</button>
+    </div>
+  </div>`;
 }
 
 /* ---------- Envoyer la circulaire à l'extraction ---------- */
@@ -722,6 +968,7 @@ async function extraireCirculaireCourante() {
     // saisie à la main, donc mêmes prix unitaires et mêmes vérifications.
     importerPages([texte], {
       epicerie: circulaireCourante.epicerie,
+      slug: circulaireCourante.slug,
       debut: circulaireCourante.validite ? circulaireCourante.validite.debut : "",
       fin: circulaireCourante.validite ? circulaireCourante.validite.fin : "",
       source: `circulaires.com — ${circulaireCourante.epicerie}`,
@@ -757,6 +1004,15 @@ async function copierOrdre() {
     avis("extraction", `Copie impossible : ${e.message}`, "err");
   }
 }
+
+$("#veille").addEventListener("click", (evenement) => {
+  if (evenement.target.closest("#btn-veille-tout")) {
+    return mettreAJourCirculaires([...veille.trouvailles]);
+  }
+  if (evenement.target.closest("#btn-veille-verifier")) {
+    return verifierNouvellesCirculaires({ manuel: true });
+  }
+});
 
 $("#cc-resultat").addEventListener("click", async (evenement) => {
   if (evenement.target.closest("#btn-cc-eclair")) return lancerSurBG001();
@@ -1624,6 +1880,7 @@ function rendre() {
   rendreChoixEpiceries();
   rendreSelecteurs();
   rendreCirculaires();
+  rendreVeille();
   rendreCorrection();
   rendreAubaines();
   rendrePlans();

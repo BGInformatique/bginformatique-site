@@ -99,6 +99,32 @@ async function principal() {
     await route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: corps });
   });
 
+  // circulaires.com est servi depuis les mêmes échantillons que banc.mjs.
+  // Sans ça, ce banc dépendrait du réseau ET de ce que le site publie le jour
+  // où on le lance — deux raisons d'échouer qui n'ont rien à voir avec le code.
+  await contexte.route("https://www.circulaires.com/**", async (route) => {
+    const url = route.request().url();
+    let nom = null;
+    if (url.includes("/alimentation/")) nom = "annuaire";
+    else if (url.includes("index.do")) nom = "imageform";
+    else if (url.includes("/maxi/circulaire/")) nom = "visionneuse-maxi";
+    else if (url.includes("/circulaire/?")) nom = "visionneuse";
+    else if (url.includes("dpage=")) nom = "visionneuse-b";
+    else if (url.includes("flyers.do")) nom = "choix-b";
+    else if (url.includes("/supermarche-iga/?")) nom = "epicerie";
+    else if (url.includes("/maxi/?")) nom = "epicerie-maxi";
+    else if (url.includes("/marche-richelieu/?")) nom = "epicerie-b";
+    const corps = nom
+      ? await fs.readFile(path.join(ICI, "echantillons", `circulaires-com-${nom}.html`), "utf-8")
+      : "<html></html>";
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      headers: { "access-control-allow-origin": "*" },
+      body: corps,
+    });
+  });
+
   const page = await contexte.newPage();
   const erreursConsole = [];
   page.on("console", (m) => m.type() === "error" && erreursConsole.push(m.text()));
@@ -348,6 +374,79 @@ async function principal() {
   verifier("une demande déjà récoltée n'est pas réimportée",
     (await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)) === avantRechargement,
     `${avantRechargement} → ${await page.evaluate(() => globalThis.bgfoods.etat.circulaires.length)}`);
+
+  /* ---- Veille : la circulaire de la semaine ----
+     Les aubaines s'éteignent à la date de fin de leur circulaire, ce qui est
+     juste. Mais l'outil s'arrêtait là : la suivante, publiée chez eux, ne
+     rentrait que si on repassait à la main par « Chercher la circulaire ».
+     Une semaine sur deux, l'outil s'ouvrait vide. */
+  await page.click('[data-onglet="circulaires"]');
+  verifier("la carte de veille est affichée",
+    (await page.locator("#veille .card").count()) === 1);
+
+  // On vieillit ce qui est en mémoire : les circulaires importées deviennent
+  // celles de la semaine dernière. Les échantillons, eux, annoncent le 6 au 12.
+  await page.evaluate(() => {
+    const etat = globalThis.bgfoods.etat;
+    for (const c of etat.circulaires) {
+      if (c.epicerie === "IGA" || c.epicerie === "Maxi") {
+        c.debut = "2026-07-23";
+        c.fin = "2026-07-29";
+      }
+    }
+    globalThis.bgfoods.etat = etat;
+  });
+
+  await page.click("#btn-veille-verifier");
+  await page.waitForSelector("#btn-veille-tout", { timeout: 8000 });
+  const texteVeille = await page.locator("#veille").innerText();
+  verifier("les deux épiceries en retard sont repérées",
+    /Mettre à jour \(2\)/.test(texteVeille), texteVeille.slice(0, 220));
+  verifier("l'épicerie et les dates de la nouvelle circulaire sont nommées",
+    /IGA/.test(texteVeille) && /Maxi/.test(texteVeille) && /2026-08-12/.test(texteVeille),
+    texteVeille.slice(0, 220));
+  // L'identifiant chez eux n'était pas enregistré à l'import du texte : il a
+  // fallu le retrouver dans leur annuaire, par le nom de la bannière.
+  verifier("l'avis se voit depuis n'importe quel onglet",
+    /nouvelle\(s\) circulaire\(s\)/.test(
+      await page.locator('#banners [data-avis="veille"]').innerText()));
+
+  const lancementsAvant = await page.evaluate(() =>
+    globalThis.__bouchon.lancementsEcrits.filter((e) => e.statut === "demande").length);
+  await page.click("#btn-veille-tout");
+  await page.waitForFunction(
+    (avant) => globalThis.__bouchon.lancementsEcrits.filter((e) => e.statut === "demande").length
+      >= avant + 2,
+    lancementsAvant,
+    { timeout: 15000 },
+  );
+  const demandes = await page.evaluate(() =>
+    globalThis.__bouchon.lancementsEcrits.filter((e) => e.statut === "demande"));
+  verifier("une demande par épicerie en retard", demandes.length === 2, JSON.stringify(demandes.map((d) => d.slug)));
+  verifier("la demande porte l'identifiant circulaires.com",
+    demandes.some((d) => d.slug === "supermarche-iga") && demandes.some((d) => d.slug === "maxi"),
+    JSON.stringify(demandes.map((d) => d.slug)));
+  verifier("la demande porte les dates de la NOUVELLE circulaire",
+    demandes.every((d) => d.fin === "2026-08-12"), JSON.stringify(demandes.map((d) => d.fin)));
+  verifier("elle transmet des adresses de pages, jamais une consigne",
+    demandes.every((d) => d.detail.split("\n").every((u) => /^https:\/\//.test(u))),
+    JSON.stringify(demandes.map((d) => d.detail.slice(0, 60))));
+  // Ce qui est parti sort de la liste : le résultat reviendra par la file.
+  verifier("la liste se vide une fois les demandes déposées",
+    (await page.locator("#btn-veille-tout").count()) === 0);
+
+  // On remet les dates de la semaine en cours : la suite du banc travaille sur
+  // des aubaines en vigueur, et c'est ce banc-ci qui les avait vieillies.
+  await page.evaluate(() => {
+    const etat = globalThis.bgfoods.etat;
+    for (const c of etat.circulaires) {
+      if (c.epicerie === "IGA" || c.epicerie === "Maxi") {
+        c.debut = "2026-08-06";
+        c.fin = "2026-08-12";
+      }
+    }
+    globalThis.bgfoods.etat = etat;
+  });
 
   /* ---- Plans d'épicerie ----
      Le plan actif remplace la zone de saisie comme source de la liste. Si les

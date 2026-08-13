@@ -53,6 +53,20 @@ export const FACTEURS = {
 const BASE_AFFICHAGE = { [MASSE]: 100, [VOLUME]: 100, [UNITE]: 1 };
 const ETIQUETTE_BASE = { [MASSE]: "/100 g", [VOLUME]: "/100 ml", [UNITE]: "/unité" };
 
+/**
+ * La date d'aujourd'hui, ici — pas à Greenwich.
+ *
+ * `new Date().toISOString()` rend la date UTC : passé 20 h au Québec, elle
+ * annonce déjà demain. L'outil déclarait donc expirées, dès la soirée, les
+ * aubaines valides jusqu'au jour même, et proposait le lendemain comme date de
+ * magasinage. On décale de l'écart local avant de découper.
+ */
+export function dateDuJour(maintenant = new Date()) {
+  return new Date(maintenant.getTime() - maintenant.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
+}
+
 export function sansAccents(texte) {
   return (texte || "").normalize("NFD").replace(/\p{Mn}/gu, "");
 }

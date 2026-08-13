@@ -181,6 +181,27 @@ egal("changement d'année", analyseur.devinerValidite("Du 28 décembre au 3 janv
   fin: "2027-01-03",
 });
 
+/* Le jour, c'est le jour d'ICI. `toISOString()` rend la date UTC : passé 20 h
+   au Québec elle annonce déjà demain, et l'outil déclarait alors expirées les
+   aubaines valides jusqu'au jour même. Le banc le fige sur un soir d'été
+   (20 h 30 à Montréal = 00 h 30 UTC le lendemain) et sur un matin d'hiver. */
+{
+  // L'oracle n'est pas une constante — le banc doit passer sous n'importe quel
+  // fuseau, y compris UTC en intégration continue. On compare au calendrier
+  // local de la machine, lu par les accesseurs locaux de Date.
+  const localement = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  for (const instant of [
+    "2026-08-12T20:30:00-04:00", // le soir d'été où le banc a pris l'outil en défaut
+    "2026-08-12T23:59:00-04:00",
+    "2026-01-15T00:30:00-05:00",
+    "2026-06-30T12:00:00Z",
+  ]) {
+    const d = new Date(instant);
+    egal(`jour local à ${instant}`, normalisation.dateDuJour(d), localement(d));
+  }
+}
+
 egal("épicerie IGA", analyseur.devinerEpicerie("IGA — Circulaire du 6 au 12 août"), "IGA");
 egal("épicerie Super C", analyseur.devinerEpicerie("Bienvenue chez Super C"), "Super C");
 egal("bannière inconnue", analyseur.devinerEpicerie("Aucune bannière connue"), null);
@@ -790,7 +811,26 @@ const echantillon = (nom) =>
   egal("image pleine du type B : sans aller-retour",
     await circulairesCom.imagePleine(b.pages[0]), b.pages[0].pleine);
 
+  // ---- Veille : les dates sans le reste.
+  // Tout l'intérêt est là — savoir si une nouvelle circulaire est parue ne doit
+  // pas coûter le chargement de ses vingt feuilles. On compte les requêtes.
+  let requetes = [];
+  const compte = async (url) => { requetes.push(url); return recuperer(url); };
+
+  const veilleA = await circulairesCom.chercherValidite("supermarche-iga", { recuperer: compte });
+  egal("la veille rend les mêmes dates que la récupération complète", veilleA.validite, a.validite);
+  egal("type A : la page de l'épicerie puis la première feuille, rien de plus", requetes.length, 2);
+
+  requetes = [];
+  const veilleB = await circulairesCom.chercherValidite("marche-richelieu", { recuperer: compte });
+  egal("type B repéré par la veille", veilleB.type, "B");
+  egal("type B : épicerie, page de choix, première circulaire", requetes.length, 3);
+  verifier("la veille compte les pages sans les charger", veilleB.pages === 7, String(veilleB.pages));
+
   const vide = async () => ({ ok: true, status: 200, text: async () => "<html></html>" });
+  egal("épicerie sans circulaire : la veille rend null, elle ne lève pas",
+    await circulairesCom.chercherValidite("epicerie-sans-circulaire", { recuperer: vide }), null);
+
   let messageErreur = "";
   await circulairesCom.chercherCirculaire("epicerie-sans-circulaire", { recuperer: vide })
     .catch((e) => { messageErreur = e.message; });

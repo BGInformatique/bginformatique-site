@@ -13,6 +13,7 @@ import {
   UNITE,
   categorieDevinee,
   contientLaitDeVache,
+  dateDuJour,
   estBoissonVegetale,
   formatPrixEtiquette,
   formatTaille,
@@ -260,7 +261,7 @@ export function rabaisRelatif(aubaine) {
  */
 export function meilleursSpeciaux(etat, options = {}) {
   const {
-    dateCible = new Date().toISOString().slice(0, 10),
+    dateCible = dateDuJour(),
     valideesSeulement = false,
     quotas = QUOTAS_PANIER,
     foyer = null,
@@ -371,7 +372,7 @@ function choisirEpiceries(candidatsParLigne, maxEpiceries, poids = null) {
 
 export function optimiser(etat, articles, options = {}) {
   const {
-    dateCible = new Date().toISOString().slice(0, 10),
+    dateCible = dateDuJour(),
     maxEpiceries = null,
     valideesSeulement = false,
     seuil = SEUIL_CORRESPONDANCE,
@@ -508,7 +509,7 @@ export function optimiser(etat, articles, options = {}) {
 
 export function aubainesParEpicerie(etat, options = {}) {
   const {
-    dateCible = new Date().toISOString().slice(0, 10),
+    dateCible = dateDuJour(),
     epiceries = null,
     categorie = null,
     recherche = null,

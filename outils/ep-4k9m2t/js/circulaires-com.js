@@ -284,6 +284,41 @@ export async function chercherCirculaire(slug, options = {}) {
 }
 
 /**
+ * Dates de la circulaire courante, SANS charger toutes ses pages.
+ *
+ * C'est la fonction de la veille : pour savoir si une nouvelle circulaire est
+ * parue, il suffit des dates, et les dates sont annoncées dès la première
+ * feuille. `chercherCirculaire` en lit jusqu'à seize — inutile ici, et c'est
+ * autant de requêtes en moins sur leur serveur pour une épicerie qui n'a rien
+ * publié de neuf.
+ *
+ * Rend `null` plutôt que de lever quand l'épicerie ne publie rien : sur une
+ * veille qui parcourt plusieurs bannières, l'absence de circulaire est un
+ * résultat ordinaire, pas une panne.
+ */
+export async function chercherValidite(slug, options = {}) {
+  const recuperer = options.recuperer || ((url) => fetch(url));
+  const region = options.region || REGION_DEFAUT;
+
+  const pageEpicerie = await lire(
+    `${ORIGINE}/${slug}/?region=${encodeURIComponent(region)}`, recuperer);
+  const cible = extraireLienCirculaire(pageEpicerie);
+  if (!cible) return null;
+
+  if (cible.type === "B") {
+    const choix = extraireChoix(await lire(cible.lien, recuperer), cible.lien);
+    if (!choix.length) return null;
+    const vue = extraireVisionneuseB(await lire(choix[0], recuperer), choix[0]);
+    if (!vue.pages.length) return null;
+    return { slug, region, type: "B", source: cible.lien, validite: vue.validite, pages: vue.pages.length };
+  }
+
+  const premiere = extraireVisionneuse(await lire(cible.lien, recuperer), cible.lien);
+  if (!premiere.pages.length) return null;
+  return { slug, region, type: "A", source: cible.lien, validite: premiere.validite, pages: premiere.pages.length };
+}
+
+/**
  * Adresse de l'image pleine résolution d'une page.
  * Type B : elle est déjà connue. Type A : un aller-retour de plus.
  */

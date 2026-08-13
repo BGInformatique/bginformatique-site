@@ -23,6 +23,7 @@
 import {
   UNITE,
   categorieDevinee,
+  dateDuJour,
   nomNormalise,
   jetons,
   prixUnitaire,
@@ -428,7 +429,7 @@ function dateISO(annee, mois, jour) {
 /** Trouve « du 5 au 11 juin 2026 » ou « 2026-06-05 au 2026-06-11 ». */
 export function devinerValidite(texte, aujourdHui = null) {
   const entete = (texte || "").split("\n").slice(0, 60).join("\n");
-  const maintenant = aujourdHui ? new Date(`${aujourdHui}T00:00:00Z`) : new Date();
+  const maintenant = new Date(`${aujourdHui || dateDuJour()}T00:00:00Z`);
 
   const iso = /(\d{4}-\d{2}-\d{2})\s*(?:au|à|-|jusqu'au)\s*(\d{4}-\d{2}-\d{2})/i.exec(entete);
   if (iso) return { debut: iso[1], fin: iso[2] };
@@ -454,7 +455,7 @@ export function devinerValidite(texte, aujourdHui = null) {
 }
 
 export function validiteParDefaut(aujourdHui = null, jours = 7) {
-  const base = aujourdHui ? new Date(`${aujourdHui}T00:00:00Z`) : new Date();
+  const base = new Date(`${aujourdHui || dateDuJour()}T00:00:00Z`);
   const debut = base.toISOString().slice(0, 10);
   const fin = new Date(base.getTime() + (jours - 1) * 86400000).toISOString().slice(0, 10);
   return { debut, fin };
