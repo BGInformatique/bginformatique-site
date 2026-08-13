@@ -5,18 +5,24 @@
  * dans « bgtimecalculator », qui porte la feuille de temps et le tableau de
  * bord marketing. Un client connecté ici n'a aucune identité là-bas.
  *
- * À REMPLIR après la création du projet (voir LISEZ-MOI.md, étape 1).
- * Tant que « projectId » vaut la valeur d'amorce ci-dessous, la page affiche
- * « installation en cours » au lieu de planter : elle peut donc être publiée
- * avant que le projet existe.
+ * Le projet « WebsiteMaestro » (websitemaestro-872c7) a été créé le
+ * 2026-08-13 et l'application web « Espace client » y est enregistrée : les
+ * valeurs ci-dessous sont les vraies. Elles n'ont rien de secret — ce fichier
+ * part dans le navigateur de chaque visiteur. Ce qui protège les données,
+ * c'est l'authentification et les règles Firestore, jamais ces six lignes.
+ *
+ * La sentinelle plus bas reste en place : tant que « projectId » vaut la
+ * valeur d'amorce, la page affiche « installation en cours » au lieu de
+ * planter. Elle ne sert plus, mais elle coûte une ligne et elle resservira au
+ * prochain montage.
  */
 export const firebaseConfig = {
-  apiKey: "À_REMPLIR",
-  authDomain: "À_REMPLIR.firebaseapp.com",
-  projectId: "À_REMPLIR",
-  storageBucket: "À_REMPLIR.firebasestorage.app",
-  messagingSenderId: "À_REMPLIR",
-  appId: "À_REMPLIR",
+  apiKey: "AIzaSyB7TkGN6OdC1E_HdIrEcwas-bpuUO65UDc",
+  authDomain: "websitemaestro-872c7.firebaseapp.com",
+  projectId: "websitemaestro-872c7",
+  storageBucket: "websitemaestro-872c7.firebasestorage.app",
+  messagingSenderId: "901431697368",
+  appId: "1:901431697368:web:e665059c969c9575789cad",
 };
 
 /*
