@@ -1076,6 +1076,54 @@ async function sectionM() {
     egal(note.value, "vérifier tarif");
   });
 
+  await test("note à vérifier : repliée au rendu, aperçu sur une ligne", async () => {
+    await semer();
+    const details = tc.els.interventionTbody.querySelector("details.verify-note-details");
+    vrai(details, "note dans un bloc repliable");
+    egal(details.open, false, "repliée par défaut");
+    const apercu = details.querySelector(".verify-note-apercu");
+    egal(apercu.textContent, "vérifier tarif", "le texte reste lisible replié");
+    vrai(
+      details.querySelector("textarea[data-verify-note-input]"),
+      "le champ reste dans le DOM : l'écouteur de sauvegarde ne dépend pas du dépliage"
+    );
+  });
+
+  await test("note à vérifier vide : aperçu d'invite plutôt qu'une ligne muette", async () => {
+    await semer();
+    const id = tc.state.interventions.find((i) => i.toVerify).id;
+    tc.updateInterventionVerifyNote(id, "");
+    tc.renderInterventionTable();
+    const apercu = tc.els.interventionTbody.querySelector(".verify-note-apercu");
+    egal(apercu.textContent, "Ajouter une note…");
+    vrai(apercu.classList.contains("vide"), "marquée comme vide pour le style");
+  });
+
+  await test("cocher « à vérifier » déplie la note pour la saisie immédiate", async () => {
+    await semer();
+    const id = tc.state.interventions[0].id;
+    tc.toggleInterventionVerify(id); // décoche : la note disparaît
+    egal(
+      tc.els.interventionTbody.querySelector("details.verify-note-details"),
+      null,
+      "aucune note tant que la case est décochée"
+    );
+    tc.toggleInterventionVerify(id); // recoche
+    const champ = tc.els.interventionTbody.querySelector(`[data-verify-note-input="${id}"]`);
+    vrai(champ, "note créée");
+    egal(champ.closest("details").open, true, "dépliée : le focus ne part pas dans le vide");
+  });
+
+  await test("un aperçu de note hostile est affiché en texte, jamais interprété", async () => {
+    await semer();
+    const id = tc.state.interventions.find((i) => i.toVerify).id;
+    tc.updateInterventionVerifyNote(id, '<img src=x onerror=alert(1)> "x"');
+    tc.renderInterventionTable();
+    const apercu = tc.els.interventionTbody.querySelector(".verify-note-apercu");
+    egal(apercu.querySelector("img"), null, "aucune balise injectée");
+    egal(apercu.textContent, '<img src=x onerror=alert(1)> "x"', "rendu littéral");
+  });
+
   await test("sommaire de facturation : regroupé, total, détail au clic, lecture seule", async () => {
     await semer();
     tc.els.groupBy.value = "ticket";
