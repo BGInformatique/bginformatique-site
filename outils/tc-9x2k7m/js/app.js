@@ -1359,7 +1359,13 @@ function toggleInterventionVerify(id) {
   renderSummaryTable();
   if (i.toVerify) {
     const input = els.interventionTbody.querySelector(`[data-verify-note-input="${cssEscape(id)}"]`);
-    if (input) input.focus();
+    if (input) {
+      // La note naît repliée : on l'ouvre pour celle qu'on vient de cocher,
+      // sinon le focus partirait dans un champ invisible.
+      const details = input.closest("details");
+      if (details) details.open = true;
+      input.focus();
+    }
   }
 }
 
@@ -1746,13 +1752,25 @@ function renderInterventionTable() {
     els.interventionTbody.appendChild(tr);
 
     if (i.toVerify) {
+      // La note est REPLIÉE par défaut. Dépliée, elle ajoutait une seconde
+      // ligne pleine hauteur à chaque entrée cochée : sur une semaine où tout
+      // est à vérifier, le tableau doublait et la colonne Description passait
+      // hors écran. <details> plutôt qu'un basculement maison — le textarea
+      // reste dans le DOM (l'écouteur « change » et la sauvegarde ne changent
+      // pas), et on hérite du clavier et du repli natifs.
+      const apercu = (i.verifyNote || "").replace(/\s+/g, " ").trim();
       const trNote = document.createElement("tr");
       trNote.className = "verify-note-row";
       trNote.innerHTML = `
         <td></td>
         <td colspan="10">
-          <div class="verify-note-label">⚠️ À vérifier avant facturation</div>
-          <textarea class="verify-note-input" rows="2" data-verify-note-input="${escapeHtml(i.id)}" aria-label="Note de vérification" placeholder="Note de vérification (optionnelle)… — Entrée pour une nouvelle ligne">${escapeHtml(i.verifyNote || "")}</textarea>
+          <details class="verify-note-details">
+            <summary class="verify-note-summary">
+              <span class="verify-note-tag">⚠️ À vérifier</span>
+              <span class="verify-note-apercu${apercu ? "" : " vide"}">${escapeHtml(apercu) || "Ajouter une note…"}</span>
+            </summary>
+            <textarea class="verify-note-input" rows="2" data-verify-note-input="${escapeHtml(i.id)}" aria-label="Note de vérification" placeholder="Note de vérification (optionnelle)… — Entrée pour une nouvelle ligne">${escapeHtml(i.verifyNote || "")}</textarea>
+          </details>
         </td>`;
       els.interventionTbody.appendChild(trNote);
     }

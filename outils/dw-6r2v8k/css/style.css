@@ -1,0 +1,200 @@
+/* =========================================================================
+   Demandes web — vue du propriétaire.
+   Même famille visuelle que les autres outils : dense, lisible d'un coup
+   d'œil, utilisable au téléphone.
+   ========================================================================= */
+
+:root {
+  color-scheme: light dark;
+  --brand: #0E8FC4;
+  --brand-hover: #0a72a0;
+  --brand-soft: rgba(14, 143, 196, 0.12);
+  --nuit: #0E1A33;
+
+  --paper: #EAEEF3;
+  --surface: #ffffff;
+  --border: rgba(14, 26, 51, 0.18);
+  --text: #0E1A33;
+  --text-muted: #6B7791;
+
+  --warning: #8a6d1a;
+  --warning-bg: #fbf4dd;
+  --danger: #c0392b;
+  --danger-bg: #fdecea;
+  --ok: #1d7a45;
+  --ok-bg: #e6f4ec;
+
+  --radius: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0d1420;
+    --surface: #16202f;
+    --border: rgba(255, 255, 255, 0.14);
+    --text: #e8ecf3;
+    --text-muted: #9aa7c0;
+    --warning-bg: #33290d;
+    --danger-bg: #3a1c18;
+    --ok-bg: #12301f;
+    --ok: #7fd6a4;
+    --brand: #4fb3e0;
+    --brand-hover: #7cc9ec;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--text);
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+.app-header {
+  background: var(--nuit);
+  color: #fff;
+  padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.app-header h1 { font-family: 'Sora', 'Segoe UI', sans-serif; font-size: 1.2rem; }
+.subtitle { color: #9AA7C0; font-size: 0.85rem; }
+
+main, .auth-gate { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.auth-gate { display: grid; place-items: center; min-height: 60vh; }
+.auth-card { text-align: center; max-width: 420px; }
+.auth-card h2 { font-family: 'Sora', sans-serif; font-size: 1.05rem; margin-bottom: 8px; }
+.auth-card p { color: var(--text-muted); margin-bottom: 18px; }
+
+.btn {
+  font: inherit; font-weight: 600;
+  border: 1px solid transparent; border-radius: var(--radius);
+  padding: 8px 16px; cursor: pointer;
+}
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand-hover); }
+.btn-lg { padding: 12px 22px; font-size: 1rem; }
+.btn-ghost {
+  background: transparent; color: #9AA7C0;
+  border-color: rgba(255,255,255,0.25); font-size: 0.85rem;
+}
+.btn-ghost:hover { color: #fff; border-color: #fff; }
+.btn-eclair {
+  background: var(--brand); color: #fff;
+  font-size: 0.88rem; padding: 7px 14px;
+}
+.btn-eclair:hover { background: var(--brand-hover); }
+.btn-eclair:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-mini {
+  background: transparent; color: var(--text-muted);
+  border-color: var(--border); font-size: 0.82rem; padding: 6px 12px;
+}
+.btn-mini:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* ---------- Barre de filtres ---------- */
+
+.barre {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.filtres { display: flex; gap: 6px; flex-wrap: wrap; }
+.filtre {
+  font: inherit; font-size: 0.85rem; font-weight: 600;
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 5px 13px; cursor: pointer;
+}
+.filtre[aria-pressed="true"] {
+  background: var(--brand-soft); color: var(--brand-hover);
+  border-color: var(--brand);
+}
+.synchro { font-size: 0.8rem; color: var(--text-muted); }
+
+/* ---------- Demandes ---------- */
+
+.demande {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-muted);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.demande.etat-analyse  { border-left-color: var(--warning); }
+.demande.etat-en_cours { border-left-color: var(--brand); }
+.demande.etat-en_ligne { border-left-color: var(--ok); }
+.demande.etat-refusee, .demande.etat-annulee { border-left-color: var(--danger); }
+
+.d-tete {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap;
+}
+.d-client { font-weight: 700; }
+.d-type { color: var(--text-muted); font-size: 0.88rem; }
+.d-meta { color: var(--text-muted); font-size: 0.82rem; margin: 4px 0 8px; }
+.d-corps { white-space: pre-wrap; font-size: 0.94rem; }
+.d-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+
+.pastille {
+  font-size: 0.76rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(127,127,127,0.15); color: var(--text-muted);
+  white-space: nowrap;
+}
+.pastille.etat-analyse  { background: var(--warning-bg); color: var(--warning); }
+.pastille.etat-en_cours { background: var(--brand-soft); color: var(--brand-hover); }
+.pastille.etat-en_ligne { background: var(--ok-bg); color: var(--ok); }
+.pastille.etat-refusee, .pastille.etat-annulee { background: var(--danger-bg); color: var(--danger); }
+
+.urgent { color: var(--danger); font-weight: 700; }
+
+/* Client sans dossier déclaré sur BG001 : l'éclair reste fermé. */
+.non-relie {
+  background: var(--warning-bg); color: var(--warning);
+  border: 1px solid var(--warning); border-radius: var(--radius);
+  padding: 8px 12px; font-size: 0.85rem; margin-top: 10px;
+}
+
+.resultat {
+  margin-top: 12px; padding: 12px;
+  background: rgba(127,127,127,0.08);
+  border-radius: var(--radius);
+  font-size: 0.88rem; white-space: pre-wrap;
+  max-height: 260px; overflow-y: auto;
+}
+
+.banners { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+.banner {
+  border-radius: var(--radius); padding: 11px 15px;
+  margin-bottom: 12px; font-size: 0.9rem; border: 1px solid;
+}
+.banner-danger { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+.banner-warn { background: var(--warning-bg); border-color: var(--warning); color: var(--warning); }
+
+.vide { color: var(--text-muted); text-align: center; padding: 26px 0; font-size: 0.93rem; }
+.form-error { color: var(--danger); font-size: 0.88rem; }
+.note {
+  color: var(--text-muted); font-size: 0.82rem;
+  margin-top: 16px; text-align: center;
+}
+.note code {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.95em;
+}
+
+[hidden] { display: none !important; }
+
+@media (max-width: 520px) {
+  main, .banners { padding: 14px; }
+  .card { padding: 14px; }
+}

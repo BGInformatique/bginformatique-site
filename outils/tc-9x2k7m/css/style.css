@@ -373,6 +373,38 @@ td.desc {
   max-width: 400px;
 }
 
+/* Le tableau des interventions compte onze colonnes : dès que les descriptions
+ * sont longues, il dépasse la largeur de la fenêtre. .table-wrap le fait bien
+ * défiler, mais les gestionnaires de fenêtres à barres flottantes n'affichent
+ * rien tant qu'on ne défile pas — et la colonne des actions, la dernière, se
+ * retrouve hors champ. Modifier une intervention devenait impossible sans
+ * deviner qu'un défilement horizontal existe.
+ *
+ * La colonne des actions reste donc accrochée à droite. Son ombre portée sert
+ * d'indice : elle montre qu'il y a du contenu dessous, donc qu'on peut défiler. */
+.table-interventions thead th:last-child,
+.table-interventions tbody tr:not(.verify-note-row) > td:last-child {
+  position: sticky;
+  right: 0;
+  background: var(--card);
+  box-shadow: -6px 0 6px -6px rgba(15, 23, 42, 0.25);
+}
+
+/* Une ligne à vérifier a son propre fond ambré : la cellule accrochée doit le
+ * reprendre, sinon elle laisse une encoche blanche au bout de la ligne. */
+.table-interventions tbody tr.to-verify-row > td:last-child {
+  background: #fff4e5;
+}
+
+/* À l'impression, rien ne défile et l'ombre salirait la page. */
+@media print {
+  .table-interventions thead th:last-child,
+  .table-interventions tbody tr:not(.verify-note-row) > td:last-child {
+    position: static;
+    box-shadow: none;
+  }
+}
+
 th {
   color: var(--text-muted);
   font-weight: 600;
@@ -604,19 +636,80 @@ tr.to-verify-row td {
 tr.verify-note-row td {
   background: #fff8ec;
   box-shadow: inset 4px 0 0 #d97706;
-  padding: 8px 8px 12px;
+  padding: 2px 8px 3px;
 }
 
-.verify-note-label {
+/* La note tient sur une seule ligne tant qu'on ne l'ouvre pas : le repère
+ * « à vérifier » reste visible, sans voler la hauteur de la ligne voisine. */
+
+.verify-note-summary {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.verify-note-summary::-webkit-details-marker {
+  display: none;
+}
+
+.verify-note-summary::after {
+  content: "▸";
+  color: #9a5b00;
+  font-size: 0.8rem;
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+
+.verify-note-details[open] > .verify-note-summary::after {
+  transform: rotate(90deg);
+}
+
+.verify-note-summary:hover {
+  background: #fdefd6;
+}
+
+.verify-note-summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.verify-note-tag {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: #9a5b00;
-  margin-bottom: 4px;
+}
+
+/* L'aperçu est tronqué, jamais replié sur plusieurs lignes : c'est ce qui
+ * garde la ligne à hauteur constante quelle que soit la longueur de la note. */
+.verify-note-apercu {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  color: #7c4a00;
+}
+
+.verify-note-apercu.vide {
+  font-style: italic;
+  color: #b08a55;
+}
+
+.verify-note-details[open] > .verify-note-summary > .verify-note-apercu {
+  visibility: hidden;
+}
+
+.verify-note-details[open] {
+  padding-bottom: 6px;
 }
 
 .verify-note-input {

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Demandes web — clients</title>
+  <link rel="stylesheet" href="css/style.css?v=20260813100554">
+</head>
+<body>
+
+  <header class="app-header">
+    <div>
+      <h1>⚡ Demandes web</h1>
+      <p class="subtitle">Les demandes de tes clients, et le lancement sur BG001</p>
+    </div>
+    <button id="btn-logout" class="btn btn-ghost" hidden>Déconnexion</button>
+  </header>
+
+  <div id="auth-gate" class="auth-gate">
+    <div class="card auth-card">
+      <h2>Connexion requise</h2>
+      <p>Connecte-toi avec ton compte Microsoft BGInformatique.</p>
+      <button id="btn-login" class="btn btn-primary btn-lg">Se connecter avec Microsoft</button>
+      <p class="form-error" id="auth-error" hidden></p>
+    </div>
+  </div>
+
+  <div id="banners" class="banners" aria-live="polite"></div>
+
+  <main hidden>
+
+    <section class="card">
+      <div class="barre">
+        <div class="filtres" id="filtres" role="group" aria-label="Filtrer par état"></div>
+        <div class="synchro" id="synchro">Lecture…</div>
+      </div>
+      <div id="liste"></div>
+    </section>
+
+    <p class="note">
+      Le lanceur de BG001 ramasse les demandes lancées et travaille dans
+      <code>WebsiteMaestro/SitesWebClient/&lt;NomDuClient&gt;/</code>. Un client sans
+      dossier déclaré s'affiche en « non relié » et l'éclair reste fermé.
+    </p>
+
+  </main>
+
+  <script type="module" src="js/app.js?v=20260813100554"></script>
+</body>
+</html>
