@@ -6,6 +6,7 @@ rules_version = '2';
 //    TimeCalculator            https://bginformatique.ca/outils/tc-9x2k7m/
 //    Tableau de bord marketing https://bginformatique.ca/outils/mk-7p3w9d/
 //    BGFoods (épicerie)        https://bginformatique.ca/outils/ep-4k9m2t/
+//    Demandes web des clients  https://bginformatique.ca/outils/dw-6r2v8k/
 //    Boîtes de courriel        https://bginformatique.ca/outils/cr-8h4m2v/  (lecture seule)
 //
 //  Le fichier vit dans le dossier de TimeCalculator pour raisons historiques ;
@@ -16,10 +17,25 @@ rules_version = '2';
 //  CE FICHIER EST LA RÉFÉRENCE VERSIONNÉE. La console Firebase ne lit pas ce
 //  dépôt : après toute modification ici, coller le contenu dans
 //  Console → Firestore Database → Règles, en suivant SECURITE-FIRESTORE.md.
+//  Toujours coller le fichier ENTIER : une copie plus ancienne effacerait les
+//  blocs ajoutés depuis, et cinq outils en ligne en dépendent maintenant.
 //
-//  INTENTION : un compte connecté n'atteint QUE sa propre feuille de temps.
-//  Chemin réellement utilisé par l'application (js/app.js) :
-//      users/{uid}/timecalculator/state
+//  INTENTION : un compte connecté n'atteint QUE son propre dossier
+//  users/<son-uid>/…, et à l'intérieur de ce dossier, QUE les sous-collections
+//  des outils réellement en service. Rien d'autre n'est accordé.
+//
+//  CE QUE CE FICHIER NE COUVRE PAS, ET POURQUOI IL NE DOIT PAS LE COUVRIR
+//  1. Les écrivains de BG001 — lanceur.py, pont_clients.py, prospecteur.py,
+//     BGCourriel — parlent à Firestore par compte de service (REST + jeton
+//     RS256, rôle datastore.user). Cet accès IGNORE totalement les règles :
+//     aucune ligne d'ici ne le gêne, et surtout AUCUNE permission ne doit être
+//     ouverte « pour lui ». Toute permission accordée ici ne profite qu'à un
+//     navigateur — donc, en cas de jeton volé, à l'attaquant.
+//  2. L'espace client (https://bginformatique.ca/espace-client/) vit dans un
+//     AUTRE projet Firebase, avec son propre fichier de règles
+//     (espace-client/firestore.rules). Les comptes clients n'ont AUCUNE
+//     identité dans « bgtimecalculator » : ne jamais chercher ni ajouter
+//     « demandes/{id} » ici.
 //
 //  DEUX POINTS DE SÉMANTIQUE QUI EXPLIQUENT LA FORME DU FICHIER
 //  1. Le refus est l'état par défaut : un chemin non couvert par un « match »
@@ -33,6 +49,17 @@ rules_version = '2';
 //  request.auth.uid == uid. Aucune lecture annexe, aucun document de
 //  configuration, aucune validation de champ — rien qui puisse « tomber »
 //  parce qu'un champ a changé de nom ou qu'un document manque.
+//
+//  GET CONTRE LIST — À LIRE AVANT DE RESSERRER QUOI QUE CE SOIT.
+//  « allow read » accorde deux choses : get (lire UN document désigné, ce que
+//  fait onSnapshot sur une référence) et list (interroger la COLLECTION, ce
+//  que font query()/where()/orderBy()). Trois outils d'ici dépendent de list :
+//  marketing (file des lancements), BGFoods (file des lancements) et Demandes
+//  web (carte des demandes). Refuser list à ces trois-là ne se verrait PAS
+//  tout de suite : le cache persistant multi-onglets acquitte localement, et
+//  le gestionnaire d'erreur de mk-7p3w9d/js/app.js:1344 avale même le refus en
+//  silence. Un écran qui « perd » sa liste des heures plus tard est le
+//  symptôme d'un list refusé.
 // =============================================================================
 
 service cloud.firestore {
@@ -43,58 +70,108 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
-    //  FEUILLE DE TEMPS — users/{uid}/timecalculator/{docId}
-    //  Un seul document aujourd'hui : « state ».
-    //  Portée limitée à cette sous-collection à dessein : autoriser tout
-    //  /users/{uid}/{document=**} laisserait n'importe quel compte connecté
-    //  créer un nombre illimité de collections sous son dossier — stockage et
-    //  écritures facturés au projet. Un futur outil du site aura son propre
-    //  bloc : c'est un ajout, il ne met pas celui-ci en danger.
+    //  FEUILLE DE TEMPS — users/{uid}/timecalculator/state
+    //  Outil : TimeCalculator
+    //          https://bginformatique.ca/outils/tc-9x2k7m/
+    //
+    //  UN SEUL DOCUMENT, ET LE MATCH LE DIT. Tout l'état de l'outil — punches,
+    //  interventions, chronos en cours, pierres tombales — tient dans le seul
+    //  document « state » (js/app.js:2717). Le composant n'importe même pas
+    //  collection(), query(), getDocs() ni addDoc() : les seuls symboles
+    //  Firestore importés sont doc, setDoc et onSnapshot (js/app.js:32-39), et
+    //  le banc d'essai fige le chemin (tests/tests.js:531).
+    //  Nommer le document plutôt que d'écrire un joker {docId} coûte une ligne
+    //  et achète deux choses : aucun document parasite ne peut être créé sous
+    //  cette sous-collection depuis un navigateur (stockage et écritures sont
+    //  facturés au projet), et aucune interrogation de collection n'est
+    //  possible — il n'y en a aucune dans le code.
+    //
+    //  SI ÇA CASSE, LA LIGNE DE REPLI TIENT EN UNE SUBSTITUTION : remplacer
+    //      match /users/{uid}/timecalculator/state
+    //  par  match /users/{uid}/timecalculator/{docId}
+    //  et « allow get » par « allow read ». On revient exactement à la règle
+    //  large qui a tourné jusqu'ici. À garder en tête parce qu'une panne de
+    //  synchro sur la feuille de temps se paie en heures non facturées.
     // -------------------------------------------------------------------------
-    match /users/{uid}/timecalculator/{docId} {
+    match /users/{uid}/timecalculator/state {
 
-      // get + list. L'application ne fait que des get (onSnapshot sur un
-      // document précis) ; list ne porte de toute façon que sur les documents
-      // du propriétaire.
-      allow read: if estProprietaire(uid);
+      // get seulement : onSnapshot porte sur une référence de document précise
+      // (js/app.js:2725), jamais sur une collection. « list » n'aurait aucun
+      // appelant.
+      allow get: if estProprietaire(uid);
 
+      // create EN PLUS d'update : le tout premier setDoc crée le document.
       // Aucune validation de forme, et c'est un choix, pas un oubli :
       // l'application réécrit l'état ENTIER à chaque sauvegarde (setDoc sans
-      // merge) et le format a déjà changé une fois. Une liste de champs figée
+      // merge, js/app.js:394) et le format a déjà changé une fois
+      // (activeIntervention → activeInterventions). Une liste de champs figée
       // barrerait le propriétaire au prochain changement de schéma, et le cache
       // persistant masquerait la panne pendant des heures. La validation de
       // forme appartient au code de l'application (normalizeState, tests).
       allow create, update: if estProprietaire(uid);
 
-      // L'application ne supprime jamais ce document. La console Firebase et
-      // l'Admin SDK ignorent les règles : la suppression reste possible pour le
-      // propriétaire du projet, mais pas depuis un navigateur.
+      // L'application ne supprime jamais ce document : une intervention ou un
+      // punch retiré est marqué par pierre tombale À L'INTÉRIEUR du document
+      // (state.tombstones), pour qu'un autre appareil ne le ressuscite pas à la
+      // synchro suivante. L'élagage des pierres tombales de plus de 180 jours
+      // se fait en mémoire puis repart par setDoc : ce n'est pas une
+      // suppression Firestore. La console Firebase et l'Admin SDK ignorent les
+      // règles : la suppression reste possible pour le propriétaire du projet,
+      // mais pas depuis un navigateur.
       allow delete: if false;
     }
 
     // -------------------------------------------------------------------------
     //  MARKETING — users/{uid}/marketing/{docId}
-    //  Outil : Tableau de bord marketing
+    //  Outil : Tableau de bord marketing (4 écrans)
     //          https://bginformatique.ca/outils/mk-7p3w9d/
-    //  Un seul document aujourd'hui : « state ».
     //
-    //  C'est le « futur outil » annoncé au bloc précédent : un AJOUT, pas une
-    //  modification. Le bloc TimeCalculator n'est pas touché, et rien ici ne
-    //  peut lui retirer un accès — deux « match » ne se soustraient jamais.
+    //  LE JOKER {docId} EST NÉCESSAIRE ICI, ET LE COMMENTAIRE QUI DISAIT
+    //  « un seul document : state » ÉTAIT PÉRIMÉ. Cinq formes de documents
+    //  cohabitent dans cette seule sous-collection :
+    //    state        — état de l'écran principal (js/app.js:1309), réécrit en
+    //                   ENTIER par setDoc sans merge ;
+    //    prospection  — PARTAGÉ champ par champ entre la page (merge:true :
+    //                   gestes, revenus, releves, signaux, candidatures,
+    //                   ajouts, appels) et prospecteur.py sur BG001
+    //                   (updateMask : prospects, inventaire, candidats…) ;
+    //    veille       — écran de veille (js/veille.js:668), réécrit en entier ;
+    //    linkedin-lot — lot de publications (js/linkedin.js:200), réécrit en
+    //                   entier à chaque bascule « Marquer publié » ;
+    //    lancement-*  — file de travail vers BG001, nom généré
+    //                   lancement-<ms>-<6 caractères> (js/app.js:362).
+    //  Resserrer ce match sur « state » couperait quatre écrans plus toute la
+    //  file des lancements Claude et le guichet des autorisations. Ne pas le
+    //  faire.
     //
-    //  Même forme et mêmes raisons que TimeCalculator : portée limitée à la
-    //  sous-collection (pas de {document=**}, qui laisserait un compte connecté
-    //  créer des collections parasites aux frais du projet), et aucune
-    //  validation de champ (l'application réécrit l'état entier ; un schéma
-    //  figé ici barrerait le propriétaire au prochain changement de format).
+    //  « read » PLUTÔT QUE « get » : la carte des lancements interroge la
+    //  collection entière — query(collection(…,"marketing"),
+    //  orderBy("demandeLe","desc"), limit(30)) (js/app.js:1331-1333). C'est une
+    //  opération « list » ; son refus serait invisible à l'écran (gestionnaire
+    //  d'erreur vide, js/app.js:1344) et ferait disparaître tout le suivi des
+    //  lancements. La portée reste le dossier du propriétaire : lui accorder de
+    //  lister SON propre dossier ne lui donne rien de plus que ce qu'il peut
+    //  déjà lire document par document.
+    //
+    //  AUCUNE VALIDATION DE CHAMP, ET C'EST DOUBLEMENT VOULU : trois documents
+    //  sont réécrits en entier (un schéma figé barrerait le propriétaire au
+    //  prochain changement de format), et « prospection » est écrit à deux
+    //  mains — une règle qui exigerait la présence de tel champ casserait soit
+    //  la page, soit le prospecteur. Les sentinelles increment() et
+    //  arrayUnion() ne se voient pas dans les règles : ne jamais borner la
+    //  taille des tableaux releves, revenus ou appels, qui grossissent.
     // -------------------------------------------------------------------------
     match /users/{uid}/marketing/{docId} {
       allow read: if estProprietaire(uid);
       allow create, update: if estProprietaire(uid);
 
-      // L'application ne supprime jamais ce document : les enregistrements
-      // retirés sont marqués par pierre tombale À L'INTÉRIEUR du document,
-      // pour qu'un autre appareil ne les ressuscite pas à la synchro suivante.
+      // L'application ne supprime aucun document : les enregistrements retirés
+      // sont marqués par pierre tombale À L'INTÉRIEUR du document (champ
+      // tombstones, élagué à 90 jours), pour qu'un autre appareil ne les
+      // ressuscite pas à la synchro suivante — deleteDoc n'est même pas importé
+      // dans tout le composant. La seule vraie suppression est le ménage des
+      // lancement-* terminés de plus de 30 jours, fait par le lanceur en accès
+      // serveur (lanceur.py) : il ignore les règles, ce refus ne le gêne pas.
       allow delete: if false;
     }
 
@@ -102,25 +179,40 @@ service cloud.firestore {
     //  BGFOODS — users/{uid}/bgfoods/{docId}
     //  Outil : Circulaires et listes d'épicerie
     //          https://bginformatique.ca/outils/ep-4k9m2t/
-    //  Un seul document aujourd'hui : « state ».
     //
-    //  Encore un AJOUT : ni le bloc TimeCalculator ni le bloc MARKETING ne sont
-    //  touchés, et rien ici ne peut leur retirer un accès — deux « match » ne se
-    //  soustraient jamais l'un à l'autre.
+    //  MÊME CORRECTION QUE POUR LE MARKETING : le commentaire qui annonçait
+    //  « un seul document : state » ne vaut plus. Deux familles cohabitent ici :
+    //    state       — tout l'état de l'outil (js/app.js:155), réécrit en entier
+    //                  après un débounce de 900 ms ;
+    //    lancement-* — file de travail vers BG001, créée par l'éclair
+    //                  (js/app.js:625) et par la veille (js/app.js:851), puis
+    //                  complétée en merge ({statut:"annule"}, {recolte:true}).
     //
-    //  Même forme et mêmes raisons que les deux précédents : portée limitée à
-    //  la sous-collection (pas de {document=**}), et aucune validation de champ
-    //  (l'application réécrit l'état entier; un schéma figé ici barrerait le
-    //  propriétaire au prochain changement de format).
+    //  « read » PLUTÔT QUE « get » : la page écoute la collection filtrée —
+    //  query(collection(…,"bgfoods"), where("outil","==","BGFoods")) suivi d'un
+    //  onSnapshot (js/app.js:554-558). C'est une opération « list » sur la
+    //  sous-collection ; une règle qui n'autoriserait la lecture que d'un
+    //  document nommé casserait toute la file de lancement. Le document
+    //  « state » n'a pas de champ « outil », le filtre l'écarte de lui-même.
+    //
+    //  Aucune validation de champ : « state » est réécrit en entier, et les
+    //  lancement-* connaissent trois formes d'écriture (création complète à dix
+    //  champs, merge d'annulation, merge d'accusé de récolte). Le seul champ
+    //  qu'un navigateur pose sur un lancement en cours est « recolte » ; tous
+    //  les champs de progression (statut en_cours/fait/echec, debuteLe, finiLe,
+    //  resultat, erreur, coutUsd) viennent du serveur, qui ignore les règles.
     // -------------------------------------------------------------------------
     match /users/{uid}/bgfoods/{docId} {
       allow read: if estProprietaire(uid);
       allow create, update: if estProprietaire(uid);
 
-      // L'application ne supprime jamais ce document : circulaires, aubaines et
-      // listes retirées sont marquées par pierre tombale À L'INTÉRIEUR du
-      // document, pour qu'un autre appareil ne les ressuscite pas à la synchro
-      // suivante (voir outils/ep-4k9m2t/js/etat.js).
+      // L'application ne supprime aucun document : circulaires, aubaines,
+      // listes et plans retirés sont marqués par pierre tombale À L'INTÉRIEUR
+      // du document « state » (etat.tombes, TTL 180 jours, voir
+      // outils/ep-4k9m2t/js/etat.js), pour qu'un autre appareil ne les
+      // ressuscite pas à la synchro suivante. La purge réelle des lancement-*
+      // terminés appartient au lanceur, en accès serveur — le préfixe
+      // « lancement- » y protège explicitement « state ».
       allow delete: if false;
     }
 
@@ -129,51 +221,75 @@ service cloud.firestore {
     //  Outil : Demandes web des clients
     //          https://bginformatique.ca/outils/dw-6r2v8k/
     //
-    //  Documents : « state » (miroir des demandes, écrit par le pont de BG001),
-    //  « lancement-* » (déposés par l'éclair) et « signal-* » (changements
-    //  d'état demandés par la page, appliqués puis effacés par le pont).
+    //  Trois formes de documents dans une seule sous-collection :
+    //    state       — MIROIR des demandes clients, déposé par le pont de BG001
+    //                  (pont_clients.py). La page ne l'écrit JAMAIS et ne doit
+    //                  pas l'écrire : « On n'écrit RIEN ici — ce document
+    //                  appartient au pont » (js/app.js:111-112) ;
+    //    lancement-* — travail confié à Claude (js/app.js:311-314), annulable ;
+    //    signal-*    — changement d'état demandé par la page (js/app.js:348),
+    //                  appliqué puis EFFACÉ par le pont, en accès serveur.
     //
     //  CE BLOC N'OUVRE RIEN AUX CLIENTS. Les comptes clients vivent dans un
     //  AUTRE projet Firebase (espace-client/firestore.rules) et n'ont aucune
     //  identité ici. Ce qu'on voit dans cet outil est une COPIE déposée par le
-    //  pont, sous le dossier du propriétaire — d'où la même règle
-    //  « propriétaire seul » que les deux blocs précédents, et aucune règle
-    //  inter-utilisateurs nulle part.
+    //  pont sous le dossier du propriétaire — d'où la même règle « propriétaire
+    //  seul » que les blocs précédents, et aucune règle inter-utilisateurs
+    //  nulle part.
     //
-    //  Même forme et mêmes raisons : portée limitée à la sous-collection, et
-    //  aucune validation de champ (le propriétaire est le seul écrivain côté
-    //  navigateur ; le pont écrit par accès serveur, qui ignore les règles).
+    //  « read » PLUTÔT QUE « get » : la page écoute la sous-collection entière,
+    //  sans query() ni where() (js/app.js:106 et :128). C'est un « list » ; un
+    //  allow get par document ne suffirait pas.
     // -------------------------------------------------------------------------
     match /users/{uid}/clientsweb/{docId} {
       allow read: if estProprietaire(uid);
-      allow create, update: if estProprietaire(uid);
 
-      // Contrairement aux deux blocs précédents, la SUPPRESSION est refusée
-      // pour la même raison mais avec un enjeu de plus : un lancement effacé
-      // depuis un navigateur laisserait le lanceur travailler sur une demande
-      // dont plus personne ne suit le résultat. La purge des lancements
-      // terminés appartient au pont (accès serveur), comme pour le marketing.
+      // LA SEULE EXCEPTION DU FICHIER : « state » est en lecture seule pour le
+      // navigateur. Ce document appartient au pont, qui le réécrit toutes les
+      // 300 s ; la page n'a aucun code qui l'écrive. L'interdire ici ne casse
+      // donc rien et achète ceci : un bogue ou un jeton volé ne peut pas
+      // écraser le miroir des demandes clients — c'est-à-dire faire disparaître
+      // de l'écran des demandes payantes jusqu'au cycle suivant du pont.
+      //
+      // NE PAS ALLER PLUS LOIN. En particulier, ne JAMAIS restreindre l'écriture
+      // au préfixe « lancement- » : le bouton d'annulation (updateDoc,
+      // js/app.js:333) peut viser un document signal-*, parce que les signal-*
+      // portent eux aussi idDemande et un demandeLe plus récent et gagnent donc
+      // la comparaison de js/app.js:128-138. Une telle règle ferait échouer un
+      // clic d'annulation en production, sans message clair à l'écran.
+      allow create, update: if estProprietaire(uid) && docId != 'state';
+
+      // Suppression refusée, pour la raison habituelle plus un enjeu de plus :
+      // un lancement effacé depuis un navigateur laisserait le lanceur
+      // travailler sur une demande dont plus personne ne suit le résultat.
+      // L'annulation est une pierre tombale (statut « annule »), pas un
+      // effacement. Les seules vraies suppressions — les signal-* consommés,
+      // les lancement-* périmés — appartiennent au pont et au lanceur, en accès
+      // serveur : ils ignorent les règles, ce refus ne les gêne pas.
       allow delete: if false;
     }
 
     // -------------------------------------------------------------------------
-    //  COURRIEL — users/{uid}/courriel/{docId}
+    //  COURRIEL — users/{uid}/courriel/etat
     //  Outil : Tableau de bord des boîtes de courriel
     //          https://bginformatique.ca/outils/cr-8h4m2v/
-    //  Un seul document aujourd'hui : « etat ».
     //
-    //  Encore un AJOUT : aucun des trois blocs précédents n'est touché, et rien
-    //  ici ne peut leur retirer un accès — deux « match » ne se soustraient
-    //  jamais l'un à l'autre.
+    //  UN SEUL DOCUMENT, UN SEUL VERBE. Le nom est fixe — « etat », pas
+    //  « state » — et la page ne fait qu'un onSnapshot sur cette référence
+    //  précise (js/app.js:1191-1192). Ni collection(), ni query(), ni
+    //  getDocs() : « list » n'aurait aucun appelant, et « allow read » en
+    //  accorderait un pour rien.
     //
-    //  CE BLOC DIFFÈRE DES TROIS AUTRES SUR UN POINT, ET C'EST VOULU :
-    //  l'écriture est REFUSÉE au navigateur. Les trois autres outils sont des
+    //  CE BLOC DIFFÈRE DES QUATRE AUTRES SUR UN POINT, ET C'EST VOULU :
+    //  l'écriture est REFUSÉE au navigateur. Les autres outils sont des
     //  applications où le propriétaire saisit ses données ; celui-ci n'affiche
     //  que ce qu'une machine a mesuré. La page est en lecture seule par
-    //  conception (voir js/app.js : aucun setDoc, aucun updateDoc). Le seul
-    //  écrivain est le compte de service lanceur-marketing@bgtimecalculator,
-    //  depuis BG001 — et l'accès serveur ignore les règles, donc lui refuser
-    //  l'écriture ici ne le gêne pas.
+    //  conception — setDoc et updateDoc ne sont même pas importés
+    //  (js/app.js:35-41), et le banc d'essai fait échouer bruyamment toute
+    //  tentative d'écriture. Le seul écrivain est BGCourriel sur BG001, par
+    //  compte de service — et l'accès serveur ignore les règles, donc lui
+    //  refuser l'écriture ici ne le gêne pas. Ce qui protège cette écriture,
+    //  c'est le fichier de clé sur la machine, pas ce fichier-ci.
     //
     //  Ce que ce refus achète : un jeton de navigateur volé ne peut pas
     //  fabriquer un faux tableau de bord — pas de fausse file d'action vide qui
@@ -181,12 +297,14 @@ service cloud.firestore {
     //  au contrôle. En lecture seule, le pire cas est de LIRE des courriels ;
     //  avec l'écriture, il serait de MENTIR sur leur état.
     //
-    //  Le contenu est sensible — objets et adresses en clair, y compris de
-    //  clients. Raison de plus pour que la portée reste étroite : cette
-    //  sous-collection, et rien d'autre.
+    //  Le contenu est sensible — objets, adresses et noms d'expéditeurs en
+    //  clair, y compris de clients. Raison de plus pour que la portée reste
+    //  étroite : ce document, et rien d'autre. Un joker {docId} laisserait
+    //  lister la sous-collection et lire tout document qu'on y déposerait
+    //  demain.
     // -------------------------------------------------------------------------
-    match /users/{uid}/courriel/{docId} {
-      allow read: if estProprietaire(uid);
+    match /users/{uid}/courriel/etat {
+      allow get: if estProprietaire(uid);
 
       // Aucune écriture depuis un navigateur. Si un jour la page devait
       // recevoir un réglage modifiable à l'écran, ce serait un document
@@ -219,6 +337,35 @@ service cloud.firestore {
     //  Si un filtre par courriel était un jour préféré, ANCRER le motif —
     //  matches() n'est pas ancré : "@bginformatique[.]ca" accepterait
     //  « pirate@bginformatique.ca.exemple.com ». Écrire "^.*@bginformatique[.]ca$".
+    // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    //  ESSAIS À PASSER AU SIMULATEUR AVANT DE PUBLIER
+    //  (Console → Firestore → Règles → Simulateur ; <uid> = le compte
+    //   propriétaire, <autre> = n'importe quel autre uid)
+    // -------------------------------------------------------------------------
+    //  AUTORISÉS
+    //    get    users/<uid>/timecalculator/state                  authentifié <uid>
+    //    update users/<uid>/timecalculator/state                  authentifié <uid>
+    //    get    users/<uid>/marketing/prospection                 authentifié <uid>
+    //    list   users/<uid>/marketing                             authentifié <uid>
+    //    create users/<uid>/marketing/lancement-1-abc123          authentifié <uid>
+    //    list   users/<uid>/bgfoods                               authentifié <uid>
+    //    update users/<uid>/bgfoods/state                         authentifié <uid>
+    //    list   users/<uid>/clientsweb                            authentifié <uid>
+    //    create users/<uid>/clientsweb/signal-42                  authentifié <uid>
+    //    update users/<uid>/clientsweb/lancement-1-abc123         authentifié <uid>
+    //    get    users/<uid>/courriel/etat                         authentifié <uid>
+    //  REFUSÉS (chacun vérifie une décision précise de ce fichier)
+    //    get    users/<autre>/timecalculator/state                authentifié <uid>
+    //    list   users/<autre>/marketing                           authentifié <uid>
+    //    get    users/<uid>/timecalculator/state                  NON authentifié
+    //    delete users/<uid>/marketing/lancement-1-abc123          authentifié <uid>
+    //    delete users/<uid>/bgfoods/state                         authentifié <uid>
+    //    update users/<uid>/clientsweb/state                      authentifié <uid>
+    //    update users/<uid>/courriel/etat                         authentifié <uid>
+    //    list   users/<uid>/courriel                              authentifié <uid>
+    //    get    users/<uid>/autrechose/state                      authentifié <uid>
     // -------------------------------------------------------------------------
   }
 }
