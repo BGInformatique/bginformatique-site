@@ -73,8 +73,13 @@ const RANG_STAT = { en_cours: 0, bloque: 1, a_faire: 2, reporte: 3, fait: 4 };
 // Lancements Claude : documents lancement-* de la même sous-collection,
 // traités sur BG001 par Claude_Lanceur/lanceur.py (hors dépôt). L'outil web
 // n'écrit que la demande ; le lanceur écrit la progression et le résultat.
+// « attente_autorisation » : la tâche a buté sur un geste que seul le
+// propriétaire peut autoriser (connexion, publication, dépense, décision de
+// fond). Elle a livré ce qu'elle a préparé et attend une réponse donnée sur
+// BG001 (Claude_Lanceur/autorisations.py) ; accorder la remet en file.
 const LIB_LANCEMENT = {
   demande: "Claude · demandé", en_cours: "Claude · en cours…",
+  attente_autorisation: "Claude · ton accord", refuse: "Claude · refusé",
   fait: "Claude · fait", echec: "Claude · échec", annule: "Claude · annulé",
 };
 
@@ -362,6 +367,31 @@ function lancerClaude(t) {
   }).catch((e) => avis("Lancement refusé : " + e.message, true));
 }
 
+/* Répondre à une réponse rendue. On ne crée pas un nouveau lancement : on
+   renvoie le MÊME document au lanceur avec la correction et la réponse
+   précédente, pour que la tâche reprenne son travail au lieu de le refaire.
+   Les corrections successives sont empilées côté lanceur. */
+function corrigerClaude(t, lc) {
+  if (!uidCourant || !lc || !lc.docId) return;
+  const remarque = prompt(`Qu'est-ce qui doit changer dans la réponse de Claude ?\n\n` +
+                          `« ${t.titre} »`, "");
+  if (remarque === null) return;
+  const texte = remarque.trim();
+  if (!texte) {
+    avis("Correction vide — rien n'a été renvoyé.", true);
+    return;
+  }
+  const ts = maintenant();
+  setDoc(doc(db, "users", uidCourant, "marketing", lc.docId), {
+    correction: texte,
+    resultatPrecedent: (lc.resultat || lc.erreur || "").slice(0, 20000),
+    correctionLe: ts, statut: "demande", demandeLe: ts, maj: ts,
+    resultat: "", erreur: "",
+  }, { merge: true })
+    .then(() => avis("Correction envoyée — la tâche repart avec ta remarque."))
+    .catch((e) => avis("Correction refusée : " + e.message, true));
+}
+
 function supprimerTache(id) {
   state.taches = state.taches.filter((t) => t.id !== id);
   const rattaches = state.temps.filter((e) => e.idTache === id).map((e) => e.id);
@@ -432,6 +462,33 @@ const trier = (a, b) =>
 
 /* ═══════════════════════════  rendu  ═══════════════════════════════════ */
 
+/* Une tâche lancée peut s'être arrêtée pour demander un accord : elle a livré
+   ce qu'elle pouvait et attend une réponse donnée sur le poste. La question
+   reste lisible carte fermée — c'est une question posée au propriétaire, pas
+   une trace à dépiler comme un résultat. */
+function blocAutorisation(lc) {
+  if (!lc || lc.statut !== "attente_autorisation" || !lc.autorisationDemande) return "";
+  const categorie = lc.autorisationCategorie ? " · " + ech(lc.autorisationCategorie) : "";
+  const options = lc.autorisationOptions
+    ? '<div class="cl-note">Options : ' + ech(lc.autorisationOptions) + "</div>" : "";
+  // Le texte à coller voyage avec la demande, jamais en fichier : le geste se
+  // fait souvent depuis le téléphone, où aucun chemin de fichier ne sert.
+  const ouQuand = (lc.autorisationOu || lc.autorisationQuand)
+    ? '<div class="cl-note">' +
+      (lc.autorisationOu ? "Où : " + ech(lc.autorisationOu) : "") +
+      (lc.autorisationQuand ? "<br>Quand : " + ech(lc.autorisationQuand) : "") +
+      "</div>" : "";
+  const aColler = lc.autorisationTexte
+    ? '<div class="cl-note">Texte à coller :</div><pre class="cl-coller">' +
+      ech(lc.autorisationTexte) + "</pre>" : "";
+  const ref = ech(String(lc.docId || "").slice(-6));
+  return '<div class="cl-autor">' +
+    '<div class="cl-entete">// Claude attend ton accord' + categorie + "</div>" +
+    ech(lc.autorisationDemande) + options + ouQuand + aColler +
+    '<div class="cl-note">Réponse à donner sur le poste : ' +
+    "<code>autorisations.py accorder " + ref + "</code></div></div>";
+}
+
 function carte(t, contexte) {
   const m = minuteur(), actif = m && m.id === t.id;
   const auj = jourISO();
@@ -452,7 +509,15 @@ function carte(t, contexte) {
   if (lc && LIB_LANCEMENT[lc.statut]) {
     pil.push(`<span class="pil claude ${ech(lc.statut)}">${LIB_LANCEMENT[lc.statut]}</span>`);
   }
-  const lcOccupe = lc && (lc.statut === "demande" || lc.statut === "en_cours");
+  // Une demande qui attend un accord reste vivante : le bouton éclair sert
+  // alors à abandonner le lancement, jamais à en ouvrir un second par-dessus.
+  // (Sans apostrophe : le contrôle des constantes lit ce commentaire comme du
+  // texte de gabarit, et un nombre impair décale sa lecture du fichier.)
+  const lcOccupe = lc && (lc.statut === "demande" || lc.statut === "en_cours" ||
+                          lc.statut === "attente_autorisation");
+  // Une réponse rendue se discute : le bouton retour renvoie la tâche au
+  // lanceur avec ce que le propriétaire veut voir changer.
+  const lcRendu = lc && (lc.statut === "fait" || lc.statut === "echec");
 
   const el = document.createElement("div");
   el.className = "carte" + (t.statut === "fait" ? " fait" : "") +
@@ -463,6 +528,7 @@ function carte(t, contexte) {
       <div class="titre-t" data-bascule>${ech(t.titre)}</div>
       ${t.detail ? `<div class="detail">${ech(t.detail)}</div>` : ""}
       ${t.source ? `<div class="source">// ${ech(t.source)}</div>` : ""}
+      ${blocAutorisation(lc)}
       ${lc && (lc.resultat || lc.erreur) ? `<div class="cl-resultat${lc.erreur ? " err" : ""}">
         <div class="cl-entete">// Claude — ${lc.erreur ? "échec" : "résultat"}${lc.finiLe ? " · " + ech(new Date(lc.finiLe).toLocaleString("fr-CA")) : ""}</div>
         ${ech(lc.erreur || lc.resultat)}</div>` : ""}
@@ -481,6 +547,7 @@ function carte(t, contexte) {
         ? "Ouvrir la page du lot LinkedIn (tous les posts)"
         : lcOccupe ? "Annuler le lancement Claude en cours" : "Lancer cette tâche avec Claude sur BG001"}">
         <svg><use href="#i-eclair"></use></svg></button>
+      ${lcRendu ? `<button class="ic" data-corriger title="Répondre à Claude et relancer avec la correction">↩</button>` : ""}
       <button class="ic" data-manuel title="Consigner du temps à la main">
         <svg><use href="#i-plus"></use></svg></button>
       ${contexte === "tout" ? `<button class="ic ${epingle ? "on" : ""}" data-epingle title="${epingle ? "Retirer d'aujourd'hui" : "Épingler à aujourd'hui"}">
@@ -516,6 +583,8 @@ function carte(t, contexte) {
   // page, copie d'un bouton) — il n'y a rien à confier à Claude, tout est prêt.
   el.querySelector("[data-claude]").onclick = () =>
     (t.chantier === "LinkedIn" ? (window.location.href = "linkedin.html") : lancerClaude(t));
+  const bCorriger = el.querySelector("[data-corriger]");
+  if (bCorriger) bCorriger.onclick = () => corrigerClaude(t, lc);
   el.querySelector("[data-manuel]").onclick = () => {
     const v = prompt(`Combien de minutes consigner sur « ${t.titre} » ?`, "30");
     if (v === null) return;
