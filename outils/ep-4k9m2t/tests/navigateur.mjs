@@ -92,6 +92,35 @@ async function principal() {
 
   const contexte = await navigateur.newContext({ viewport: { width: 1280, height: 900 } });
 
+  /* ---- La page croit être le 11 août 2026 ----
+   *
+   * CE BANC A POURRI EN TROIS JOURS. Ses circulaires-échantillons sont
+   * valides du 6 au 12 août 2026; passé le 12, l'outil les déclarait expirées
+   * — à raison — et l'onglet Aubaines s'affichait vide. Le banc échouait donc
+   * partout, sur du code parfaitement sain, et le hook de pré-commit bloquait
+   * tout changement de js/ ou css/.
+   *
+   * On décale l'horloge de la page plutôt que de la figer : les minuteries de
+   * l'outil (l'écriture différée vers Firestore, les avis éphémères) doivent
+   * continuer de s'écouler, sinon la moitié des vérifications attendrait pour
+   * rien. Node, lui, garde l'heure vraie — seule la page est déplacée.
+   */
+  await contexte.addInitScript(() => {
+    const VraieDate = Date;
+    const decalage = new VraieDate("2026-08-11T09:00:00").getTime() - VraieDate.now();
+    // eslint-disable-next-line no-global-assign
+    Date = class extends VraieDate {
+      constructor(...arguments_) {
+        if (arguments_.length) super(...arguments_);
+        else super(VraieDate.now() + decalage);
+      }
+
+      static now() {
+        return VraieDate.now() + decalage;
+      }
+    };
+  });
+
   // Les modules Firebase sont servis depuis les bouchons locaux.
   await contexte.route("https://www.gstatic.com/firebasejs/**", async (route) => {
     const nom = route.request().url().split("/").pop();
@@ -687,6 +716,172 @@ async function principal() {
   await page.waitForTimeout(150);
   const casesAvant = await page.locator("[data-au-plan]").count();
   verifier("les cases restent affichées sans plan", casesAvant > 0);
+
+  /* ---- Bonification : la marge du budget s'affiche et s'applique ----
+     Un plan à gros budget doit sortir une liste plus garnie que ses articles,
+     et la carte Budget doit montrer d'où viennent les ajouts. */
+  await page.click('[data-onglet="plans"]');
+  await page.fill("#plan-nom", "Bonifié");
+  await page.fill("#plan-budget", "100");
+  await page.click("#btn-creer-plan");
+  await page.waitForTimeout(250);
+  verifier("la case de bonification est cochée d'office sur le formulaire",
+    await page.locator("#plan-bonifier").isChecked());
+  const planBonifie = await page.evaluate(() => {
+    const p = globalThis.bgfoods.etat.plans.find((x) => x.nom === "Bonifié");
+    return p && { bonifier: p.bonifierBudget, budget: p.budgetCents, actif: p.actif };
+  });
+  verifier("le plan retient la bonification", planBonifie && planBonifie.bonifier === 1,
+    JSON.stringify(planBonifie));
+
+  // Il faut l'activer : le premier plan de la session ne l'est plus.
+  await page.evaluate(() => {
+    const plans = globalThis.bgfoods.etat.plans.map((p) => ({ ...p, actif: p.nom === "Bonifié" ? 1 : 0 }));
+    globalThis.bgfoods.etat = { ...globalThis.bgfoods.etat, plans };
+  });
+  await page.waitForTimeout(150);
+  // Le plan bâti sur les spéciaux contient déjà presque tout : on le réduit à
+  // un seul article pour que la marge ait quelque chose à ajouter.
+  await page.evaluate(() => {
+    const plans = globalThis.bgfoods.etat.plans.map((p) => (p.nom === "Bonifié"
+      ? { ...p, articles: [{ requete: "lait 2 %", quantite: 1, priorite: false }] } : p));
+    globalThis.bgfoods.etat = { ...globalThis.bgfoods.etat, plans };
+  });
+  await page.waitForTimeout(150);
+  await page.click('[data-onglet="liste"]');
+  await page.click("#btn-generer");
+  await page.waitForTimeout(300);
+  const bonifie = await page.evaluate(() => {
+    const r = globalThis.bgfoods.resultat();
+    return r && { ajouts: r.ajoutsBudget.map((l) => l.requete), total: r.total,
+      budget: r.budgetCents, articles: r.nbArticles };
+  });
+  verifier("la marge ajoute des articles", bonifie && bonifie.ajouts.length > 0,
+    JSON.stringify(bonifie));
+  verifier("sans jamais dépasser le budget", bonifie.total <= bonifie.budget,
+    `${bonifie.total} > ${bonifie.budget}`);
+  verifier("la carte Budget les montre",
+    (await page.locator("#resultat-liste").innerText()).includes("Ajoutés avec la marge"));
+  const listeBonifiee = await page.evaluate(() => {
+    const r = globalThis.bgfoods.resultat();
+    const l = globalThis.bgfoods.etat.listes.find((x) => x.id === r.listeId);
+    return l && l.articles.map((a) => a.requete);
+  });
+  verifier("les ajouts sont enregistrés dans la liste",
+    listeBonifiee && bonifie.ajouts.every((a) => listeBonifiee.includes(a)),
+    JSON.stringify({ listeBonifiee, ajouts: bonifie.ajouts }));
+
+  // « Garder ces ajouts dans le plan » les inscrit, sans doublon.
+  await page.click("#btn-ajouts-au-plan");
+  await page.waitForTimeout(200);
+  const articlesApres = await page.evaluate(() => globalThis.bgfoods.etat.plans
+    .find((p) => p.nom === "Bonifié").articles.map((a) => a.requete));
+  verifier("le bouton inscrit les ajouts au plan",
+    bonifie.ajouts.every((a) => articlesApres.includes(a)),
+    JSON.stringify(articlesApres));
+  verifier("sans dédoubler ce qui y était",
+    articlesApres.filter((a) => a === "lait 2 %").length === 1, JSON.stringify(articlesApres));
+
+  /* ---- Plan de repas : de la liste au menu ----
+     La liste se prépare d'abord : un panier assez riche pour cuisiner. Le plan
+     actif est désactivé pour que la zone de saisie reprenne la main — c'est le
+     parcours de quelqu'un qui écrit sa liste à la main puis veut ses soupers. */
+  await page.evaluate(() => {
+    globalThis.bgfoods.etat = {
+      ...globalThis.bgfoods.etat,
+      plans: globalThis.bgfoods.etat.plans.map((p) => ({ ...p, actif: 0 })),
+    };
+  });
+  await page.waitForTimeout(150);
+  await page.click('[data-onglet="liste"]');
+  await page.fill("#liste-nom", "Panier de la semaine");
+  await page.fill("#articles", ["poitrines de poulet", "riz", "brocoli", "bœuf haché",
+    "pommes de terre", "oignons", "œufs", "fromage râpé", "pâtes"].join("\n"));
+  await page.click("#btn-generer");
+  await page.waitForTimeout(300);
+
+  await page.click('[data-onglet="repas"]');
+  verifier("l'onglet Repas s'ouvre", await page.locator("#vue-repas").isVisible());
+  const optionsListes = await page.locator("#repas-liste option").allInnerTexts();
+  verifier("le sélecteur propose les listes enregistrées",
+    optionsListes.some((o) => o.includes("Panier de la semaine")),
+    JSON.stringify(optionsListes));
+  await page.selectOption("#repas-liste", await page.evaluate(
+    () => globalThis.bgfoods.etat.listes.find((l) => l.nom === "Panier de la semaine").id));
+
+  await page.fill("#repas-nombre", "3");
+  await page.click("#btn-creer-menu");
+  await page.waitForTimeout(300);
+  const menu = await page.evaluate(() => globalThis.bgfoods.menuCourant());
+  verifier("un menu est créé et enregistré", !!menu, JSON.stringify(menu));
+  verifier("il porte des repas complets — ingrédients et étapes recopiés",
+    menu.repas.length >= 1 && menu.repas.every((r) => r.ingredients.length && r.etapes.length),
+    JSON.stringify(menu.repas.map((r) => r.nom)));
+  const texteRepas = await page.locator("#resultat-repas").innerText();
+  // Le CSS rend les titres en majuscules : innerText suit le rendu.
+  verifier("l'écran affiche la marche à suivre", /marche à suivre/i.test(texteRepas));
+  verifier("et distingue ce qui vient de la liste de ce qui reste à acheter",
+    texteRepas.includes("liste"), texteRepas.slice(0, 200));
+  verifier("le menu apparaît dans les enregistrés",
+    (await page.locator("#menus-enregistres").innerText()).includes("Repas —"));
+
+  // Le complément rejoint un plan d'un clic — et sans plan actif (on les a
+  // tous endormis plus haut), c'est le mécanisme habituel qui en réveille un.
+  const complement = await page.evaluate(() => globalThis.bgfoods.menuCourant().complement.length);
+  if (complement) {
+    const avantComplement = await page.evaluate(() => {
+      const p = globalThis.bgfoods.etat.plans.find((x) => x.actif);
+      return p ? p.articles.length : -1;
+    });
+    await page.click("#btn-complement-plan");
+    await page.waitForTimeout(250);
+    const apresComplement = await page.evaluate(() => {
+      const p = globalThis.bgfoods.etat.plans.find((x) => x.actif);
+      return p ? p.articles.length : -1;
+    });
+    verifier("le complément s'ajoute à un plan, réveillé au besoin",
+      apresComplement > 0 && apresComplement >= avantComplement,
+      `${avantComplement} → ${apresComplement}`);
+  }
+
+  // La boîte des recettes IA lit un JSON collé, sans réseau ni clé. Le moteur
+  // de la recette — son premier ingrédient — doit venir du panier, comme pour
+  // toute recette; on lui donne donc le poulet de la liste.
+  await page.evaluate(() => { document.querySelector("#repas-ia").hidden = false; });
+  await page.fill("#repas-ia-texte", JSON.stringify([{
+    nom: "Bol poulet-riz d'essai", minutes: 20, portions: 4,
+    ingredients: [{ nom: "poitrines de poulet", quantite: "500 g" },
+      { nom: "riz", quantite: "300 g" }],
+    etapes: ["Cuire le riz.", "Griller le poulet.", "Assembler."],
+  }]));
+  await page.click("#btn-repas-ia-lire");
+  await page.waitForTimeout(200);
+  await page.fill("#repas-nombre", "8");
+  await page.click("#btn-creer-menu");
+  await page.waitForTimeout(300);
+  const avecIA = await page.evaluate(() => globalThis.bgfoods.menuCourant().repas
+    .map((r) => [r.nom, r.source]));
+  verifier("une recette collée entre dans le choix du menu",
+    avecIA.some(([, source]) => source === "ia"), JSON.stringify(avecIA));
+
+  /* ---- L'écran vide des aubaines dit la vraie raison ----
+     Après la date de fin des circulaires, ce n'est pas « aucun résultat pour
+     ces filtres » : c'est « tout est expiré », avec le chemin de sortie. */
+  await page.click('[data-onglet="aubaines"]');
+  await page.fill("#filtre-date", "2026-09-30");
+  await page.dispatchEvent("#filtre-date", "change");
+  await page.waitForTimeout(200);
+  const messageVide = await page.locator("#resultat-aubaines").innerText();
+  verifier("l'écran vide nomme l'expiration, pas les filtres",
+    messageVide.includes("terminée") && messageVide.includes("import a fonctionné"),
+    messageVide.slice(0, 160));
+  await page.click("#resultat-aubaines [data-voir-le]");
+  await page.waitForTimeout(200);
+  verifier("le bouton ramène à la date des circulaires",
+    (await page.locator("#resultat-aubaines").innerText()).includes("aubaine"),
+    await page.inputValue("#filtre-date"));
+  verifier("et l'écran se remplit de nouveau",
+    (await page.locator("[data-au-plan]").count()) > 0);
 
   verifier("aucune erreur JavaScript", erreursConsole.length === 0, erreursConsole.join(" | "));
 

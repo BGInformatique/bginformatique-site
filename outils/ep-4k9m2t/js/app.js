@@ -44,6 +44,7 @@ import { firebaseConfig, MICROSOFT_TENANT_ID } from "./firebase-config.js";
 import * as etatMod from "./etat.js";
 import * as analyseur from "./analyseur.js";
 import * as optimiseur from "./optimiseur.js";
+import * as recettesMod from "./recettes.js";
 import {
   CATEGORIES,
   formatPrix,
@@ -245,7 +246,7 @@ onAuthStateChanged(auth, (compte) => {
 
 /* ==================== Onglets ==================== */
 
-const VUES = ["liste", "plans", "aubaines", "circulaires"];
+const VUES = ["liste", "repas", "plans", "aubaines", "circulaires"];
 
 /** Change d'onglet. Écrit une fois : trois boutons y mènent maintenant. */
 function ouvrirOnglet(nom) {
@@ -326,13 +327,29 @@ function importerPages(pages, options = {}) {
   circulaireOuverte = circulaire.id;
   enregistrer();
 
+  /* UNE CIRCULAIRE FINIE S'IMPORTE SANS RIEN AFFICHER, et c'est ce qui fait
+   * croire que l'import est cassé : les aubaines sont bel et bien entrées,
+   * mais tous les écrans filtrent sur la date du jour, où plus rien n'est
+   * valide. On le dit ici, au moment où on peut encore corriger les dates.
+   *
+   * L'avis reste « ok » quand la circulaire commence plus tard — préparer la
+   * semaine prochaine d'avance est un usage normal, pas une erreur. */
   const detail = avertissements.length ? ` ${avertissements.join(" ")}` : "";
+  const jour = aujourdHui();
+  const periode = fin < jour ? "finie" : debut > jour ? "future" : "en cours";
   avisEphemere(
     "import",
-    `${aubaines.length} aubaine(s) extraite(s) de ${pages.length} page(s) — ${epicerie}, ` +
-      `du ${debut} au ${fin}.${detail}`,
-    "ok",
-    9000,
+    `${aubaines.length} aubaine(s) extraite(s) de ${pages.length} page(s) — ${epicerie}, `
+      + `du ${debut} au ${fin}.${detail}`
+      + (periode === "finie"
+        ? ` ⚠ Cette circulaire s'est terminée le ${fin} : ses aubaines n'apparaîtront `
+          + `pas pour aujourd'hui (${jour}). Corrigez les dates ci-dessus si elles sont `
+          + `fausses, ou changez la date de magasinage pour les voir.`
+        : periode === "future"
+          ? ` Elle ne commence que le ${debut} : ses aubaines apparaîtront à partir de là.`
+          : ""),
+    periode === "finie" ? "warn" : "ok",
+    periode === "en cours" ? 9000 : 15000,
   );
 }
 
@@ -1228,12 +1245,48 @@ function filtresAubaines() {
   };
 }
 
+/**
+ * Pourquoi l'écran est vide — la vraie raison, pas la plus courte.
+ *
+ * « Aucune aubaine ne correspond à ces filtres » est faux neuf fois sur dix :
+ * la vraie raison, c'est que les circulaires importées sont FINIES. On importe
+ * la circulaire de la semaine passée, tout entre correctement, et l'outil
+ * n'affiche rien — on croit que l'import a échoué alors qu'il a marché.
+ *
+ * On distingue donc les trois cas, et dans le plus fréquent on donne la date
+ * où ces aubaines étaient valides, avec le bouton pour y aller.
+ */
+function raisonAubainesVides() {
+  if (!etat.aubaines.length) {
+    return '<p class="vide">Aucune aubaine importée. Commencez par l\'onglet Circulaires.</p>';
+  }
+  const filtres = filtresAubaines();
+  const actives = optimiseur.aubainesActives(etat, filtres.dateCible).length;
+  if (actives) {
+    return '<p class="vide">Aucune aubaine ne correspond à ces filtres — '
+      + "épicerie, catégorie, recherche ou « validées seulement ».</p>";
+  }
+  // Rien n'est en vigueur ce jour-là : la dernière fin de circulaire dit tout.
+  const fins = etat.circulaires.map((c) => c.fin).filter(Boolean).sort();
+  const derniere = fins[fins.length - 1];
+  const finie = derniere && derniere < filtres.dateCible;
+  return `<p class="vide">${etat.aubaines.length} aubaine(s) importée(s), mais ${
+    finie
+      ? `aucune n'est encore valide le ${echapper(filtres.dateCible)} : la dernière
+         circulaire s'est terminée le ${echapper(derniere)}.`
+      : `aucune n'est valide le ${echapper(filtres.dateCible)}.`}</p>
+    <p class="small muted">L'import a fonctionné — ce sont les dates qui ne couvrent pas
+      ce jour. Importez la circulaire de la semaine (la carte de veille, en haut de
+      l'onglet Circulaires, la trouve toute seule)${derniere
+    ? `, ou regardez celles-ci au <button class="btn btn-ghost btn-mini"
+         data-voir-le="${echapper(derniere)}">${echapper(derniere)}</button>` : ""}.</p>`;
+}
+
 function rendreAubaines() {
   const groupes = optimiseur.aubainesParEpicerie(etat, filtresAubaines());
   const contenant = $("#resultat-aubaines");
   if (!groupes.length) {
-    contenant.innerHTML =
-      '<div class="card"><p class="vide">Aucune aubaine ne correspond à ces filtres.</p></div>';
+    contenant.innerHTML = `<div class="card">${raisonAubainesVides()}</div>`;
     return;
   }
   contenant.innerHTML = groupes
@@ -1352,6 +1405,9 @@ function planPourRecevoir() {
     foyer: { adultes: 2, ados: 0, enfants: 0 },
     budgetCents: null,
     sansLaitDeVache: 0,
+    // Sans budget, la bonification ne fait rien; le jour où on en écrit un,
+    // elle est déjà là. C'est ce qu'on attend d'un plan qu'on n'a pas réglé.
+    bonifierBudget: 1,
     articles: [],
     actif: 1,
   });
@@ -1433,6 +1489,15 @@ $("#resultat-aubaines").addEventListener("change", (evenement) => {
   basculerAubaineDansPlan(case_.dataset.auPlan, case_.checked);
 });
 
+// « Regardez-les au 12 août » : le bouton de l'écran vide déplace la date
+// plutôt que de laisser chercher le champ des filtres.
+$("#resultat-aubaines").addEventListener("click", (evenement) => {
+  const bouton = evenement.target.closest("[data-voir-le]");
+  if (!bouton) return;
+  $("#filtre-date").value = bouton.dataset.voirLe;
+  rendreAubaines();
+});
+
 function rendrePlans() {
   const contenant = $("#liste-plans");
   if (!contenant) return;
@@ -1482,6 +1547,10 @@ function rendrePlans() {
           <label class="case"><input type="checkbox" data-sans-lait
             ${plan.sansLaitDeVache ? "checked" : ""}>
             sans lait de vache (fromage permis)</label></div>
+        <div><label>Marge du budget</label>
+          <label class="case"><input type="checkbox" data-bonifier
+            ${plan.bonifierBudget ? "checked" : ""}>
+            bonifier avec les spéciaux</label></div>
         <div><label>Quantités</label>
           <p class="small muted" style="margin:6px 0 0">${formatNombre(parts)} part(s) —
             × ${formatNombre(facteur)}</p></div>
@@ -1532,6 +1601,7 @@ $("#btn-creer-plan").addEventListener("click", () => {
   const budgetCents = Number.isFinite(budget) && budget > 0 ? Math.round(budget * 100) : null;
 
   const sansLaitDeVache = $("#plan-sans-lait").checked;
+  const bonifierBudget = $("#plan-bonifier").checked;
 
   // Rien de choisi : on propose un panier bâti sur les rabais en cours plutôt
   // qu'un plan vide, qui n'apprendrait rien et qu'il faudrait remplir à la main.
@@ -1545,6 +1615,7 @@ $("#btn-creer-plan").addEventListener("click", () => {
     foyer,
     budgetCents,
     sansLaitDeVache: sansLaitDeVache ? 1 : 0,
+    bonifierBudget: bonifierBudget ? 1 : 0,
     articles,
     actif: etat.plans.length ? 0 : 1,   // le premier plan créé sert tout de suite
   });
@@ -1577,6 +1648,12 @@ $("#liste-plans").addEventListener("change", (evenement) => {
   const caseSansLait = evenement.target.closest("[data-sans-lait]");
   if (caseSansLait) {
     etatMod.remplacer(etat, "plans", plan.id, { sansLaitDeVache: caseSansLait.checked ? 1 : 0 });
+    return enregistrer();
+  }
+
+  const caseBonifier = evenement.target.closest("[data-bonifier]");
+  if (caseBonifier) {
+    etatMod.remplacer(etat, "plans", plan.id, { bonifierBudget: caseBonifier.checked ? 1 : 0 });
     return enregistrer();
   }
 
@@ -1661,6 +1738,12 @@ function genererListe() {
   }
   if (plan && plan.budgetCents) options.budgetCents = plan.budgetCents;
   if (plan && plan.sansLaitDeVache) options.sansLaitDeVache = true;
+  // La bonification a besoin du foyer pour ses quantités, comme les articles
+  // du plan qui viennent d'être mis à l'échelle juste au-dessus.
+  if (plan && plan.bonifierBudget) {
+    options.bonifier = true;
+    options.foyer = plan.foyer || null;
+  }
   if (plan) options.nom = options.nom || plan.nom;
   if (!articles.length) {
     avisEphemere("liste", plan
@@ -1669,10 +1752,21 @@ function genererListe() {
     return;
   }
 
+  const resultat = optimiseur.optimiser(etat, articles, options);
+
+  // Ce que la marge du budget a fait entrer appartient à la liste : c'est elle
+  // qu'on coche au magasin, et c'est elle que le plan de repas relira. Sans
+  // ça, les ajouts n'existeraient que le temps d'un affichage.
+  const articlesEnregistres = resultat.ajoutsBudget.length
+    ? [...articles, ...resultat.ajoutsBudget.map((l) => ({
+      requete: l.requete, quantite: l.quantite, note: null, priorite: false, ajout: true,
+    }))]
+    : articles;
+
   const existante = etat.listes.find((l) => l.nom === options.nom);
   const donnees = {
     nom: options.nom,
-    articles,
+    articles: articlesEnregistres,
     dateCible: options.dateCible,
     maxEpiceries: options.maxEpiceries,
     valideesSeulement: options.valideesSeulement ? 1 : 0,
@@ -1681,7 +1775,7 @@ function genererListe() {
     ? etatMod.remplacer(etat, "listes", existante.id, donnees)
     : etatMod.ajouter(etat, "listes", { ...donnees, coches: {} });
 
-  resultatCourant = { ...optimiseur.optimiser(etat, articles, options), listeId: liste.id };
+  resultatCourant = { ...resultat, listeId: liste.id };
   enregistrer();
 }
 
@@ -1762,6 +1856,20 @@ function rendreResultat() {
                 — ${echapper(formatPrix(l.cout))} chez ${echapper(l.meilleure.epicerie)}</li>`)
               .join("")}</ul>`
           : '<p class="small muted">Rien n\'a eu besoin d\'être retiré.</p>'}
+        ${resultat.ajoutsBudget && resultat.ajoutsBudget.length
+          ? `<p class="small muted">Ajoutés avec la marge — les meilleurs spéciaux des
+              épiceries où vous allez déjà :</p>
+            <ul class="small">${resultat.ajoutsBudget
+              .map((l) => `<li>${echapper(l.requete)}${l.quantite > 1 ? ` × ${l.quantite}` : ""}
+                — ${echapper(formatPrix(l.cout))} chez ${echapper(l.meilleure.epicerie)}${
+                l.economie ? ` <span class="gain">(économie ${echapper(formatPrix(l.economie))})</span>` : ""}</li>`)
+              .join("")}</ul>
+            <div class="barre no-print">
+              <button class="btn btn-ghost" id="btn-ajouts-au-plan">Garder ces ajouts dans le plan</button>
+            </div>
+            <p class="small muted no-print">Sans ça, ils valent pour cette liste seulement :
+              le plan, lui, sert d'une semaine à l'autre et les spéciaux auront changé.</p>`
+          : ""}
       </div>`
     : "";
 
@@ -1781,6 +1889,40 @@ function rendreResultat() {
 
   contenant.innerHTML = entete + budget + groupes + orphelins;
 }
+
+/**
+ * Inscrit au plan ce que la marge a ajouté.
+ *
+ * C'est ici que la bonification devient durable. On ne le fait PAS tout seul :
+ * un plan est ce qu'on veut manger toutes les semaines, et le rabais du jour
+ * n'a rien à y faire sans qu'on l'ait décidé. Le bouton, lui, évite de
+ * retaper huit articles qu'on vient de voir à l'écran.
+ */
+$("#resultat-liste").addEventListener("click", (evenement) => {
+  if (!evenement.target.closest("#btn-ajouts-au-plan")) return;
+  const plan = planActif();
+  if (!plan) return avisEphemere("liste", "Aucun plan actif à bonifier.", "warn");
+  const ajouts = (resultatCourant && resultatCourant.ajoutsBudget) || [];
+  if (!ajouts.length) return;
+
+  const articles = [...(plan.articles || [])];
+  const connus = new Set(articles.map((a) => nomNormalise(a.requete || "")));
+  let inscrits = 0;
+  for (const ligne of ajouts) {
+    const cle = nomNormalise(ligne.requete || "");
+    if (!cle || connus.has(cle)) continue;
+    connus.add(cle);
+    // Quantité 1 : celle de la ligne a déjà été mise à l'échelle du foyer, et
+    // le plan garde ses quantités pour deux adultes.
+    articles.push({ requete: ligne.requete, quantite: 1, note: null, priorite: false });
+    inscrits++;
+  }
+  etatMod.remplacer(etat, "plans", plan.id, { articles });
+  enregistrer();
+  avisEphemere("liste", inscrits
+    ? `${inscrits} article(s) ajoutés au plan « ${plan.nom} ». Ils y resteront la semaine prochaine.`
+    : "Ces articles étaient déjà au plan.", "ok", 6000);
+});
 
 $("#resultat-liste").addEventListener("change", (evenement) => {
   const cle = evenement.target.dataset.coche;
@@ -1849,6 +1991,311 @@ $("#btn-imprimer").addEventListener("click", () => {
 
 /* ==================== Rendu global ==================== */
 
+/* ==================== Plan de repas ====================
+ *
+ * On part d'une liste DÉJÀ générée, et jamais de l'inverse : le menu suit les
+ * spéciaux de la semaine, c'est ce qui fait économiser. Le calcul vit dans
+ * recettes.js, sans DOM; ici il n'y a que l'écran, l'enregistrement et la
+ * voie facultative de l'IA.
+ *
+ * Un menu enregistré porte SES recettes en entier — ingrédients et étapes
+ * recopiés. Le répertoire peut changer, une recette venue de l'IA peut n'être
+ * jamais redemandée : le menu de la semaine dernière reste lisible et
+ * imprimable tel qu'il a été fait.
+ */
+
+// Recettes obtenues de l'IA pendant cette session. Elles ne sont pas
+// enregistrées : ce qui compte — le menu — l'est, avec ses recettes dedans.
+let recettesIA = [];
+let menuAffiche = null;
+
+function menuCourant() {
+  return etat.menus.find((m) => m.id === menuAffiche) || null;
+}
+
+function articlesDeLaListe(liste) {
+  return (liste && liste.articles) || [];
+}
+
+function rendreSelecteurListes() {
+  const selecteur = $("#repas-liste");
+  if (!selecteur) return;
+  const listes = [...etat.listes].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const choisie = selecteur.value;
+  selecteur.innerHTML = listes.length
+    ? listes.map((l) => `<option value="${echapper(l.id)}">${echapper(l.nom)} — ${
+      (l.articles || []).length} article(s)</option>`).join("")
+    : '<option value="">aucune liste enregistrée</option>';
+  if (listes.some((l) => l.id === choisie)) selecteur.value = choisie;
+  $("#btn-creer-menu").disabled = !listes.length;
+}
+
+function creerMenu() {
+  const liste = etat.listes.find((l) => l.id === $("#repas-liste").value);
+  if (!liste) {
+    return avisEphemere("repas", "Générez d'abord une liste d'épicerie : le menu part d'elle.", "warn");
+  }
+  const articles = articlesDeLaListe(liste);
+  if (!articles.length) return avisEphemere("repas", `La liste « ${liste.nom} » est vide.`, "warn");
+
+  const nbRepas = Math.max(1, parseInt($("#repas-nombre").value, 10) || 5);
+  const portions = Math.max(1, parseInt($("#repas-portions").value, 10) || 4);
+  const plan = planifie(liste, {
+    nbRepas,
+    portions,
+    sansLaitDeVache: $("#repas-sans-lait").checked,
+  });
+
+  if (!plan.repas.length) {
+    return avisEphemere("repas", `Aucune recette du répertoire ne se fait avec « ${liste.nom} ». `
+      + "Il y manque une base — viande, poisson, œufs, pâtes, légumineuses.", "warn", 9000);
+  }
+
+  const nom = `Repas — ${liste.nom}`;
+  const existant = etat.menus.find((m) => m.nom === nom);
+  const donnees = {
+    nom,
+    listeId: liste.id,
+    listeNom: liste.nom,
+    dateCible: liste.dateCible || aujourdHui(),
+    portions: plan.portions,
+    repas: plan.repas,
+    complement: plan.complement,
+    inutilises: plan.inutilises,
+    manquants: plan.manquants,
+  };
+  const menu = existant
+    ? etatMod.remplacer(etat, "menus", existant.id, donnees)
+    : etatMod.ajouter(etat, "menus", donnees);
+  menuAffiche = menu.id;
+  enregistrer();
+
+  if (plan.manquants) {
+    avisEphemere("repas", `${plan.repas.length} repas sur ${nbRepas} demandés : `
+      + "la liste ne donne pas de quoi en faire davantage sans tout racheter.", "warn", 9000);
+  }
+}
+
+/** Le calcul, isolé pour que le banc l'appelle sans passer par l'écran. */
+function planifie(liste, options) {
+  return recettesMod.planifierRepas(articlesDeLaListe(liste), {
+    ...options,
+    repertoire: [...recettesMod.REPERTOIRE, ...recettesIA],
+  });
+}
+
+function rendreRepas() {
+  const contenant = $("#resultat-repas");
+  if (!contenant) return;
+  const menu = menuCourant();
+  if (!menu) {
+    contenant.innerHTML = "";
+    return;
+  }
+
+  const entete = `<div class="card">
+    <div class="epicerie-titre">
+      <h2>${echapper(menu.nom)}</h2>
+      <span class="small muted">${menu.repas.length} repas · ${menu.portions} portions ·
+        d'après « ${echapper(menu.listeNom || "")} »</span>
+    </div>
+    ${menu.manquants
+      ? `<p class="small muted">${menu.manquants} repas de moins que demandé : la liste
+          n'offrait pas d'autre base à cuisiner.</p>`
+      : ""}
+  </div>`;
+
+  const cartes = menu.repas.map((r) => `<div class="card recette">
+    <div class="epicerie-titre">
+      <h2>${r.ordre}. ${echapper(r.nom)}</h2>
+      <span class="small muted">${r.portions} portions${
+  r.minutes ? ` · ${r.minutes} min` : ""}${r.source === "ia" ? " · recette IA" : ""}</span>
+    </div>
+    <div class="deux-colonnes">
+      <div>
+        <h3 class="small">Ingrédients</h3>
+        <ul class="small">${r.ingredients.map((i) => `<li>${echapper(i.texte)}${
+  i.depuisLaListe
+    ? ' <span class="etiquette">liste</span>'
+    : ' <span class="etiquette avert">à acheter</span>'}</li>`).join("")}</ul>
+        ${r.garde.length
+    ? `<p class="small muted">Garde-manger : ${echapper(r.garde.join(", "))}.</p>`
+    : ""}
+      </div>
+      <div>
+        <h3 class="small">Marche à suivre</h3>
+        <ol class="small">${r.etapes.map((e) => `<li>${echapper(e)}</li>`).join("")}</ol>
+      </div>
+    </div>
+  </div>`).join("");
+
+  const complement = menu.complement.length
+    ? `<div class="card">
+        <h2>Il reste à acheter</h2>
+        <p class="small muted">Ces ingrédients ne sont pas dans la liste. Rien d'étonnant :
+          la liste suit les rabais, pas les recettes.</p>
+        <ul class="small">${menu.complement
+      .map((c) => `<li>${echapper(c.requete)} <span class="muted">— pour ${echapper(c.pour)}</span></li>`)
+      .join("")}</ul>
+        <div class="barre no-print">
+          <button class="btn btn-ghost" id="btn-complement-plan">Ajouter au plan actif</button>
+        </div>
+      </div>`
+    : `<div class="card"><h2>Il reste à acheter</h2>
+        <p class="small muted">Rien : la liste couvre tous les ingrédients.</p></div>`;
+
+  const inutilises = menu.inutilises.length
+    ? `<div class="card">
+        <h2>Achetés, mais sans repas</h2>
+        <p class="small muted">Aucune recette du menu ne s'en sert — à cuisiner autrement,
+          ou à ne pas racheter la semaine prochaine.</p>
+        <p class="small">${menu.inutilises.map((a) => echapper(a)).join(" · ")}</p>
+      </div>`
+    : "";
+
+  contenant.innerHTML = entete + cartes + complement + inutilises;
+}
+
+function rendreMenus() {
+  const carte = $("#carte-menus");
+  if (!carte) return;
+  const menus = [...etat.menus].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  carte.hidden = !menus.length;
+  if (!menus.length) return;
+  $("#menus-enregistres").innerHTML = `<div class="defilant"><table>
+    <tbody>${menus.map((m) => `<tr>
+      <td><strong>${echapper(m.nom)}</strong></td>
+      <td class="small muted">${(m.repas || []).length} repas${
+  m.dateCible ? ` · ${echapper(m.dateCible)}` : ""}</td>
+      <td class="nowrap">
+        <button class="btn btn-ghost btn-mini" data-ouvrir-menu="${echapper(m.id)}">Ouvrir</button>
+        <button class="btn btn-danger btn-mini" data-supprimer-menu="${echapper(m.id)}">Supprimer</button>
+      </td></tr>`).join("")}</tbody></table></div>`;
+}
+
+$("#btn-creer-menu").addEventListener("click", creerMenu);
+$("#btn-imprimer-repas").addEventListener("click", () => window.print());
+
+$("#carte-menus").addEventListener("click", (evenement) => {
+  const ouvrir = evenement.target.closest("[data-ouvrir-menu]");
+  if (ouvrir) {
+    menuAffiche = ouvrir.dataset.ouvrirMenu;
+    rendreRepas();
+    return;
+  }
+  const supprimer = evenement.target.closest("[data-supprimer-menu]");
+  if (!supprimer) return;
+  const menu = etat.menus.find((m) => m.id === supprimer.dataset.supprimerMenu);
+  if (!menu || !confirm(`Supprimer « ${menu.nom} » ?`)) return;
+  if (menuAffiche === menu.id) menuAffiche = null;
+  etatMod.supprimer(etat, "menus", menu.id);
+  enregistrer();
+});
+
+/** Le complément va au plan : c'est lui qui produira la liste de la semaine. */
+$("#resultat-repas").addEventListener("click", (evenement) => {
+  if (!evenement.target.closest("#btn-complement-plan")) return;
+  const menu = menuCourant();
+  if (!menu) return;
+  const plan = planPourRecevoir();
+  if (!plan) return;
+  const articles = [...(plan.articles || [])];
+  const connus = new Set(articles.map((a) => nomNormalise(a.requete || "")));
+  let inscrits = 0;
+  for (const manquant of menu.complement) {
+    const cle = nomNormalise(manquant.requete || "");
+    if (!cle || connus.has(cle)) continue;
+    connus.add(cle);
+    articles.push({ requete: manquant.requete, quantite: 1, note: null, priorite: false });
+    inscrits++;
+  }
+  etatMod.remplacer(etat, "plans", plan.id, { articles });
+  enregistrer();
+  avisEphemere("repas", inscrits
+    ? `${inscrits} ingrédient(s) ajoutés au plan « ${plan.nom} ».`
+    : "Tout le complément était déjà au plan.", "ok", 6000);
+});
+
+/* ---------- Recettes par IA ----------
+ *
+ * Deux voies, comme pour les circulaires : la clé (facturée par Anthropic) ou
+ * l'ordre à coller dans une session Claude Code (sans frais). Le répertoire
+ * intégré reste là dans les deux cas — l'IA ajoute des recettes, elle n'en
+ * remplace aucune.
+ */
+async function demanderRecettesIA() {
+  const liste = etat.listes.find((l) => l.id === $("#repas-liste").value);
+  if (!liste) return avisEphemere("repas", "Choisissez d'abord une liste.", "warn");
+  const options = {
+    nbRecettes: Math.max(1, parseInt($("#repas-nombre").value, 10) || 5),
+    portions: Math.max(1, parseInt($("#repas-portions").value, 10) || 4),
+    sansLaitDeVache: $("#repas-sans-lait").checked,
+  };
+  const articles = articlesDeLaListe(liste);
+  const progres = $("#repas-progres");
+
+  if (!extractionIA.cleStockee()) {
+    const avecCle = confirm(
+      "Aucune clé Anthropic n'est enregistrée dans ce navigateur.\n\n"
+      + "OK : entrer une clé maintenant (elle reste sur cet appareil, facturée par Anthropic).\n"
+      + "Annuler : copier plutôt l'ordre à coller dans votre session Claude Code, sans frais.",
+    );
+    if (!avecCle) {
+      try {
+        await navigator.clipboard.writeText(
+          recettesMod.ordreRecettesPourTerminal(articles, options));
+        $("#repas-ia").hidden = false;
+        return avisEphemere("repas", "Ordre copié. Collez-le dans Claude Code, puis remettez "
+          + "le JSON obtenu dans « Recettes reçues ».", "ok", 9000);
+      } catch (e) {
+        $("#repas-ia").hidden = false;
+        return avis("repas", `Copie impossible (${e.message}). L'ordre reste affichable `
+          + "en ouvrant la console — ou entrez une clé.", "err");
+      }
+    }
+    const saisie = prompt("Clé Anthropic (sk-ant-…) — stockée uniquement dans ce navigateur :");
+    if (!saisie) return;
+    extractionIA.enregistrerCle(saisie);
+  }
+
+  const bouton = $("#btn-recettes-ia");
+  bouton.disabled = true;
+  progres.textContent = "Demande des recettes…";
+  try {
+    const texte = await extractionIA.demanderTexte(
+      recettesMod.consigneRecettes(articles, options));
+    progres.textContent = "";
+    integrerRecettesIA(texte);
+  } catch (e) {
+    progres.textContent = "";
+    avis("repas", `Recettes non obtenues : ${e.message}`, "err");
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
+/** Lit une réponse de l'IA — appel direct ou copier-coller — et l'ajoute au répertoire. */
+function integrerRecettesIA(texte) {
+  const { recettes, erreurs } = recettesMod.lireRecettes(texte);
+  if (!recettes.length) {
+    return avis("repas", `Aucune recette lisible. ${erreurs.join(" ")}`.trim(), "err");
+  }
+  // Une deuxième demande remplace la première : sinon le répertoire enflerait
+  // de variantes de la même semaine, et le menu deviendrait imprévisible.
+  recettesIA = recettes;
+  $("#repas-ia").hidden = true;
+  $("#repas-ia-texte").value = "";
+  avisEphemere("repas", `${recettes.length} recette(s) ajoutées pour cette session${
+    erreurs.length ? ` (${erreurs.length} écartée(s))` : ""}. Recréez le plan de repas `
+    + "pour qu'elles entrent dans le choix.", "ok", 9000);
+}
+
+$("#btn-recettes-ia").addEventListener("click", demanderRecettesIA);
+$("#btn-repas-ia-fermer").addEventListener("click", () => { $("#repas-ia").hidden = true; });
+$("#btn-repas-ia-lire").addEventListener("click", () => {
+  integrerRecettesIA($("#repas-ia-texte").value);
+});
+
 function rendreSelecteurs() {
   const epiceries = [...new Set(etat.circulaires.map((c) => c.epicerie))].sort();
 
@@ -1888,6 +2335,9 @@ function rendre() {
   rendreBarrePlanAubaines();
   rendreListesEnregistrees();
   rendreResultat();
+  rendreSelecteurListes();
+  rendreMenus();
+  rendreRepas();
 }
 
 /**
@@ -1934,4 +2384,8 @@ window.bgfoods = {
   // vérifier que c'est bien le plan actif qui a produit la liste.
   resultat: () => resultatCourant,
   planActif,
+  // Le plan de repas : le banc vérifie qu'un menu se crée bien à partir d'une
+  // liste enregistrée, et qu'il reste lisible après un rechargement.
+  creerMenu,
+  menuCourant,
 };

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>BGFoods — circulaires et listes d'épicerie</title>
-  <link rel="stylesheet" href="css/style.css?v=20260812215225">
+  <link rel="stylesheet" href="css/style.css?v=20260815151154">
 </head>
 <body>
 <!-- Même éclair que le tableau de bord marketing : un lancement sur BG001. -->
@@ -33,6 +33,7 @@
 
 <nav class="tabs" id="onglets" hidden>
   <button class="tab" role="tab" data-onglet="liste" aria-selected="true">Liste d'épicerie</button>
+  <button class="tab" role="tab" data-onglet="repas" aria-selected="false">Repas</button>
   <button class="tab" role="tab" data-onglet="plans" aria-selected="false">Plans</button>
   <button class="tab" role="tab" data-onglet="aubaines" aria-selected="false">Aubaines</button>
   <button class="tab" role="tab" data-onglet="circulaires" aria-selected="false">Circulaires</button>
@@ -81,6 +82,63 @@
     </div>
   </section>
 
+  <!-- ══════════ Plan de repas ══════════ -->
+  <section id="vue-repas" hidden>
+    <div class="card no-print">
+      <h2>Plan de repas</h2>
+      <p class="small muted">Le menu part de la liste, jamais l'inverse : on cuisine
+        ce que les rabais de la semaine ont fait entrer dans le panier. Choisissez une
+        liste déjà générée — l'outil y cherche des soupers, dit ce qu'il reste à acheter
+        pour les faire, et ce que la liste contient sans qu'aucun repas ne s'en serve.</p>
+      <div class="champs">
+        <div>
+          <label for="repas-liste">À partir de la liste</label>
+          <select id="repas-liste"></select>
+        </div>
+        <div>
+          <label for="repas-nombre">Nombre de repas</label>
+          <input type="number" id="repas-nombre" min="1" max="14" value="5">
+        </div>
+        <div>
+          <label for="repas-portions">Portions par repas</label>
+          <input type="number" id="repas-portions" min="1" max="12" value="4">
+        </div>
+        <div>
+          <label for="repas-sans-lait">Régime</label>
+          <label class="case"><input type="checkbox" id="repas-sans-lait">
+            sans lait de vache (fromage permis)</label>
+        </div>
+      </div>
+      <div class="barre">
+        <button class="btn" id="btn-creer-menu">Créer le plan de repas</button>
+        <button class="btn btn-ghost" id="btn-imprimer-repas">Imprimer / PDF</button>
+        <button class="btn btn-ghost" id="btn-recettes-ia">Recettes par IA…</button>
+      </div>
+      <p class="small muted">Le répertoire intégré compte une vingtaine de soupers
+        ordinaires et ne demande ni réseau ni clé. <em>Recettes par IA</em> en ajoute
+        d'autres, bâties sur votre liste réelle : avec une clé Anthropic, l'appel part
+        d'ici et vous est facturé; sans clé, l'outil prépare l'ordre à coller dans une
+        session Claude Code, sans frais.</p>
+      <p class="small muted" id="repas-progres"></p>
+      <div id="repas-ia" hidden>
+        <label for="repas-ia-texte">Recettes reçues</label>
+        <textarea id="repas-ia-texte" rows="6"
+          placeholder='[{"nom":"Poulet rôti au citron","minutes":45,"portions":4,"ingredients":[…],"etapes":[…]}]'></textarea>
+        <div class="barre">
+          <button class="btn" id="btn-repas-ia-lire">Ajouter ces recettes</button>
+          <button class="btn btn-ghost" id="btn-repas-ia-fermer">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="resultat-repas"></div>
+
+    <div class="card no-print" id="carte-menus" hidden>
+      <h2>Plans de repas enregistrés</h2>
+      <div id="menus-enregistres"></div>
+    </div>
+  </section>
+
   <!-- ══════════ Plans d'épicerie ══════════ -->
   <section id="vue-plans" hidden>
     <div class="card no-print">
@@ -124,11 +182,22 @@
           <label class="case"><input type="checkbox" id="plan-sans-lait">
             sans lait de vache (fromage permis)</label>
         </div>
+        <div>
+          <label for="plan-bonifier">Marge du budget</label>
+          <label class="case"><input type="checkbox" id="plan-bonifier" checked>
+            bonifier le plan avec la marge</label>
+        </div>
       </div>
       <p class="small muted">Avec un budget, l'outil met de côté ce qui coûte cher
         <em>sans être une aubaine</em>, jusqu'à rentrer dans la somme. Il ne retire
         jamais un article étoilé : si les prioritaires dépassent déjà le budget,
         il le dit au lieu de rogner en douce.</p>
+      <p class="small muted"><strong>Et dans l'autre sens</strong> : si la liste coûte
+        moins que le budget, la bonification complète le panier avec les meilleurs
+        spéciaux du moment, jusqu'à la marge et pas un cent au-delà. Elle n'ouvre
+        aucune épicerie de plus, ne redemande pas ce que le plan contient déjà, et
+        respecte les quotas par catégorie. Décochez-la pour que le budget reste un
+        simple plafond.</p>
       <p class="small muted">Les quantités sont écrites pour deux adultes puis multipliées
         selon le foyer : un ado compte pour 1,2 et un enfant pour 0,6. Des ordres de
         grandeur, pour éviter d'acheter pour deux quand on est cinq.</p>
@@ -271,6 +340,6 @@
 
 </main>
 
-<script type="module" src="js/app.js?v=20260812215225"></script>
+<script type="module" src="js/app.js?v=20260815151154"></script>
 </body>
 </html>

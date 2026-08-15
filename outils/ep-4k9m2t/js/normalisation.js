@@ -67,8 +67,25 @@ export function dateDuJour(maintenant = new Date()) {
     .slice(0, 10);
 }
 
+/*
+ * LES LIGATURES SE DÉFONT AVANT LES ACCENTS, et ce n'est pas un détail de
+ * typographie. « œ » n'est pas un « o » accentué : NFD ne le décompose pas, il
+ * traversait donc intact — et le découpage en jetons, qui ne connaît que
+ * [a-z0-9%], coupait « bœuf » en « b » + « uf ».
+ *
+ * Ce que ça cassait, mesuré sur les circulaires du 6 au 12 août 2026 :
+ *   - « œufs » contre « Œufs gros calibre » : score 0,04 au lieu de 1. Les
+ *     œufs ne sortaient JAMAIS dans une liste, même en rabais.
+ *   - « Œufs » n'avait aucune catégorie — donc jamais retenus par le quota
+ *     « Produits laitiers et œufs » d'un panier bâti sur les spéciaux.
+ *   - « Bœuf haché » ne s'appariait que par chance, sur le seul mot « haché ».
+ */
+const LIGATURES = [[/œ/g, "oe"], [/Œ/g, "OE"], [/æ/g, "ae"], [/Æ/g, "AE"]];
+
 export function sansAccents(texte) {
-  return (texte || "").normalize("NFD").replace(/\p{Mn}/gu, "");
+  let sortie = texte || "";
+  for (const [motif, remplacement] of LIGATURES) sortie = sortie.replace(motif, remplacement);
+  return sortie.normalize("NFD").replace(/\p{Mn}/gu, "");
 }
 
 /** « KG » -> « kg »; une unité inconnue donne null plutôt qu'une conversion inventée. */

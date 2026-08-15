@@ -18,6 +18,7 @@ import * as normalisation from "../js/normalisation.js";
 import * as analyseur from "../js/analyseur.js";
 import * as optimiseur from "../js/optimiseur.js";
 import * as etatMod from "../js/etat.js";
+import * as recettes from "../js/recettes.js";
 import { lignesDepuisFragments, enImages } from "../js/lecture-pdf.js";
 import * as circulairesCom from "../js/circulaires-com.js";
 import * as extractionIA from "../js/extraction-ia.js";
@@ -78,6 +79,20 @@ verifier("appariement du lait", normalisation.scoreCorrespondance("lait 2 %", "L
 verifier("appariement du poulet", normalisation.scoreCorrespondance("poulet", "Poitrines de poulet désossées") > 0.5);
 verifier("produit sans rapport rejeté", normalisation.scoreCorrespondance("poulet", "Fraises du Québec") < 0.3);
 verifier("tolérance au pluriel", normalisation.scoreCorrespondance("fraise", "Fraises du Québec") > 0.6);
+
+/* Les ligatures. « œ » n'est pas un « o » accentué : NFD ne le décompose pas,
+   et le découpage en jetons coupait « bœuf » en « b » + « uf ». Les œufs, très
+   exactement, ne sortaient jamais d'une circulaire qui les écrit « Œufs ». */
+egal("la ligature se défait", normalisation.jetons("Bœuf haché"), ["boeuf", "hache"]);
+verifier("les œufs se retrouvent",
+  normalisation.scoreCorrespondance("oeufs", "Œufs gros calibre") > 0.9,
+  String(normalisation.scoreCorrespondance("oeufs", "Œufs gros calibre")));
+verifier("le bœuf aussi",
+  normalisation.scoreCorrespondance("boeuf haché", "Bœuf haché extra maigre") > 0.9);
+egal("et la ligature ne perd pas sa catégorie",
+  normalisation.categorieDevinee("Œufs gros calibre"), "Produits laitiers et œufs");
+egal("l'accent ordinaire n'a pas changé de comportement",
+  normalisation.sansAccents("Crème brûlée"), "Creme brulee");
 
 egal("catégorie viande", normalisation.categorieDevinee("Poitrines de poulet"), "Viandes et poissons");
 egal("catégorie laitier", normalisation.categorieDevinee("Lait 2 %"), "Produits laitiers et œufs");
@@ -505,6 +520,89 @@ const ETAT = etatDepuis([
   const large = optimiseur.optimiser(ETAT_BUDGET, articles,
     { dateCible: AUJOURDHUI, budgetCents: 100000 });
   egal("un budget large ne retire rien", large.retiresBudget.length, 0);
+  egal("et n'ajoute rien tant qu'on ne l'a pas demandé", large.ajoutsBudget.length, 0);
+}
+
+/* ---------- Bonification : l'autre bout du budget ----------
+   Un budget plus grand que la liste ne doit plus rester lettre morte. Le
+   montage : une épicerie où l'on va déjà, une autre où l'on ne va pas, et de
+   quoi vérifier chacun des garde-fous. */
+{
+  const ETAT_BONI = etatDepuis([
+    ["IGA",
+      "Poitrines de poulet désossées 454 g 6,00 $ Rég. 10,00 $\n"
+      + "Fraises du Québec 454 g 3,00 $ Rég. 5,00 $\n"
+      + "Brocoli 500 g 2,00 $ Rég. 3,00 $\n"
+      + "Yogourt grec 500 g 4,00 $ Rég. 6,00 $\n"
+      + "Rôti de porc 500 g 9,00 $ Rég. 15,00 $\n"
+      + "Pain tranché 675 g 2,50 $ Rég. 3,50 $\n"],
+    ["Maxi", "Saumon frais 500 g 10,00 $ Rég. 16,00 $\n"],
+  ]);
+  const demande = [{ requete: "poitrines de poulet", quantite: 1 }];
+
+  const sansOption = optimiseur.optimiser(ETAT_BONI, demande,
+    { dateCible: AUJOURDHUI, budgetCents: 4000 });
+  proche("sans bonification, la marge dort", sansOption.total, 600, 1);
+  egal("et aucun ajout n'est fait", sansOption.ajoutsBudget.length, 0);
+
+  const bonifie = optimiseur.optimiser(ETAT_BONI, demande,
+    { dateCible: AUJOURDHUI, budgetCents: 4000, bonifier: true });
+  verifier("la bonification remplit la marge", bonifie.total > 600 && bonifie.total <= 4000,
+    `total ${bonifie.total}`);
+  verifier("elle ajoute plus d'un article", bonifie.ajoutsBudget.length > 1,
+    String(bonifie.ajoutsBudget.length));
+  verifier("les ajouts entrent dans la liste finale",
+    bonifie.nbArticles === 1 + bonifie.ajoutsBudget.length,
+    `${bonifie.nbArticles} articles pour ${bonifie.ajoutsBudget.length} ajouts`);
+  verifier("elle n'ouvre aucune épicerie de plus", bonifie.nbEpiceries === 1,
+    JSON.stringify(bonifie.groupes.map((g) => g.epicerie)));
+  verifier("le saumon d'une épicerie non visitée reste dehors",
+    !bonifie.ajoutsBudget.some((l) => /saumon/i.test(l.requete)));
+  verifier("elle ne redemande pas ce qui est déjà au plan",
+    !bonifie.ajoutsBudget.some((l) => /poitrines de poulet/i.test(l.requete)),
+    JSON.stringify(bonifie.ajoutsBudget.map((l) => l.requete)));
+  verifier("les quotas par catégorie tiennent",
+    bonifie.ajoutsBudget.filter((l) => /porc|poulet|saumon/i.test(l.requete)).length
+      <= optimiseur.QUOTAS_PANIER["Viandes et poissons"]);
+  verifier("chaque ajout est marqué comme tel", bonifie.ajoutsBudget.every((l) => l.ajout));
+  verifier("la marge annoncée reste positive", bonifie.resteBudget >= 0,
+    String(bonifie.resteBudget));
+
+  // Marge trop mince pour le meilleur rabais : on prend ce qui entre, on ne
+  // s'arrête pas au premier article trop cher.
+  const mince = optimiseur.optimiser(ETAT_BONI, demande,
+    { dateCible: AUJOURDHUI, budgetCents: 900, bonifier: true });
+  verifier("une marge mince prend l'article qui entre", mince.total <= 900,
+    `total ${mince.total}`);
+  verifier("et elle prend quand même quelque chose", mince.ajoutsBudget.length >= 1);
+
+  // Un budget dépassé se retranche; il ne se bonifie jamais en même temps.
+  const serre = optimiseur.optimiser(ETAT_BONI,
+    [{ requete: "poitrines de poulet" }, { requete: "rôti de porc" }, { requete: "saumon" }],
+    { dateCible: AUJOURDHUI, budgetCents: 1000, bonifier: true });
+  verifier("un budget dépassé retranche", serre.retiresBudget.length > 0);
+  egal("et ne bonifie pas dans le même souffle", serre.ajoutsBudget.length, 0);
+
+  // Le régime vaut aussi pour les ajouts : ce que l'outil propose de lui-même
+  // ne doit pas être ce qu'on retirerait ensuite à la main.
+  const sansLait = optimiseur.optimiser(ETAT_BONI, demande,
+    { dateCible: AUJOURDHUI, budgetCents: 4000, bonifier: true, sansLaitDeVache: true });
+  verifier("la bonification respecte le régime",
+    !sansLait.ajoutsBudget.some((l) => /yogourt/i.test(l.requete)),
+    JSON.stringify(sansLait.ajoutsBudget.map((l) => l.requete)));
+
+  // Le foyer met les quantités à l'échelle, ici comme partout ailleurs.
+  const famille = optimiseur.optimiser(ETAT_BONI, demande, {
+    dateCible: AUJOURDHUI, budgetCents: 6000, bonifier: true,
+    foyer: { adultes: 2, ados: 2, enfants: 0 },
+  });
+  verifier("les ajouts suivent la taille du foyer",
+    famille.ajoutsBudget.every((l) => l.quantite === 2),
+    JSON.stringify(famille.ajoutsBudget.map((l) => [l.requete, l.quantite])));
+
+  // Fonction pure, appelée seule : une marge nulle n'ajoute rien.
+  egal("marge nulle, aucun ajout",
+    optimiseur.ajoutsPourLaMarge([], { margeCents: 0 }).length, 0);
 }
 
 /* ---------- Priorités d'un plan ----------
@@ -899,6 +997,158 @@ const echantillon = (nom) =>
     extractionIA.coutApproximatif(14) > 0.05 && extractionIA.coutApproximatif(14) < 1);
 }
 
+/* ==================== Plan de repas ====================
+ *
+ * Ce qui doit tenir : on ne planifie que ce que la liste permet de cuisiner,
+ * on le dit quand elle n'en permet pas assez, et le même panier rend toujours
+ * le même menu — sans quoi il n'y aurait rien à vérifier ici. */
+
+const PANIER = [
+  { requete: "poitrines de poulet", quantite: 2 },
+  { requete: "riz", quantite: 1 },
+  { requete: "brocoli", quantite: 1 },
+  { requete: "bœuf haché", quantite: 1 },
+  { requete: "pommes de terre", quantite: 1 },
+  { requete: "oignons", quantite: 2 },
+  { requete: "œufs", quantite: 1 },
+  { requete: "fromage râpé", quantite: 1 },
+  { requete: "pâtes", quantite: 2 },
+  { requete: "fraises", quantite: 1 },
+];
+
+{
+  const menu = recettes.planifierRepas(PANIER, { nbRepas: 4 });
+  egal("quatre repas demandés, quatre obtenus", menu.repas.length, 4);
+  verifier("chaque repas a des étapes", menu.repas.every((r) => r.etapes.length >= 3));
+  verifier("chaque repas a un ingrédient venu de la liste",
+    menu.repas.every((r) => r.ingredients.some((i) => i.depuisLaListe)));
+  verifier("aucune recette n'est servie deux fois",
+    new Set(menu.repas.map((r) => r.recetteId)).size === menu.repas.length);
+
+  // Le moteur doit venir du panier : pas de souper au saumon sans saumon.
+  verifier("le poulet acheté est cuisiné",
+    menu.repas.some((r) => /poulet/i.test(r.nom)));
+  verifier("le bœuf haché aussi — la ligature ne doit pas l'escamoter",
+    menu.repas.some((r) => r.ingredients.some(
+      (i) => i.depuisLaListe && /bœuf|boeuf/i.test(i.nom))),
+    JSON.stringify(menu.repas.map((r) => r.nom)));
+
+  // Le complément et les laissés-pour-compte : les deux moitiés de l'aveu.
+  verifier("ce qui manque est nommé", menu.complement.length > 0);
+  verifier("le complément ne contient rien qui soit déjà dans la liste",
+    menu.complement.every((c) => !/poulet|riz|brocoli|pâtes/i.test(c.requete)),
+    JSON.stringify(menu.complement.map((c) => c.requete)));
+  verifier("les fraises, qu'aucun repas n'utilise, sont signalées",
+    menu.inutilises.includes("fraises"), JSON.stringify(menu.inutilises));
+
+  const encore = recettes.planifierRepas(PANIER, { nbRepas: 4 });
+  egal("le même panier rend le même menu",
+    encore.repas.map((r) => r.recetteId), menu.repas.map((r) => r.recetteId));
+}
+
+{
+  // Un panier maigre ne doit pas inventer une semaine complète.
+  const maigre = recettes.planifierRepas([{ requete: "fraises" }, { requete: "biscuits" }],
+    { nbRepas: 5 });
+  egal("sans base à cuisiner, aucun repas", maigre.repas.length, 0);
+  egal("et le manque est chiffré", maigre.manquants, 5);
+
+  const court = recettes.planifierRepas([{ requete: "œufs" }, { requete: "fromage râpé" }],
+    { nbRepas: 5 });
+  verifier("deux ingrédients donnent au moins un repas", court.repas.length >= 1);
+  verifier("mais pas cinq", court.repas.length < 5);
+  egal("le compte des repas manquants est juste", court.manquants, 5 - court.repas.length);
+}
+
+{
+  // Régime : le fromage reste permis, le lait et la crème non.
+  const menu = recettes.planifierRepas(PANIER, { nbRepas: 6, sansLaitDeVache: true });
+  verifier("aucun repas au lait de vache quand le régime l'exclut",
+    menu.repas.every((r) => !recettes.contientDuLait(
+      recettes.REPERTOIRE.find((x) => x.id === r.recetteId) || { ingredients: [] })),
+    JSON.stringify(menu.repas.map((r) => r.nom)));
+  verifier("le fromage, lui, reste au menu",
+    menu.repas.some((r) => r.ingredients.some((i) => /fromage/i.test(i.nom))));
+}
+
+{
+  // Les portions : la quantité suit, l'écriture reste celle des emballages.
+  const deux = recettes.planifierRepas(PANIER, { nbRepas: 1, portions: 2 });
+  const huit = recettes.planifierRepas(PANIER, { nbRepas: 1, portions: 8 });
+  egal("la même recette est choisie quel que soit le nombre de portions",
+    deux.repas[0].recetteId, huit.repas[0].recetteId);
+  egal("les portions annoncées suivent la demande", [deux.portions, huit.portions], [2, 8]);
+  verifier("et les quantités doublent en conséquence",
+    deux.repas[0].ingredients[0].texte !== huit.repas[0].ingredients[0].texte,
+    `${deux.repas[0].ingredients[0].texte} / ${huit.repas[0].ingredients[0].texte}`);
+
+  egal("mise à l'échelle arrondie franchement",
+    recettes.mettreALEchelle(600, "g", 1.5), 900);
+  egal("les dénombrements restent entiers", recettes.mettreALEchelle(1, "", 1.5), 2);
+  egal("et ne descendent jamais sous un", recettes.mettreALEchelle(1, "", 0.25), 1);
+  egal("les grammes deviennent des kilos quand il le faut",
+    recettes.ingredientTexte({ nom: "pommes de terre", qte: 1500, unite: "g" }, 1.5),
+    "2,25 kg de pommes de terre");
+}
+
+{
+  // L'appariement des ingrédients : ce qui doit se reconnaître, et surtout ce
+  // qui ne doit PAS. « pomme » est contenu en entier dans « pommes de terre ».
+  const patates = [{ requete: "pommes de terre" }];
+  egal("une poche de patates ne fait pas une recette aux pommes",
+    recettes.articlePour({ nom: "pommes", cle: "pomme", exclut: ["terre"] }, patates), null);
+  verifier("mais elle satisfait bien les pommes de terre",
+    recettes.articlePour({ nom: "pommes de terre", cle: "pomme de terre" }, patates) !== null);
+  egal("une boisson végétale n'est pas du lait",
+    recettes.articlePour(
+      { nom: "lait", cle: "lait", exclut: ["coco", "amande", "soya", "avoine"] },
+      [{ requete: "lait d'amande" }]), null);
+  verifier("le poulet se reconnaît sous son nom de circulaire",
+    recettes.articlePour({ nom: "poitrines de poulet", cle: "poulet" },
+      [{ requete: "Hauts de cuisse de poulet" }]) !== null);
+}
+
+{
+  // La voie de l'IA : la consigne demande ce qu'il faut, et le lecteur est
+  // indulgent sur l'emballage, strict sur le contenu.
+  const consigne = recettes.consigneRecettes(PANIER, { nbRecettes: 3, portions: 4 });
+  verifier("la consigne cite les articles de la liste", consigne.includes("brocoli"));
+  verifier("elle exige du JSON", /JSON/.test(consigne));
+  verifier("le régime passe dans la consigne",
+    recettes.consigneRecettes(PANIER, { sansLaitDeVache: true }).includes("fromage est permis"));
+  verifier("l'ordre pour le terminal dit où remettre la réponse",
+    recettes.ordreRecettesPourTerminal(PANIER).includes("Recettes reçues"));
+
+  const bon = recettes.lireRecettes('```json\n[{"nom":"Poulet au citron","minutes":40,'
+    + '"portions":4,"ingredients":[{"nom":"poulet","quantite":"600 g"}],'
+    + '"etapes":["Cuire.","Servir."]}]\n```');
+  egal("le JSON dans un bloc de code se lit quand même", bon.recettes.length, 1);
+  egal("le premier ingrédient devient le moteur", bon.recettes[0].ingredients[0].moteur, true);
+  verifier("la quantité de l'IA est recopiée telle quelle",
+    bon.recettes[0].ingredients[0].texte.includes("600 g"));
+
+  const bavard = recettes.lireRecettes('Voici vos recettes :\n[{"nom":"Riz frit",'
+    + '"ingredients":[{"nom":"riz"}],"etapes":["Cuire."]}]\nBon appétit !');
+  egal("le JSON noyé dans du texte se retrouve", bavard.recettes.length, 1);
+
+  const boiteux = recettes.lireRecettes('[{"nom":"Sans étapes","ingredients":[{"nom":"riz"}]},'
+    + '{"nom":"Complète","ingredients":[{"nom":"riz"}],"etapes":["Cuire."]}]');
+  egal("une recette sans étape est écartée", boiteux.recettes.length, 1);
+  egal("et le rejet est expliqué", boiteux.erreurs.length, 1);
+
+  egal("une réponse qui n'est pas du JSON ne casse rien",
+    recettes.lireRecettes("Désolé, je ne peux pas.").recettes.length, 0);
+  egal("le vide non plus", recettes.lireRecettes("").recettes.length, 0);
+
+  // Une recette de l'IA doit pouvoir entrer dans un menu comme les autres.
+  const menu = recettes.planifierRepas([{ requete: "poulet" }], {
+    nbRepas: 1,
+    repertoire: bon.recettes,
+  });
+  egal("une recette de l'IA se planifie", menu.repas.length, 1);
+  egal("elle est marquée comme telle", menu.repas[0].source, "ia");
+}
+
 /* ==================== Fusion multi-appareils ====================
    Les quatre façons de perdre du travail entre l'ordinateur et le téléphone.
    Un échec ici ne casse rien à l'écran : il efface silencieusement. */
@@ -950,6 +1200,19 @@ function etatAvec(circulaires, aubaines, listes = [], tombes = {}, updatedAt = 1
   const retardataire = etatAvec([{ id: "c1", epicerie: "IGA", updatedAt: 100 }], [{ id: "a1", circulaireId: "c1", updatedAt: 100 }]);
   const fusion = etatMod.fusionner(etat, retardataire);
   egal("rien ne ressuscite après la fusion", [fusion.circulaires.length, fusion.aubaines.length], [0, 0]);
+}
+
+{
+  // Les menus sont un registre comme les autres : ils se synchronisent, et un
+  // état écrit AVANT qu'ils existent doit se relire sans rien perdre — c'est
+  // le cas du téléphone qui n'a pas encore rechargé la page.
+  const ordinateur = etatMod.etatVide();
+  etatMod.ajouter(ordinateur, "menus", { id: "m1", nom: "Repas — semaine", repas: [] }, 100);
+  const avantLesMenus = { circulaires: [], aubaines: [], listes: [], plans: [], updatedAt: 50 };
+  egal("le menu survit à la fusion avec un état d'avant les menus",
+    etatMod.fusionner(ordinateur, avantLesMenus).menus.length, 1);
+  egal("un état sans registre menus se normalise sans casser",
+    etatMod.normaliserEtat(avantLesMenus).menus, []);
 }
 
 {

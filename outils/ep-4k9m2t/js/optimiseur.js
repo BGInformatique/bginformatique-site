@@ -312,6 +312,122 @@ export function meilleursSpeciaux(etat, options = {}) {
   return articles;
 }
 
+/* ---------- Bonification : dépenser la marge du budget ----------
+ *
+ * LE BUDGET NE FAISAIT QUE RETRANCHER. Un plan garni pour 90 $ à qui on donne
+ * 150 $ sortait la même liste à 90 $ : la somme annoncée n'avait aucun effet
+ * tant qu'on ne la dépassait pas. Or un budget dit deux choses — « pas plus »,
+ * mais aussi « j'ai ça à mettre cette semaine ». La bonification s'occupe de
+ * la seconde : elle complète la liste avec les meilleurs spéciaux du moment,
+ * jusqu'à la marge, et pas un cent au-delà.
+ *
+ * TROIS GARDE-FOUS, parce qu'une bonification mal élevée coûte plus qu'elle
+ * ne rapporte :
+ *
+ *   1. ELLE N'OUVRE PAS UN MAGASIN DE PLUS. Ce qu'on ajoute vient des
+ *      épiceries où l'on va déjà. Ajouter un détour de vingt minutes pour
+ *      profiter d'une marge de 4 $ n'est pas une bonne affaire.
+ *   2. ELLE NE DOUBLE RIEN. Un article déjà demandé — au plan ou dans la
+ *      saisie — n'est pas réajouté sous un autre nom de circulaire.
+ *   3. ELLE RESTE ÉQUILIBRÉE. Les quotas par catégorie du panier servent
+ *      aussi ici : sinon une semaine à gros rabais sur le porc remplirait la
+ *      marge de six rôtis. Une catégorie hors quotas n'a droit qu'à un seul
+ *      article.
+ *
+ * Et elle ne s'invite jamais : il faut l'avoir demandée sur le plan.
+ */
+
+/** Au-delà, ce n'est plus une bonification : c'est une deuxième épicerie. */
+export const PLAFOND_AJOUTS = 8;
+
+/**
+ * Choisit les spéciaux qui tiennent dans la marge.
+ *
+ * Fonction pure — elle ne lit pas l'état et ne modifie rien : le banc lui
+ * passe une poignée d'aubaines et vérifie ce qui en sort.
+ */
+export function ajoutsPourLaMarge(disponibles, options = {}) {
+  const {
+    margeCents = 0,
+    demandes = [],
+    epiceriesPermises = null,
+    maxEpiceries = null,
+    quotas = QUOTAS_PANIER,
+    plafond = PLAFOND_AJOUTS,
+    sansLaitDeVache = false,
+    foyer = null,
+    seuil = SEUIL_CORRESPONDANCE,
+  } = options;
+
+  if (!(margeCents > 0)) return [];
+
+  const permises = epiceriesPermises && epiceriesPermises.size ? epiceriesPermises : null;
+  const requetes = (demandes || []).map((d) => String(d.requete || "")).filter(Boolean);
+
+  // Un même produit n'est retenu qu'une fois, au moins cher des épiceries
+  // permises — c'est la règle de tout l'outil, elle vaut aussi ici.
+  const parNom = new Map();
+  for (const a of disponibles) {
+    if (permises && !permises.has(a.epicerie)) continue;
+    if (sansLaitDeVache && contientLaitDeVache(a.nom)) continue;
+    // Déjà demandé : on ne le remet pas dans le panier sous le nom qu'en
+    // donne la circulaire.
+    if (requetes.some((r) => scoreCorrespondance(r, a.nom) >= seuil)) continue;
+    const cle = a.nomNormalise || nomNormalise(a.nom || "");
+    const connu = parNom.get(cle);
+    if (!connu || coutUnitaire(a) < coutUnitaire(connu)) parNom.set(cle, a);
+  }
+
+  const parRabais = (x, y) => {
+    const rx = rabaisRelatif(x);
+    const ry = rabaisRelatif(y);
+    if (rx !== null && ry !== null) return ry - rx;
+    if (rx !== null) return -1;
+    if (ry !== null) return 1;
+    return (x.prixParUnite || Infinity) - (y.prixParUnite || Infinity);
+  };
+  const categorieDe = (a) => (
+    sansLaitDeVache && estBoissonVegetale(a.nom) ? CATEGORIE_LAITIERE : (a.categorie || "Autres"));
+
+  const ajouts = [];
+  const prisParCategorie = new Map();
+  const epiceriesOuvertes = new Set(permises || []);
+  let marge = margeCents;
+
+  for (const aubaine of [...parNom.values()].sort(parRabais)) {
+    if (ajouts.length >= plafond) break;
+    const categorie = categorieDe(aubaine);
+    const capacite = Object.prototype.hasOwnProperty.call(quotas, categorie) ? quotas[categorie] : 1;
+    if ((prisParCategorie.get(categorie) || 0) >= capacite) continue;
+    // Sans épiceries permises (liste vide au départ), la bonification peut en
+    // ouvrir — mais jamais plus que la limite demandée pour la liste.
+    if (!permises && maxEpiceries && !epiceriesOuvertes.has(aubaine.epicerie)
+      && epiceriesOuvertes.size >= maxEpiceries) continue;
+
+    const quantite = foyer ? quantiteAjustee(1, foyer) : 1;
+    const cout = coutUnitaire(aubaine) * quantite;
+    // On ne s'arrête pas au premier trop cher : un article plus modeste,
+    // classé derrière, entre peut-être encore dans ce qui reste.
+    if (cout > marge) continue;
+
+    marge -= cout;
+    prisParCategorie.set(categorie, (prisParCategorie.get(categorie) || 0) + 1);
+    epiceriesOuvertes.add(aubaine.epicerie);
+    ajouts.push({
+      requete: aubaine.nom,
+      quantite,
+      note: null,
+      priorite: false,
+      ajout: true,
+      meilleure: { ...aubaine, score: 1 },
+      alternatives: [],
+      cout,
+      economie: economieUnitaire(aubaine) * quantite,
+    });
+  }
+  return ajouts;
+}
+
 /* ---------- Limitation du nombre d'épiceries ---------- */
 
 /**
@@ -379,6 +495,10 @@ export function optimiser(etat, articles, options = {}) {
     nom = "Liste d'épicerie",
     budgetCents = null,
     sansLaitDeVache = false,
+    // La bonification se demande : un budget reste d'abord un plafond, et
+    // personne n'aime voir sa liste grossir sans l'avoir voulu.
+    bonifier = false,
+    foyer = null,
   } = options;
 
   const disponibles = aubainesActives(etat, dateCible, { valideesSeulement });
@@ -444,6 +564,7 @@ export function optimiser(etat, articles, options = {}) {
    * ce qui se paie plein prix — c'est tout l'objet de l'outil.
    */
   const retiresBudget = [];
+  const ajoutsBudget = [];
   let budgetDepasse = false;
   if (budgetCents && budgetCents > 0) {
     const valeur = (l) => (l.cout > 0 ? l.economie / l.cout : 0);
@@ -459,6 +580,27 @@ export function optimiser(etat, articles, options = {}) {
       total -= retire.cout;
     }
     budgetDepasse = total > budgetCents;
+
+    /* L'autre bout du budget : la marge.
+     *
+     * On ne bonifie jamais une liste dont on vient de retirer des articles —
+     * ce serait remettre par la porte ce qu'on a sorti par la fenêtre. Et on
+     * ne bonifie que sur demande : `bonifier`. */
+    if (bonifier && !retiresBudget.length && total < budgetCents) {
+      const epiceriesPermises = autorisees
+        || new Set(achetables.map((l) => l.meilleure.epicerie));
+      const ajouts = ajoutsPourLaMarge(disponibles, {
+        margeCents: budgetCents - total,
+        demandes,
+        epiceriesPermises,
+        maxEpiceries,
+        sansLaitDeVache,
+        foyer,
+        seuil,
+      });
+      achetables.push(...ajouts);
+      ajoutsBudget.push(...ajouts);
+    }
   }
 
   const groupes = new Map();
@@ -475,8 +617,11 @@ export function optimiser(etat, articles, options = {}) {
 
   // Dans chaque magasin, les prioritaires en tête : au rayon, c'est ce qu'on
   // met dans le panier avant de se laisser distraire.
+  // Les prioritaires en tête, les ajouts de bonification en queue : ce sont
+  // les seuls qu'on abandonne sans remords si la caisse surprend.
   for (const groupe of groupes.values()) {
-    groupe.lignes.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0));
+    groupe.lignes.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0)
+      || (a.ajout ? 1 : 0) - (b.ajout ? 1 : 0));
   }
   sansAubaine.sort((a, b) => (b.priorite ? 1 : 0) - (a.priorite ? 1 : 0));
   retiresBudget.sort((a, b) => b.cout - a.cout);
@@ -494,6 +639,9 @@ export function optimiser(etat, articles, options = {}) {
     sansAubaine,
     budgetCents: budgetCents || null,
     retiresBudget,
+    // Ce que la marge a permis d'ajouter. Vide quand la bonification n'a pas
+    // été demandée, ou quand rien n'entrait dans ce qui restait.
+    ajoutsBudget,
     // Vrai seulement quand les prioritaires seuls dépassent déjà la somme :
     // l'outil n'a alors plus rien à retirer sans trahir ce que vous avez étoilé.
     budgetDepasse,

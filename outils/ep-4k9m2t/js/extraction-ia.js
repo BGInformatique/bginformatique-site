@@ -79,10 +79,14 @@ Règles :
 /* ---------- Voie 1 : la clé ---------- */
 
 /**
- * Fait lire une page par le modèle. Rend le texte brut des lignes d'aubaines.
+ * Un appel à l'API Messages — et un seul endroit où vivent la clé, les
+ * en-têtes et la traduction des erreurs. Les pages de circulaire et les
+ * recettes passent toutes deux par ici : deux copies auraient fini par
+ * diverger sur le message d'une clé refusée.
+ *
  * `envoyer` est injectable pour que le banc d'essai n'appelle pas l'API.
  */
-export async function lirePage(urlImage, options = {}) {
+export async function appeler(contenu, options = {}) {
   const cle = options.cle || cleStockee();
   if (!cle) throw new ErreurExtraction("Aucune clé Anthropic enregistrée.");
   const envoyer = options.envoyer || ((u, i) => fetch(u, i));
@@ -99,14 +103,8 @@ export async function lirePage(urlImage, options = {}) {
     signal: options.signal,
     body: JSON.stringify({
       model: options.modele || MODELE_DEFAUT,
-      max_tokens: 4000,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "url", url: urlImage } },
-          { type: "text", text: CONSIGNE },
-        ],
-      }],
+      max_tokens: options.maxJetons || 4000,
+      messages: [{ role: "user", content: contenu }],
     }),
   });
 
@@ -130,6 +128,25 @@ export async function lirePage(urlImage, options = {}) {
     .map((bloc) => bloc.text)
     .join("\n")
     .trim();
+}
+
+/**
+ * Fait lire une page de circulaire. Rend le texte brut des lignes d'aubaines.
+ */
+export function lirePage(urlImage, options = {}) {
+  return appeler([
+    { type: "image", source: { type: "url", url: urlImage } },
+    { type: "text", text: CONSIGNE },
+  ], options);
+}
+
+/**
+ * Pose une question en texte seul — les recettes s'en servent. Plus de jetons
+ * qu'une page de circulaire : une réponse tronquée au milieu d'un JSON n'est
+ * plus lisible du tout, alors qu'une liste d'aubaines coupée reste utile.
+ */
+export function demanderTexte(consigne, options = {}) {
+  return appeler([{ type: "text", text: consigne }], { maxJetons: 8000, ...options });
 }
 
 /**

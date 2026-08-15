@@ -118,14 +118,15 @@ index.html              une page, trois onglets
 css/style.css           palette commune aux outils internes
 js/normalisation.js     unités, prix unitaires, appariement des noms
 js/analyseur.js         texte de circulaire → aubaines structurées
-js/optimiseur.js        meilleur prix, regroupement par épicerie
+js/optimiseur.js        meilleur prix, regroupement par épicerie, budget, bonification
+js/recettes.js          répertoire de soupers, plan de repas depuis une liste
 js/etat.js              registres et fusion multi-appareils
 js/lecture-pdf.js       extraction du texte d'un PDF (pdf.js, à la demande)
 js/app.js               écran, connexion, Firestore
 tests/                  banc d'essai (voir plus bas)
 ```
 
-Les cinq premiers modules ne touchent ni au DOM ni à Firebase : le banc les importe
+Les modules de calcul ne touchent ni au DOM ni à Firebase : le banc les importe
 et les exécute directement.
 
 ---
@@ -136,11 +137,12 @@ et les exécute directement.
 ./outils/ep-4k9m2t/tests/lancer.sh
 ```
 
-- `tests/banc.mjs` (node) — 113 vérifications : formats de prix, conversions d'unités,
-  appariement des noms, meilleur prix, limite d'épiceries, reconstruction des lignes
-  d'un PDF, et **fusion multi-appareils** (les quatre façons de perdre du travail
-  entre l'ordinateur et le téléphone).
-- `tests/navigateur.mjs` (Playwright) — 29 vérifications sur la page complète, avec
+- `tests/banc.mjs` (node) — 331 vérifications : formats de prix, conversions d'unités,
+  appariement des noms (ligatures comprises : « Œufs » se lit « oeufs »), meilleur
+  prix, limite d'épiceries, budget et bonification, plan de repas, reconstruction des
+  lignes d'un PDF, et **fusion multi-appareils** (les quatre façons de perdre du
+  travail entre l'ordinateur et le téléphone).
+- `tests/navigateur.mjs` (Playwright) — 111 vérifications sur la page complète, avec
   les bouchons de `tests/bouchons/` à la place de Firebase : connexion, import,
   correction, génération, cases cochées, écriture Firestore, fusion, écran mobile.
 
@@ -148,6 +150,11 @@ Le hook `.githooks/pre-commit` lance le banc dès qu'un fichier de `js/` ou `css
 entre dans un commit. Sans node, le banc sort en 2 (« n'a pas pu tourner ») et le
 commit passe avec un avertissement. Si Chromium se trouve ailleurs que là où
 Playwright l'attend : `BGFOODS_CHROMIUM=/chemin/vers/chrome`.
+
+Le banc navigateur **fixe la date de la page au 11 août 2026** : ses
+circulaires-échantillons sont valides du 6 au 12 août, et sans ce décalage le banc
+pourrissait tout seul le 13 — l'outil déclarait les échantillons expirés, à raison,
+et toutes les vérifications d'affichage échouaient sur du code sain.
 
 ---
 
@@ -191,3 +198,9 @@ Playwright l'attend : `BGFOODS_CHROMIUM=/chemin/vers/chrome`.
 - Une circulaire importée **sans dates** prend la semaine en cours. Si on colle une
   circulaire annonçant d'autres dates, les saisir avant l'import — sinon elle ne
   ressortira pas dans une liste datée hors de cette semaine.
+- **Une circulaire finie s'importe sans rien afficher**, et ça ressemble à un import
+  cassé : les aubaines entrent, mais tous les écrans filtrent sur la date du jour, où
+  plus rien n'est valide. L'outil le dit maintenant deux fois — à l'import (« cette
+  circulaire s'est terminée le… ») et sur l'écran vide des aubaines, qui nomme
+  l'expiration au lieu d'accuser les filtres et offre le bouton pour aller voir à la
+  bonne date.

@@ -14,7 +14,8 @@ set -uo pipefail
 BASE="https://bginformatique.ca/outils/ep-4k9m2t"
 DOSSIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FICHIERS=("index.html" "css/style.css" "js/app.js" "js/etat.js" "js/analyseur.js"
-          "js/normalisation.js" "js/optimiseur.js" "js/lecture-pdf.js" "js/firebase-config.js")
+          "js/normalisation.js" "js/optimiseur.js" "js/recettes.js" "js/lecture-pdf.js"
+          "js/firebase-config.js")
 
 echo "Comparaison de $DOSSIER"
 echo "               avec $BASE"
