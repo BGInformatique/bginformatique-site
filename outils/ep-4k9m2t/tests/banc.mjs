@@ -98,6 +98,110 @@ egal("catégorie viande", normalisation.categorieDevinee("Poitrines de poulet"),
 egal("catégorie laitier", normalisation.categorieDevinee("Lait 2 %"), "Produits laitiers et œufs");
 egal("catégorie inconnue", normalisation.categorieDevinee("Objet mystère"), null);
 
+/* La correspondance par jetons. La recherche par sous-chaîne classait par
+   accident : « rouleau » contient « eau », « vaisselle » contient « sel ».
+   Un mot de liste ne correspond plus qu'à un MOT du produit. */
+egal("« rouleau » n'est pas de l'eau",
+  normalisation.categorieDevinee("Rouleaux de printemps"), null);
+egal("« vaisselle » n'est pas du sel",
+  normalisation.categorieDevinee("Savon à vaisselle Palmolive"), "Ménager et soins");
+egal("le gâteau reste en boulangerie",
+  normalisation.categorieDevinee("Gâteau au chocolat"), "Boulangerie");
+egal("l'eau, la vraie, reste une boisson",
+  normalisation.categorieDevinee("Eau de source Eska 24 x 500 ml"), "Boissons");
+egal("le féminin se reconnaît par le radical",
+  normalisation.categorieDevinee("Lasagne surgelée"), "Surgelés");
+/* La correspondance la plus tôt dans le nom gagne : le produit s'annonce en
+   premier, la saveur suit. C'est ce qui empêche le jus d'orange d'être un
+   fruit et la soupe aux tomates d'être un légume. Les cas viennent des six
+   circulaires réelles du 6 au 12 août 2026 (BGFoods/aubaines/). */
+egal("le jus d'orange est une boisson, pas une orange",
+  normalisation.categorieDevinee("Jus d'orange Tropicana"), "Boissons");
+egal("la soupe aux tomates est une conserve, pas un légume",
+  normalisation.categorieDevinee("Soupe aux tomates Aylmer"), "Épicerie");
+egal("le pain aux raisins est un pain, pas des raisins",
+  normalisation.categorieDevinee("Pain aux raisins"), "Boulangerie");
+egal("le yogourt aux fraises est un produit laitier, pas des fraises",
+  normalisation.categorieDevinee("Yogourt aux fraises"), "Produits laitiers et œufs");
+egal("le pain au fromage est un pain",
+  normalisation.categorieDevinee("Pain belge au fromage"), "Boulangerie");
+/* Les mots composés passent avant les mots simples à position égale :
+   « crème glacée » doit gagner sur « crème ». */
+egal("la crème glacée est un surgelé, pas un produit laitier",
+  normalisation.categorieDevinee("Crème glacée Breyers 2 L"), "Surgelés");
+egal("le beurre d'arachide n'est pas un produit laitier",
+  normalisation.categorieDevinee("Beurre d'arachide Jif"), "Épicerie");
+egal("le lait de coco non plus",
+  normalisation.categorieDevinee("Lait de coco Compliments"), "Épicerie");
+egal("le pâté de campagne est une charcuterie, pas des pâtes",
+  normalisation.categorieDevinee("Pâté de campagne ou de foie"), "Viandes et poissons");
+/* « surgelé » dans le nom dit le rayon, peu importe ce qui est congelé. */
+egal("des frites surgelées ne sont pas des pommes de terre fraîches",
+  normalisation.categorieDevinee("Pommes de terre frites surgelées McCain"), "Surgelés");
+/* Et les pièges de sous-chaîne relevés sur les vraies circulaires. */
+egal("le vinaigre n'est pas du vin",
+  normalisation.categorieDevinee("Vinaigre blanc Compliments"), "Épicerie");
+egal("le chocolat n'est pas un cola — ni rien d'autre, c'est voulu",
+  normalisation.categorieDevinee("Chocolat Lindt Excellence"), null);
+egal("le chorizo n'est pas du riz",
+  normalisation.categorieDevinee("Chorizo"), "Viandes et poissons");
+egal("les ailes de poulet ne sont pas de l'ail",
+  normalisation.categorieDevinee("Ailes de poulet"), "Viandes et poissons");
+egal("les fromages portent leur nom : la feta est un produit laitier",
+  normalisation.categorieDevinee("Feta Krinos"), "Produits laitiers et œufs");
+egal("le savon en barre reste au ménager",
+  normalisation.categorieDevinee("Savon en barre Dove"), "Ménager et soins");
+/* Cas prouvés par la vérification adversariale — chacun a réellement trompé
+   une version intermédiaire de ce classement. */
+egal("les fruits de mer ne sont pas des fruits",
+  normalisation.categorieDevinee("Mélange de fruits de mer"), "Viandes et poissons");
+egal("le pâté au poulet n'est pas des pâtes",
+  normalisation.categorieDevinee("Pâté au poulet St-Hubert"), "Viandes et poissons");
+egal("la tourtière non plus",
+  normalisation.categorieDevinee("Tourtière du Lac-Saint-Jean"), "Viandes et poissons");
+egal("la crème de champignons est une conserve, pas un produit laitier",
+  normalisation.categorieDevinee("Crème de champignons Campbell"), "Épicerie");
+egal("la crème, la vraie, reste un produit laitier",
+  normalisation.categorieDevinee("Crème 35 % Québon"), "Produits laitiers et œufs");
+egal("le cidre est une boisson — donc jamais ajouté tout seul",
+  normalisation.categorieDevinee("Cidre rosé Michel Jodoin 750 ml"), "Boissons");
+egal("les rotini sont des pâtes, pas un rôti",
+  normalisation.categorieDevinee("Rotini Catelli"), "Épicerie");
+egal("le rôti, lui, reste une viande",
+  normalisation.categorieDevinee("Rôti de palette"), "Viandes et poissons");
+egal("le maïs soufflé n'est pas un légume",
+  normalisation.categorieDevinee("Maïs soufflé Orville Redenbacher"), "Épicerie");
+egal("la tête fromagée est une charcuterie",
+  normalisation.categorieDevinee("Tête fromagée"), "Viandes et poissons");
+verifier("l'épithète publicitaire ne déjoue pas l'ancre du garde-manger",
+  normalisation.estGardeManger("Vraie mayonnaise Hellmann's")
+    && normalisation.estGardeManger("Véritable sirop d'érable pur du Québec"));
+verifier("le lait de coco en conserve n'est pas la boisson qui remplace le lait",
+  !normalisation.estBoissonVegetale("Lait de coco Thai Kitchen 400 ml")
+    && normalisation.estBoissonVegetale("Boisson de coco Silk"));
+
+/* Le garde-manger : la cadence d'achat, pas la nature du produit. La
+   détection est ancrée au premier jeton — le produit ouvre son nom dans une
+   circulaire, la saveur arrive après. */
+for (const produit of ["Sucre blanc Lantic 2 kg", "Cassonade dorée",
+  "Farine tout usage Five Roses 2,5 kg", "Huile de canola Crisco",
+  "Vinaigre balsamique", "Ketchup Heinz 1 L", "Sel de mer fin",
+  "Épices à steak de Montréal", "Sirop d'érable pur", "Miel liquide",
+  "Confiture de fraises", "Sauce soya VH", "Moutarde de Dijon",
+  "Mélange à gâteau Betty Crocker", "Mélange à sauce French's",
+  "Beurre d'arachide Jif", "Vinaigrette César Kraft", "Chapelure Pastene",
+  "Tartinade Nutella", "Friandises Hershey's", "Sauce BBQ Diana"]) {
+  verifier(`garde-manger : ${produit}`, normalisation.estGardeManger(produit));
+}
+for (const produit of ["Beurre demi-sel Lactantia", "Croustilles ketchup Lay's",
+  "Thon pâle à l'huile", "Yogourt à la vanille Oikos", "Jambon au miel",
+  "Brioches à la cannelle", "Maïs sucré en épis", "Céréales Cheerios",
+  "Riz basmati", "Sauce tomate Classico", "Café moulu Folgers",
+  "Bouillon de poulet", "Poivrons rouges", "Poitrines de poulet",
+  "Hummus tartinade Fontaine Santé", "Sauce spaghetti maison"]) {
+  verifier(`pas garde-manger : ${produit}`, !normalisation.estGardeManger(produit));
+}
+
 /* ==================== Analyse des circulaires ==================== */
 
 {
@@ -603,6 +707,81 @@ const ETAT = etatDepuis([
   // Fonction pure, appelée seule : une marge nulle n'ajoute rien.
   egal("marge nulle, aucun ajout",
     optimiseur.ajoutsPourLaMarge([], { margeCents: 0 }).length, 0);
+}
+
+/* ---------- Ce que les ajouts automatiques refusent ----------
+   Un kilo de sucre à moitié prix reste un kilo de sucre : le garde-manger,
+   le ménager, l'alcool et l'inconnu n'entrent jamais tout seuls dans une
+   liste hebdomadaire — même en tête du classement des rabais. */
+{
+  const ETAT_REFUS = etatDepuis([
+    ["IGA",
+      // Les rabais les plus spectaculaires de la circulaire sont exactement
+      // ceux qu'il ne faut pas ajouter : c'est le montage qui le prouve.
+      "Sucre blanc Lantic 2 kg 2,00 $ Rég. 6,00 $\n"
+      + "Huile de canola 1,42 L 3,00 $ Rég. 9,00 $\n"
+      + "Ketchup Heinz 1 L 2,50 $ Rég. 7,00 $\n"
+      + "Détergent Tide 4,00 $ Rég. 12,00 $\n"
+      + "Bière Molson 12 x 341 ml 9,00 $ Rég. 18,00 $\n"
+      + "Bidule mystérieux 1,00 $ Rég. 10,00 $\n"
+      // Et deux vrais aliments de semaine, aux rabais plus modestes.
+      + "Poitrines de poulet 454 g 6,00 $ Rég. 9,00 $\n"
+      + "Fraises du Québec 454 g 3,00 $ Rég. 4,00 $\n"],
+  ]);
+
+  const panier = optimiseur.meilleursSpeciaux(ETAT_REFUS, { dateCible: AUJOURDHUI });
+  verifier("le panier automatique laisse le sucre à l'épicerie",
+    !panier.some((a) => /sucre|huile|ketchup/i.test(a.requete)),
+    JSON.stringify(panier.map((a) => a.requete)));
+  verifier("mais prend le poulet et les fraises",
+    panier.some((a) => /poulet/i.test(a.requete)) && panier.some((a) => /fraises/i.test(a.requete)),
+    JSON.stringify(panier.map((a) => a.requete)));
+
+  const bonifie = optimiseur.optimiser(ETAT_REFUS, [{ requete: "poitrines de poulet" }],
+    { dateCible: AUJOURDHUI, budgetCents: 10000, bonifier: true });
+  const ajouts = bonifie.ajoutsBudget.map((l) => l.requete);
+  verifier("la bonification refuse le garde-manger",
+    !ajouts.some((r) => /sucre|huile|ketchup/i.test(r)), JSON.stringify(ajouts));
+  verifier("elle refuse le ménager", !ajouts.some((r) => /détergent|tide/i.test(r)),
+    JSON.stringify(ajouts));
+  verifier("elle refuse l'alcool", !ajouts.some((r) => /bière|molson/i.test(r)),
+    JSON.stringify(ajouts));
+  verifier("elle refuse ce que le classement ne reconnaît pas",
+    !ajouts.some((r) => /bidule/i.test(r)), JSON.stringify(ajouts));
+  verifier("il reste quand même de vrais ajouts", ajouts.some((r) => /fraises/i.test(r)),
+    JSON.stringify(ajouts));
+
+  // Le garde-manger DEMANDÉ, lui, se trouve : c'est vous qui l'avez écrit.
+  const demande = optimiseur.optimiser(ETAT_REFUS,
+    [{ requete: "sucre" }, { requete: "ketchup" }], { dateCible: AUJOURDHUI });
+  egal("« sucre » écrit à la main trouve son aubaine", demande.nbArticles, 2);
+
+  // Une liste qui n'a RIEN trouvé ne guide la bonification vers aucune
+  // épicerie : elle se donne alors sa propre retenue au lieu de courir la
+  // ville au gré des rabais.
+  const ETAT_TROIS = etatDepuis([
+    ["A", "Poitrines de poulet 454 g 5,00 $ Rég. 9,00 $\n"],
+    ["B", "Fraises du Québec 454 g 3,00 $ Rég. 5,00 $\n"],
+    ["C", "Brocoli 500 g 2,00 $ Rég. 3,00 $\n"],
+  ]);
+  const sansListe = optimiseur.optimiser(ETAT_TROIS, [{ requete: "article introuvable xyz" }],
+    { dateCible: AUJOURDHUI, budgetCents: 5000, bonifier: true });
+  verifier("la bonification d'une liste vide se borne elle-même",
+    new Set(sansListe.ajoutsBudget.map((l) => l.meilleure.epicerie)).size
+      <= optimiseur.EPICERIES_SANS_LISTE,
+    JSON.stringify(sansListe.ajoutsBudget.map((l) => l.meilleure.epicerie)));
+
+  // Sous le régime sans lait de vache, la boisson végétale prend la place du
+  // quota laitier : la porte fermée aux Boissons ne doit pas la bloquer.
+  const ETAT_VEGETAL = etatDepuis([
+    ["IGA", "Poitrines de poulet 454 g 6,00 $ Rég. 9,00 $\n"
+      + "Boisson d'avoine Oatly 1,89 L 3,00 $ Rég. 5,00 $\n"],
+  ]);
+  const vegetal = optimiseur.optimiser(ETAT_VEGETAL, [{ requete: "poitrines de poulet" }],
+    { dateCible: AUJOURDHUI, budgetCents: 3000, bonifier: true, sansLaitDeVache: true });
+  verifier("la boisson végétale entre par le quota laitier",
+    vegetal.ajoutsBudget.some((l) => /avoine/i.test(l.requete)),
+    JSON.stringify(vegetal.ajoutsBudget.map((l) => l.requete)));
 }
 
 /* ---------- Priorités d'un plan ----------

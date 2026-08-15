@@ -15,6 +15,7 @@ import {
   contientLaitDeVache,
   dateDuJour,
   estBoissonVegetale,
+  estGardeManger,
   formatPrixEtiquette,
   formatTaille,
   nomNormalise,
@@ -271,7 +272,10 @@ export function meilleursSpeciaux(etat, options = {}) {
   const disponibles = aubainesActives(etat, dateCible, { valideesSeulement })
     // Le panier est proposé par l'outil : autant ne rien y mettre qu'on
     // écarterait ensuite à la main.
-    .filter((a) => !sansLaitDeVache || !contientLaitDeVache(a.nom));
+    .filter((a) => !sansLaitDeVache || !contientLaitDeVache(a.nom))
+    // Le garde-manger non plus : un kilo de sucre à moitié prix reste un kilo
+    // de sucre — on en achète quelques fois par année, pas cette semaine.
+    .filter((a) => !estGardeManger(a.nom));
   const parNom = new Map();
   for (const a of disponibles) {
     const cle = a.nomNormalise || a.nom;
@@ -321,7 +325,7 @@ export function meilleursSpeciaux(etat, options = {}) {
  * la seconde : elle complète la liste avec les meilleurs spéciaux du moment,
  * jusqu'à la marge, et pas un cent au-delà.
  *
- * TROIS GARDE-FOUS, parce qu'une bonification mal élevée coûte plus qu'elle
+ * QUATRE GARDE-FOUS, parce qu'une bonification mal élevée coûte plus qu'elle
  * ne rapporte :
  *
  *   1. ELLE N'OUVRE PAS UN MAGASIN DE PLUS. Ce qu'on ajoute vient des
@@ -331,14 +335,28 @@ export function meilleursSpeciaux(etat, options = {}) {
  *      saisie — n'est pas réajouté sous un autre nom de circulaire.
  *   3. ELLE RESTE ÉQUILIBRÉE. Les quotas par catégorie du panier servent
  *      aussi ici : sinon une semaine à gros rabais sur le porc remplirait la
- *      marge de six rôtis. Une catégorie hors quotas n'a droit qu'à un seul
- *      article.
+ *      marge de six rôtis.
+ *   4. ELLE N'AJOUTE QUE DE QUOI MANGER CETTE SEMAINE. Seules les catégories
+ *      des quotas — celles qui bâtissent des repas — sont admises : ni
+ *      détergent (Ménager et soins), ni bière (Boissons), ni ce que le
+ *      classement n'a pas reconnu (Autres). Et dans ces catégories, jamais le
+ *      garde-manger : un kilo de sucre à moitié prix reste un kilo de sucre,
+ *      on en rachète quelques fois par année. Écrire « sucre » soi-même dans
+ *      le plan trouve l'aubaine comme avant — c'est l'AJOUT AUTOMATIQUE qui
+ *      n'a pas à le décider.
  *
  * Et elle ne s'invite jamais : il faut l'avoir demandée sur le plan.
  */
 
 /** Au-delà, ce n'est plus une bonification : c'est une deuxième épicerie. */
 export const PLAFOND_AJOUTS = 8;
+
+/**
+ * Quand la liste n'a RIEN trouvé, aucune épicerie ne guide la bonification :
+ * sans cette borne, elle ouvrait autant de magasins que les rabais le
+ * suggéraient — le contraire exact du garde-fou nº 1.
+ */
+export const EPICERIES_SANS_LISTE = 2;
 
 /**
  * Choisit les spéciaux qui tiennent dans la marge.
@@ -370,6 +388,7 @@ export function ajoutsPourLaMarge(disponibles, options = {}) {
   for (const a of disponibles) {
     if (permises && !permises.has(a.epicerie)) continue;
     if (sansLaitDeVache && contientLaitDeVache(a.nom)) continue;
+    if (estGardeManger(a.nom)) continue;
     // Déjà demandé : on ne le remet pas dans le panier sous le nom qu'en
     // donne la circulaire.
     if (requetes.some((r) => scoreCorrespondance(r, a.nom) >= seuil)) continue;
@@ -397,12 +416,18 @@ export function ajoutsPourLaMarge(disponibles, options = {}) {
   for (const aubaine of [...parNom.values()].sort(parRabais)) {
     if (ajouts.length >= plafond) break;
     const categorie = categorieDe(aubaine);
-    const capacite = Object.prototype.hasOwnProperty.call(quotas, categorie) ? quotas[categorie] : 1;
-    if ((prisParCategorie.get(categorie) || 0) >= capacite) continue;
+    // Hors des catégories des quotas, rien n'entre : c'est le garde-fou nº 4.
+    // Il couvrait déjà le détergent et la bière; il couvre aussi tout ce que
+    // le classement n'a pas su nommer — on n'ajoute pas d'inconnu au panier.
+    if (!Object.prototype.hasOwnProperty.call(quotas, categorie)) continue;
+    if ((prisParCategorie.get(categorie) || 0) >= quotas[categorie]) continue;
     // Sans épiceries permises (liste vide au départ), la bonification peut en
-    // ouvrir — mais jamais plus que la limite demandée pour la liste.
-    if (!permises && maxEpiceries && !epiceriesOuvertes.has(aubaine.epicerie)
-      && epiceriesOuvertes.size >= maxEpiceries) continue;
+    // ouvrir — dans la limite demandée pour la liste, ou à défaut dans une
+    // retenue qu'elle se donne elle-même : rien ne justifie de courir la
+    // ville pour des articles que personne n'a demandés.
+    const limiteOuverture = maxEpiceries || EPICERIES_SANS_LISTE;
+    if (!permises && !epiceriesOuvertes.has(aubaine.epicerie)
+      && epiceriesOuvertes.size >= limiteOuverture) continue;
 
     const quantite = foyer ? quantiteAjustee(1, foyer) : 1;
     const cout = coutUnitaire(aubaine) * quantite;

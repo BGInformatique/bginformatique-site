@@ -172,6 +172,12 @@ const MOTS_VIDES = new Set([
   "en", "a", "l", "d", "pour", "avec", "sans", "chacun", "ch", "reg",
   "regulier", "format", "produit", "produits", "notre", "votre", "qc",
   "quebec", "canada", "no", "select", "selection", "ea",
+  // Épithètes publicitaires : « Vraie mayonnaise Hellmann's » et « Véritable
+  // sirop d'érable » sont les noms IMPRIMÉS dans les circulaires. Sans ce
+  // retrait, l'épithète occupait le premier jeton et faisait passer la
+  // mayonnaise sous l'ancre du garde-manger. « nature » n'y est pas : un
+  // yogourt nature, c'est le produit, pas de la réclame.
+  "vrai", "vraie", "veritable", "pur", "pure", "authentique",
 ]);
 
 // Mots dont le « s » final fait partie du mot.
@@ -276,40 +282,98 @@ export function scoreCorrespondance(demande, candidat) {
 
 /* ---------- Catégories ---------- */
 
+/*
+ * Le vocabulaire vient des circulaires elles-mêmes : les six circulaires du
+ * 6 au 12 août 2026 (IGA, Maxi, Metro, Super C, Provigo, Marché Richelieu —
+ * 258 aubaines, dépôt BGFoods/aubaines/) ont été passées dans le classement,
+ * et chaque produit resté sans catégorie a donné son mot. « Bifteck »,
+ * « creton », « bok choy » : ce ne sont pas des inventions, ce sont les mots
+ * qui manquaient.
+ *
+ * Les mots composés (« pomme de terre », « pain de viande ») règlent les cas
+ * où le premier mot ment sur le produit; ils gagnent sur les mots simples à
+ * position égale (voir categorieDevinee).
+ *
+ * DÉLIBÉRÉMENT ABSENTS : « chocolat », « bonbon », « friandise ». Sans
+ * catégorie, ils tombent dans « Autres » — que les ajouts automatiques
+ * refusent. C'est voulu : une tablette de chocolat à moitié prix n'a pas plus
+ * sa place qu'un kilo de sucre dans une liste que l'outil remplit tout seul.
+ */
 export const MOTS_CATEGORIES = {
   "Fruits et légumes": [
     "pomme", "banane", "fraise", "bleuet", "framboise", "raisin", "orange",
     "clementine", "citron", "avocat", "tomate", "laitue", "salade",
     "concombre", "carotte", "patate", "pomme de terre", "oignon", "brocoli",
     "chou", "poivron", "champignon", "melon", "ananas", "peche", "poire",
-    "celeri", "epinard", "courgette", "mangue",
+    "celeri", "epinard", "courgette", "mangue", "mais", "cerise", "prune",
+    "nectarine", "kiwi", "litchi", "radis", "romaine", "bok choy", "poireau",
+    "abricot", "lime", "pamplemousse", "asperge", "aubergine",
+    "haricot vert", "haricot jaune", "gourgane", "ail", "cantaloup", "navet",
+    "zucchini", "courge", "ble d'inde", "fruit", "legume",
   ],
   "Viandes et poissons": [
     "poulet", "poitrine", "boeuf", "porc", "steak", "hache", "cotelette",
     "saucisse", "bacon", "jambon", "dinde", "agneau", "saumon", "tilapia",
-    "crevette", "poisson", "filet", "roti", "veau",
+    "crevette", "poisson", "filet", "roti", "veau", "bifteck", "surlonge",
+    "viande", "smoked meat", "canard", "pastrami", "bologne", "pepperoni",
+    "salami", "salametti", "chorizo", "charcuterie", "creton", "saucisson",
+    "thon", "sushi", "crabe", "simili crabe", "homard", "truite", "morue",
+    "petoncle", "palourde", "fruits de mer", "boudin", "tete fromagee",
+    "aloyau", "picanha", "cote levee", "pain de viande", "tourtiere",
+    // Les pâtés-repas du comptoir : sans ces composés, « pâté au poulet »
+    // partait chez les pâtes alimentaires — sansAccents confond pâté et pâtes.
+    "pate de campagne", "pate de foie", "pate au poulet", "pate au saumon",
+    "pate a la viande", "pate chinois", "pate mexicain",
+    // Le tofu est une protéine de repas : c'est ici qu'il joue son rôle —
+    // quota des protéines, articles étoilés — pas dans l'allée sèche.
+    "tofu", "tempeh",
   ],
   "Produits laitiers et œufs": [
     "lait", "fromage", "yogourt", "yaourt", "beurre", "creme", "oeuf",
-    "cheddar", "mozzarella", "margarine",
+    "cheddar", "mozzarella", "margarine", "kefir",
+    // Les noms de fromages (brie, feta, oka…) sont ajoutés plus bas depuis
+    // MOTS_FROMAGE : une seule liste de fromages à entretenir.
   ],
   Boulangerie: [
     "pain", "baguette", "bagel", "tortilla", "muffin", "croissant", "brioche",
-    "gateau", "tarte", "biscuit",
+    "gateau", "tarte", "biscuit", "viennoiserie", "pita", "naan",
+    // « miche » n'y est pas : par préfixe, il attrapait « Michel » — et le
+    // cidre rosé Michel Jodoin entrait au panier automatique par la porte de
+    // la boulangerie. Une miche sans le mot « pain » restera sans catégorie,
+    // ce qui est le moindre des deux maux.
   ],
-  Surgelés: ["surgele", "congele", "creme glacee", "pizza surgelee", "frite"],
+  Surgelés: [
+    "surgele", "congele", "creme glacee", "pizza surgelee", "frite", "pizza",
+    "sorbet", "glacee",
+  ],
   Boissons: [
     "jus", "eau", "boisson", "cola", "pepsi", "coca", "biere", "vin", "cafe",
     "the", "limonade", "kombucha",
+    // L'alcool doit être NOMMÉ : tout ce qui tombe en Boissons est refusé par
+    // les ajouts automatiques, alors qu'un alcool sans catégorie qui glisse
+    // ailleurs (le cidre, jadis « miche ») devient achetable tout seul.
+    "cidre", "sangria", "spiritueux", "vodka", "whisky", "rhum", "gin",
+    "prosecco", "mousseux", "cooler", "seltzer",
   ],
   Épicerie: [
     "pate", "spaghetti", "riz", "conserve", "sauce", "huile", "farine",
     "sucre", "cereale", "craquelin", "croustille", "soupe", "haricot",
-    "pois chiche", "lentille", "confiture", "miel", "vinaigre",
+    "pois chiche", "lentille", "confiture", "miel", "vinaigre", "chapelure",
+    "granola", "barre", "hummus", "legumineuse", "pesto", "mayonnaise",
+    "moutarde", "ketchup", "olive", "tartinade", "beurre d'arachide",
+    "lait de coco", "noix", "amande", "arachide", "cajou", "sirop",
+    "bouillon", "cassonade", "melasse", "levure", "bicarbonate", "fecule",
+    "cacao", "gruau", "feves au lard", "mais souffle",
+    "rotini", "fusilli", "penne", "macaroni", "linguine", "lasagne", "nouille",
+    // Les crèmes condensées : « Crème de champignons » n'est pas un produit
+    // laitier — le composé, plus long, bat « crème » à position égale.
+    "creme de champignons", "creme de poulet", "creme de celeri",
+    "creme de brocoli",
   ],
   "Ménager et soins": [
     "papier", "essuie", "savon", "detergent", "shampoing", "dentifrice",
-    "couche", "mouchoir", "nettoyant", "lessive",
+    "couche", "mouchoir", "nettoyant", "lessive", "deodorant", "rasoir",
+    "assouplissant", "eponge", "sac a dechets", "sac a ordures",
   ],
 };
 
@@ -348,6 +412,12 @@ export const MOTS_LAIT_DE_VACHE = [
   "lactantia", "natrel", "quebon",
 ];
 
+// « Feta Krinos » sortait sans catégorie : les circulaires nomment le fromage
+// par son nom, pas par le mot « fromage ». La liste des fromages existe déjà
+// pour l'option sans lait de vache — on la verse dans la catégorie plutôt que
+// d'en entretenir une copie qui divergerait.
+MOTS_CATEGORIES["Produits laitiers et œufs"].push(...MOTS_FROMAGE);
+
 /**
  * Ce produit contient-il du lait de vache ? Le fromage rend toujours false :
  * c'est l'exception voulue, pas un oubli.
@@ -372,16 +442,140 @@ export function contientLaitDeVache(nom) {
 export function estBoissonVegetale(nom) {
   const t = sansAccents(String(nom || "").toLowerCase());
   if (MOTS_FROMAGE.some((m) => t.includes(m))) return false;
+  // Le lait de coco EN CONSERVE est un ingrédient de cuisson, pas la boisson
+  // qui remplace le lait au déjeuner : sans cette exception, l'option sans
+  // lait de vache l'auto-ajoutait dans le quota des produits laitiers.
+  // « Boisson de coco », elle, se boit — et passe.
+  if (/\blait de coco\b/.test(t)) return false;
   const contenant = /\b(lait|boisson|breuvage)\b/.test(t) || t.includes("base de plantes");
   return contenant && MOTS_VEGETAL.some((m) => t.includes(m));
 }
 
+/* ---------- Correspondance d'un mot-clé dans un nom de produit ----------
+ *
+ * PAR JETONS, PLUS JAMAIS PAR SOUS-CHAÎNE. La recherche par sous-chaîne
+ * classait par accident : « poireau » et « rouleaux de printemps » contiennent
+ * « eau » et partaient dans Boissons; « vaisselle » contient « sel ». Un mot
+ * de liste ne doit correspondre qu'à un MOT du produit.
+ *
+ * Deux règles, réglées sur le vocabulaire des circulaires :
+ *   - un jeton du produit égal au mot-clé correspond toujours;
+ *   - un jeton qui COMMENCE par un mot-clé d'au moins CINQ lettres
+ *     correspond aussi — c'est ce qui fait que « surgele » attrape
+ *     « surgelée » et « hache » attrape « hachée ». Sous cinq lettres,
+ *     l'égalité seule : « roti » attrapait « rotini » (des pâtes chez les
+ *     viandes) et « cari » attrapait « caribou ». Les pluriels ne perdent
+ *     rien, singulier() les ramène avant la comparaison.
+ *
+ * Un mot-clé de plusieurs mots (« pomme de terre », « crème glacée ») doit se
+ * retrouver en jetons CONSÉCUTIFS : « pomme » puis « terre » côte à côte.
+ */
+/** Position (index de jeton) où le mot-clé commence dans le nom, ou -1. */
+export function positionDuMot(mot, jetonsNom) {
+  const jetonsMot = jetons(mot);
+  if (!jetonsMot.length) return -1;
+  const correspond = (jetonProduit, jetonMot) =>
+    jetonProduit === jetonMot || (jetonMot.length >= 5 && jetonProduit.startsWith(jetonMot));
+  for (let i = 0; i + jetonsMot.length <= jetonsNom.length; i++) {
+    if (jetonsMot.every((jm, k) => correspond(jetonsNom[i + k], jm))) return i;
+  }
+  return -1;
+}
+
+export function motDansNom(mot, jetonsNom, { auDebut = false } = {}) {
+  const position = positionDuMot(mot, jetonsNom);
+  return auDebut ? position === 0 : position >= 0;
+}
+
+/**
+ * Devine la catégorie d'un produit.
+ *
+ * LA CORRESPONDANCE LA PLUS TÔT DANS LE NOM GAGNE. Les circulaires nomment le
+ * produit par ce qu'il EST, puis le décrivent : « Jus d'orange » est un jus
+ * (Boissons), pas une orange — c'est le premier ordre d'arrivée qui le dit,
+ * pas l'ordre des catégories, qui classait le jus d'orange dans les fruits et
+ * la soupe aux tomates dans les légumes. À position égale, le mot-clé composé
+ * bat le mot simple (« crème glacée » bat « crème »); à égalité complète,
+ * l'ordre des catégories tranche, pour rester déterministe.
+ *
+ * UNE EXCEPTION AVANT TOUT : « surgelé » ou « congelé » dans le nom dit le
+ * rayon, peu importe ce qui est congelé. Des frites surgelées ne sont pas des
+ * pommes de terre du rayon des légumes.
+ */
 export function categorieDevinee(nom) {
-  const normalise = sansAccents((nom || "").toLowerCase());
+  const jetonsNom = jetons(nom || "");
+  if (!jetonsNom.length) return null;
+  if (["surgele", "congele"].some((mot) => motDansNom(mot, jetonsNom))) return "Surgelés";
+
+  let meilleure = null;
   for (const [categorie, mots] of Object.entries(MOTS_CATEGORIES)) {
     for (const mot of mots) {
-      if (normalise.includes(mot)) return categorie;
+      const position = positionDuMot(mot, jetonsNom);
+      if (position < 0) continue;
+      const longueur = jetons(mot).length;
+      if (!meilleure || position < meilleure.position
+        || (position === meilleure.position && longueur > meilleure.longueur)) {
+        meilleure = { categorie, position, longueur };
+      }
     }
   }
-  return null;
+  return meilleure ? meilleure.categorie : null;
+}
+
+/* ---------- Garde-manger ----------
+ *
+ * UN KILO DE SUCRE N'EST PAS UNE AUBAINE DE LA SEMAINE. Le garde-manger —
+ * sucre, farine, huile, vinaigre, condiments, épices — se rachète quelques
+ * fois par année : le proposer en ajout automatique dès qu'il est en gros
+ * rabais remplissait la liste de choses que personne n'allait chercher.
+ *
+ * Cette liste ne JUGE pas le produit, elle retient sa CADENCE D'ACHAT. C'est
+ * pourquoi les bases de repas qui se consomment chaque semaine n'y sont pas :
+ * pâtes, riz, conserves de tomates, céréales, café, bouillon. Et elle ne
+ * bloque que les AJOUTS AUTOMATIQUES — écrire « sucre » dans un plan ou une
+ * liste trouve l'aubaine comme avant : c'est vous qui l'avez demandé.
+ *
+ * LA DÉTECTION EST ANCRÉE AU PREMIER JETON, et cette ancre n'est pas un
+ * détail : dans une circulaire, le produit OUVRE son nom (« Ketchup Heinz »,
+ * « Sel de mer », « Farine Five Roses ») et la saveur arrive après. Sans
+ * l'ancre, tout ce qui est assaisonné devenait du garde-manger :
+ *
+ *     « Beurre demi-sel »        n'est pas du sel — c'est du beurre;
+ *     « Croustilles ketchup »    ne sont pas du ketchup;
+ *     « Thon à l'huile »         n'est pas de l'huile;
+ *     « Yogourt à la vanille »   n'est pas de la vanille;
+ *     « Jambon au miel »         n'est pas du miel;
+ *     « Brioches à la cannelle » ne sont pas de la cannelle.
+ */
+export const MOTS_GARDE_MANGER = [
+  // Cuisson et pâtisserie
+  "sucre", "cassonade", "farine", "levure", "bicarbonate", "fecule",
+  "vanille", "essence de vanille", "extrait de vanille", "melasse",
+  "sirop de mais", "poudre a pate", "cacao", "chapelure", "shortening",
+  "saindoux", "melange a gateau", "melange a muffins", "melange a biscuits",
+  "melange a crepes", "melange a sauce",
+  // Huiles et vinaigres (« vinaigre » attrape aussi la vinaigrette)
+  "huile", "vinaigre",
+  // Condiments et sauces de réserve. « tartinade » est ancré comme le reste :
+  // « Tartinade Nutella » en est, « Hummus tartinade Fontaine Santé » — un
+  // frais qui se mange dans la semaine — n'en est pas.
+  "moutarde", "ketchup", "mayonnaise", "relish", "sauce soya", "sauce bbq",
+  "sauce sriracha", "sriracha", "tamari", "sauce worcestershire",
+  "sauce piquante", "marinade", "cornichon", "olive", "capre", "raifort",
+  "sirop d'erable", "miel", "confiture", "tartinade", "beurre d'arachide",
+  // Épices et assaisonnements
+  "sel", "poivre", "epice", "assaisonnement", "fines herbes", "origan",
+  "basilic seche", "paprika", "cumin", "cari", "curcuma", "cannelle",
+  "muscade",
+  // Friandises — la seule entorse à la règle de la cadence, et elle est
+  // assumée : des bonbons se rachètent souvent, mais ils ne nourrissent
+  // aucun repas. Un outil qui remplit une liste d'épicerie tout seul n'a pas
+  // à y glisser des jujubes, aussi spectaculaire que soit le rabais.
+  "friandise", "bonbon", "sucette", "jujube",
+];
+
+export function estGardeManger(nom) {
+  const jetonsNom = jetons(nom || "");
+  if (!jetonsNom.length) return false;
+  return MOTS_GARDE_MANGER.some((mot) => motDansNom(mot, jetonsNom, { auDebut: true }));
 }

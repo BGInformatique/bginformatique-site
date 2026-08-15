@@ -109,12 +109,81 @@ validées seulement**.
 magasin, sur le téléphone, sont celles de la liste préparée à la maison. L'impression
 du navigateur donne le PDF.
 
+### 4. Le budget travaille dans les deux sens
+
+Un plan peut porter un budget. Quand la liste le **dépasse**, l'outil met de côté ce
+qui coûte cher *sans être une aubaine* — jamais un article étoilé — jusqu'à rentrer
+dans la somme, et il le dit quand même les prioritaires ne rentrent pas.
+
+Quand la liste coûte **moins** que le budget, la **bonification** (case du plan,
+cochée d'office) complète le panier avec les meilleurs rabais du moment, jusqu'à la
+marge et pas un cent au-delà. Quatre garde-fous, écrits en clair dans
+`optimiseur.js` : elle n'ouvre aucune épicerie de plus que celles où la liste envoie
+déjà; elle ne redemande pas ce que le plan contient; elle garde l'équilibre des
+catégories (les quotas du panier automatique); et elle n'ajoute que **de quoi manger
+cette semaine** — jamais le garde-manger (sucre, farine, huile, vinaigre, condiments,
+épices : `MOTS_GARDE_MANGER` dans `normalisation.js`, une liste qui retient la
+cadence d'achat plutôt que la nature du produit), ni le ménager, ni l'alcool, ni ce
+que le classement n'a pas reconnu. Écrire « sucre » soi-même dans un plan trouve
+l'aubaine comme avant : seul l'ajout *automatique* s'interdit de le décider.
+
+La détection du garde-manger est **ancrée au premier mot** du nom : dans une
+circulaire, le produit ouvre son nom (« Ketchup Heinz », « Sel de mer ») et la
+saveur arrive après — « croustilles ketchup », « beurre demi-sel », « thon à
+l'huile » n'en sont pas. Les friandises s'y ajoutent par une entorse assumée :
+pas une question de cadence, mais des jujubes n'ont rien à faire dans une liste
+que l'outil remplit tout seul.
+
+Le classement lui-même travaille **par jetons**, plus jamais par sous-chaîne :
+« poireau » ne contient plus le mot « eau », « vaisselle » ne contient plus
+« sel », « chorizo » n'est plus du riz ni « chocolat » un cola. La
+correspondance **la plus tôt dans le nom gagne** — le produit s'annonce en
+premier, la saveur suit : « Jus d'orange » est une boisson, « Pain aux
+raisins » un pain, « Soupe aux tomates » une conserve. À position égale, le
+mot composé bat le mot simple (« crème glacée » bat « crème »), et « surgelé »
+dans le nom impose Surgelés, peu importe ce qui est congelé. Le vocabulaire a
+été calibré sur les six circulaires réelles du 6 au 12 août 2026 (dépôt
+`BGFoods/aubaines/`, 258 aubaines) : il en restait 54 sans catégorie, il en
+reste 8 — les plats préparés, les friandises et la miche, tous volontaires. La
+version rôdée a ensuite passé une vérification adversariale (trois agents
+chargés de la réfuter sur des produits québécois réels) : leurs trouvailles —
+« Fruits de mer » chez les fruits, « Pâté au poulet » chez les pâtes, « Crème
+de champignons » au comptoir laitier, « Vraie mayonnaise » qui déjouait
+l'ancre, le cidre Michel Jodoin entré par le mot « miche » — sont corrigées et
+clouées au banc.
+
+Un choix reste ouvert au propriétaire : les **croustilles** comptent comme
+épicerie de semaine et demeurent admissibles aux ajouts automatiques, alors
+que les friandises sont bloquées. Pour les bloquer aussi, un mot à ajouter à
+`MOTS_GARDE_MANGER`.
+
+Les ajouts de la bonification sont listés dans la carte Budget; un bouton les
+inscrit au plan pour les garder d'une semaine à l'autre — jamais tout seul.
+
+### 5. Du panier aux soupers — onglet « Repas »
+
+Le menu part de la liste, jamais l'inverse : on cuisine ce que les rabais ont fait
+entrer dans le panier, c'est l'ordre qui fait économiser. On choisit une liste
+générée, un nombre de repas et de portions, et l'outil compose un menu depuis son
+**répertoire intégré** — une vingtaine de soupers ordinaires du Québec, écrits dans
+`recettes.js`, sans réseau ni clé, donc vérifiables au banc. Une recette n'entre au
+menu que si son ingrédient **moteur** (le poulet du poulet rôti) vient de la liste;
+le reste tombe dans « il reste à acheter », qu'un bouton ajoute au plan. Ce que la
+liste contient sans qu'aucun repas ne s'en serve est aussi nommé — à ne pas racheter.
+
+**Recettes par IA**, en option, avec les deux mêmes voies que l'extraction des
+circulaires : la clé Anthropic (facturée), ou l'ordre à coller dans une session
+Claude Code (sans frais), dont la réponse revient par la boîte « Recettes reçues ».
+Les recettes de l'IA s'ajoutent au répertoire pour la sélection; le menu enregistré
+recopie ses recettes **en entier**, ingrédients et étapes — celui de la semaine
+dernière reste lisible même si la recette ne revient jamais.
+
 ---
 
 ## Structure
 
 ```
-index.html              une page, trois onglets
+index.html              une page, cinq onglets
 css/style.css           palette commune aux outils internes
 js/normalisation.js     unités, prix unitaires, appariement des noms
 js/analyseur.js         texte de circulaire → aubaines structurées
@@ -137,8 +206,9 @@ et les exécute directement.
 ./outils/ep-4k9m2t/tests/lancer.sh
 ```
 
-- `tests/banc.mjs` (node) — 331 vérifications : formats de prix, conversions d'unités,
-  appariement des noms (ligatures comprises : « Œufs » se lit « oeufs »), meilleur
+- `tests/banc.mjs` (node) — 411 vérifications : formats de prix, conversions d'unités,
+  appariement des noms (ligatures comprises : « Œufs » se lit « oeufs »),
+  classement par catégories et garde-manger sur des produits réels, meilleur
   prix, limite d'épiceries, budget et bonification, plan de repas, reconstruction des
   lignes d'un PDF, et **fusion multi-appareils** (les quatre façons de perdre du
   travail entre l'ordinateur et le téléphone).
