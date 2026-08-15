@@ -273,7 +273,7 @@ def page(v, entete, pied, fin_scripts, feuilles):
   <div class="res-wrap">
     <span class="res-eyebrow">// {texte(nom.lower())}</span>
     <h1 id="ville-titre">Dépannage informatique à {texte(nom)} — à domicile ou à distance</h1>
-    <p>Diagnostic gratuit, prix confirmé avant qu'on commence, déplacement inclus.
+    <p>Estimation sans frais, prix confirmé avant qu'on commence, déplacement inclus.
        Rendez-vous le jour, le soir et la fin de semaine — vous n'avez pas à prendre congé.</p>
   </div>
 </section>
@@ -306,7 +306,7 @@ def page(v, entete, pied, fin_scripts, feuilles):
       </table>
     </div>
     <p><small>* Fourchettes, pas des prix fixes : le prix exact est confirmé après
-       le diagnostic, qui est gratuit. Grille complète sur
+       l'estimation, qui est sans frais. Grille complète sur
        <a href="/residentiel/tarifs.html">la page des tarifs</a>.</small></p>
   </div>
 </section>
@@ -324,7 +324,7 @@ def page(v, entete, pied, fin_scripts, feuilles):
   <div class="res-wrap">
     <div class="res-band">
       <h2>Un problème à {texte(nom)} ? On regarde ça aujourd'hui.</h2>
-      <p>Décrivez-nous la situation — le diagnostic est gratuit, sans engagement.</p>
+      <p>Décrivez-nous la situation — l'estimation est sans frais, sans engagement.</p>
       <div class="res-band-cta">
         <a href="/residentiel/rendez-vous.html" class="btn-cta btn-cta--primary">Prendre rendez-vous →</a>
         <a href="/residentiel/index.html#estimateur" class="res-btn-ghost">Estimer un prix</a>
