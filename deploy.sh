@@ -155,6 +155,19 @@ if git diff --cached --name-only | grep -q 'firestore\.rules'; then
   echo "  voir outils/tc-9x2k7m/SECURITE-FIRESTORE.md."
 fi
 
+# 4) Rappel — l'entête et le pied de page viennent de _gabarits/.
+#    Une page qui les porte recopiés est le point de départ de la divergence :
+#    elle garde l'ancien numéro ou l'ancienne promesse pendant des mois sans
+#    que personne ne le voie. Le rappel ne bloque pas — corriger le gabarit
+#    peut très bien être le prochain geste, pas celui-ci.
+if git diff --cached --name-only | grep -q '\.html$'; then
+  if ! python3 "$(git rev-parse --show-toplevel)/generer-gabarit.py" --essai >/dev/null 2>&1; then
+    echo -e "${YELLOW}Rappel : des pages ont un entête ou un pied dérivé du gabarit.${NC}"
+    echo "  Voir ce qui diffère :  ./generer-gabarit.py --diff"
+    echo "  Aligner :              ./generer-gabarit.py"
+  fi
+fi
+
 # L'essai RAPPORTE, il ne bloque pas : il passe donc après les deux gardes,
 # pour pouvoir dire aussi « ça serait refusé, et voici pourquoi ». Une
 # vérification qui s'arrête à la première objection ne sert qu'une fois.
