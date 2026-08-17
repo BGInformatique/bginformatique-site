@@ -12,6 +12,14 @@ outils/tc-9x2k7m/tests/genere/
 # Elles vivent hors dépôt et s'importent par le sélecteur de fichier de l'outil.
 outils/*/amorce-*.json
 
+# Cache d'octets Python : régénéré à chaque exécution d'un script ou d'un banc
+# d'essai, propre à la version de l'interpréteur, et sans aucun intérêt en
+# ligne. Sans cette exclusion il apparaît en « ?? » chez toutes les sessions,
+# et le premier déploiement qui passe par là le publie — deploy.sh fait
+# « git add . », et le déployeur de mk-7p3w9d prend tout son dossier.
+__pycache__/
+*.pyc
+
 # Banc d'essai de BGFoods : Playwright et ses dépendances s'installent
 # localement (npm i -D playwright) et n'ont rien à faire sur le site. Sans
 # cette exclusion, deploy.sh — qui fait « git add . » — publierait 19 Mo de
