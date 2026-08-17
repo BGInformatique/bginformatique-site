@@ -508,7 +508,7 @@ function carte(t, contexte) {
   const auj = jourISO();
   const total = somme(state.temps.filter((e) => e.idTache === t.id));
   const dujour = somme(state.temps.filter((e) => e.idTache === t.id && e.date === auj));
-  const epingle = t.jour === auj;
+  const epingle = t.jour === "manuel";
   const retard = t.echeance && t.echeance < auj && t.statut !== "fait";
 
   const pil = [`<span class="pil ${t.statut}">${LIB_STATUT[t.statut]}</span>`];
@@ -564,7 +564,7 @@ function carte(t, contexte) {
       ${lcRendu ? `<button class="ic" data-corriger title="Répondre à Claude et relancer avec la correction">↩</button>` : ""}
       <button class="ic" data-manuel title="Consigner du temps à la main">
         <svg><use href="#i-plus"></use></svg></button>
-      ${contexte === "tout" ? `<button class="ic ${epingle ? "on" : ""}" data-epingle title="${epingle ? "Retirer d'aujourd'hui" : "Épingler à aujourd'hui"}">
+      ${contexte === "tout" ? `<button class="ic ${epingle ? "on" : ""}" data-epingle title="${epingle ? "Retirer des tâches à compléter manuellement" : "Marquer à compléter manuellement"}">
         <svg><use href="#i-epingle"></use></svg></button>` : ""}
       <button class="ic" data-modifier title="Modifier"><svg><use href="#i-crayon"></use></svg></button>
     </div>`;
@@ -607,7 +607,7 @@ function carte(t, contexte) {
   };
   el.querySelector("[data-modifier]").onclick = () => ouvrirModale(t);
   const bEp = el.querySelector("[data-epingle]");
-  if (bEp) bEp.onclick = () => enregistrerTache({ id: t.id, jour: epingle ? "" : auj });
+  if (bEp) bEp.onclick = () => enregistrerTache({ id: t.id, jour: epingle ? "" : "manuel" });
   return el;
 }
 
@@ -1040,10 +1040,10 @@ function rendre() {
 
   const taches = state.taches.filter(visible);
 
-  /* ── aujourd'hui ── */
-  const duJour = taches.filter((t) => t.jour === auj).sort(trier);
+  /* ── à compléter manuellement ── */
+  const duJour = taches.filter((t) => t.jour === "manuel").sort(trier);
   remplir($("l-jour"), duJour, "jour",
-    "Rien d'épinglé. Choisis à droite ce que tu attaques aujourd'hui.");
+    "Rien à faire à la main. La vigie et le bouton épingle y déposent ce qui t'attend.");
   const reste = duJour.filter((t) => t.statut !== "fait").length;
   $("e-jour").textContent = duJour.length
     ? `${reste} à faire · ${duJour.length - reste} faite${duJour.length - reste > 1 ? "s" : ""}` : "";

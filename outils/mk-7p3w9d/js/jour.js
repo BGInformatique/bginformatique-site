@@ -205,8 +205,8 @@ function rendre() {
     jour.push(item("PROSPECTION", "client", t.titre + " (brouillon prêt)", versTaches(t.titre)));
     prendre(t);
   }
-  // Épinglées et échéances du jour.
-  for (const t of libres((t) => t.jour === auj || t.echeance === auj)) {
+  // Tâches à compléter manuellement et échéances du jour.
+  for (const t of libres((t) => t.jour === "manuel" || t.echeance === auj)) {
     jour.push(item("TÂCHE", "", t.titre, versTaches(t.titre),
       t.echeance === auj ? "échéance aujourd'hui" : ""));
     prendre(t);
