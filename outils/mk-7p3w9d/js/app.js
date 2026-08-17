@@ -479,12 +479,26 @@ function blocAutorisation(lc) {
       (lc.autorisationQuand ? "<br>Quand : " + ech(lc.autorisationQuand) : "") +
       "</div>" : "";
   const aColler = lc.autorisationTexte
-    ? '<div class="cl-note">Texte à coller :</div><pre class="cl-coller">' +
-      ech(lc.autorisationTexte) + "</pre>" : "";
+    ? '<div class="cl-note">Texte à coller — tel quel, rien à y ajouter :</div>' +
+      '<pre class="cl-coller">' + ech(lc.autorisationTexte) + "</pre>" : "";
+  // La marche à suivre s'adresse à quelqu'un qui n'a pas suivi le travail et
+  // qui la lit peut-être des jours plus tard, du téléphone : elle doit se
+  // suffire. Son absence s'affiche, plutôt que de laisser deviner les étapes.
+  const brins = (lc.autorisationEtapes || "").split("|")
+    .map(function (e) { return e.trim(); }).filter(Boolean);
+  const etapes = brins.length
+    ? '<div class="cl-note">Comment faire :</div><ol class="cl-etapes">' +
+      brins.map(function (e) { return "<li>" + ech(e) + "</li>"; }).join("") + "</ol>"
+    : '<div class="cl-note cl-manque">⚠️ Aucune marche à suivre fournie — ' +
+      "ne devine pas, redemande-la avec <code>autorisations.py corriger</code></div>";
+  const verif = lc.autorisationVerif
+    ? '<div class="cl-note">Réussi quand : ' + ech(lc.autorisationVerif) + "</div>" : "";
+  const siRate = lc.autorisationSiRate
+    ? '<div class="cl-note">Si ça rate : ' + ech(lc.autorisationSiRate) + "</div>" : "";
   const ref = ech(String(lc.docId || "").slice(-6));
   return '<div class="cl-autor">' +
     '<div class="cl-entete">// Claude attend ton accord' + categorie + "</div>" +
-    ech(lc.autorisationDemande) + options + ouQuand + aColler +
+    ech(lc.autorisationDemande) + options + ouQuand + etapes + aColler + verif + siRate +
     '<div class="cl-note">Réponse à donner sur le poste : ' +
     "<code>autorisations.py accorder " + ref + "</code></div></div>";
 }
