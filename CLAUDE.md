@@ -54,6 +54,39 @@ Attention au nom : l'exception se déclare par le **chemin complet**.
 `index.html` seul excepterait aussi `residentiel/index.html` et
 `entreprises/index.html`, qui sont des pages ordinaires.
 
+## La bibliothèque : une liste CLOSE de guides, pas un blogue
+
+Il n'y a plus de blogue. Un blogue est un flux — il faut le nourrir, il grossit
+sans fin, et le même sujet finit traité deux fois à deux profondeurs. C'était
+déjà le cas : la section « hameçonnage » du Centre d'aide (594 octets) doublait
+l'article sur le faux soutien technique (14 Ko).
+
+La liste des sujets est arrêtée dans `_bibliotheque/sujets.tsv` : **14 guides**,
+un par vraie question, tirés des services que le site vend et des questions du
+Centre d'aide. On **met à jour** une page ; on n'en ajoute pas une deuxième sur
+le même sujet.
+
+```
+./generer-bibliotheque.py --etat     # ce qui est écrit, ce qui reste
+./generer-bibliotheque.py --essai    # ce qui changerait
+./generer-bibliotheque.py            # index × 2 + sitemap + Centre d'aide
+```
+
+**Écrire un nouveau guide** = passer un sujet du registre à `ETAT=ecrit` avec son
+`FICHIER`, puis lancer le script. **Un sujet qui n'est pas au registre n'existe
+pas** : `deploy.sh` refuse de publier un `blogue-*.html` inconnu, parce qu'une
+page absente de l'index et du sitemap est publiée pour rien.
+
+Le titre, la description, la date et le temps de lecture sont lus **dans la
+page** — le registre porte le plan, la page porte la vérité. Le champ `ANCRES`
+relie un guide aux questions du Centre d'aide qu'il approfondit ; le script y
+pose le lien « Pour aller au fond » entre `<!-- GUIDE:DÉBUT -->` et `FIN`.
+
+Les fichiers gardent leur nom `blogue-*.html` : ces URL sont indexées et
+répondent 200. Les renommer pour un préfixe plus joli coûterait le référencement
+que ces textes servent à aller chercher. Seul le mot affiché a changé —
+« Guides », pas « Blogue ».
+
 ## Règles Firestore
 Elles ne se déploient **pas** avec le site : Firebase ne lit pas ce dépôt.
 Après toute modification d'un `firestore.rules`, le publier en console —

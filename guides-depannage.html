@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="/style.css?v=ba12d3ac">
-  <link rel="stylesheet" href="/residentiel.css?v=ba12d3ac">
+  <link rel="stylesheet" href="/style.css?v=efb414dc">
+  <link rel="stylesheet" href="/residentiel.css?v=efb414dc">
 
   <style>
     .guide-cats {
@@ -122,7 +122,7 @@
       <a href="/residentiel/methode.html">Méthode</a>
       <a href="/residentiel/tarifs.html">Tarifs</a>
       <a href="/residentiel/faq.html">FAQ</a>
-      <a href="/residentiel/blogue.html">Blogue</a>
+      <a href="/residentiel/blogue.html">Guides</a>
     </nav>
     <div class="res-actions">
       <a href="/" class="res-switch">
@@ -164,7 +164,7 @@
     <h2 class="guide-group-title" id="pc-lent"><svg class="g-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg> Mon ordinateur est lent</h2>
     <div class="faq-list">
 
-      <details class="faq-item">
+      <details class="faq-item" id="windows-lent">
         <summary>Windows devient lent au quotidien</summary>
         <div class="faq-content">
           <p>Dans 8 cas sur 10, ces quatre gestes suffisent à retrouver une vitesse normale — aucun logiciel à installer.</p>
@@ -177,10 +177,12 @@
           <div class="faq-note">
             Toujours lent après ça ? La cause est souvent plus profonde (disque vieillissant, malware, pilotes). Notre <strong>optimisation à 95 $</strong> règle ça en une intervention à distance — ou utilisez d'abord notre <a href="/outils-diagnostic.html">outil de diagnostic Windows</a> pour nous envoyer un rapport.
           </div>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
-      <details class="faq-item">
+      <details class="faq-item" id="navigateur-lent">
         <summary>Le navigateur (Chrome, Edge) rame ou plante</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -189,6 +191,8 @@
             <li>Désactivez les extensions une à une pour repérer la coupable (menu → Extensions).</li>
             <li>Vérifiez les mises à jour du navigateur, puis redémarrez-le.</li>
           </ol>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
@@ -198,7 +202,7 @@
     <h2 class="guide-group-title" id="wifi"><svg class="g-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></svg> Mon WiFi / Internet ne fonctionne plus</h2>
     <div class="faq-list">
 
-      <details class="faq-item">
+      <details class="faq-item" id="aucune-connexion">
         <summary>Plus aucune connexion (rien ne charge)</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -208,10 +212,12 @@
             <li><strong>Oubliez et reconnectez le réseau.</strong> Paramètres WiFi → cliquez sur votre réseau → <em>Oublier</em> → reconnectez-vous avec le mot de passe.</li>
           </ol>
           <div class="faq-note">Notez la couleur et l'état des voyants du modem avant d'appeler le fournisseur : ça accélère beaucoup le diagnostic.</div>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
-      <details class="faq-item">
+      <details class="faq-item" id="wifi-intermittent">
         <summary>Le WiFi coupe par intermittence</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -220,6 +226,8 @@
             <li>Sur Windows : Gestionnaire de périphériques → Cartes réseau → clic droit sur votre carte WiFi → <em>Mettre à jour le pilote</em>.</li>
             <li>Si plusieurs appareils saturent le réseau, un routeur récent ou un répéteur peut être nécessaire.</li>
           </ol>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
@@ -229,7 +237,7 @@
     <h2 class="guide-group-title" id="demarrage"><svg class="g-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg> Mon ordinateur ne démarre pas correctement</h2>
     <div class="faq-list">
 
-      <details class="faq-item">
+      <details class="faq-item" id="ecran-noir">
         <summary>Écran noir / l'ordinateur ne s'allume pas</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -239,10 +247,12 @@
             <li><strong>Écran noir mais ventilateur tourne ?</strong> Vérifiez le câble de l'écran ou testez un autre moniteur.</li>
           </ol>
           <div class="alert alert-info" style="margin-top:14px;">Aucune réaction du tout (pas de voyant, pas de son) ? C'est probablement matériel. Nous ne réparons pas le matériel, mais nous pouvons vous orienter vers la bonne ressource sans frais.</div>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
-      <details class="faq-item">
+      <details class="faq-item" id="demarrage-bloque">
         <summary>Windows démarre mais bloque / boucle de redémarrage</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -251,6 +261,8 @@
             <li>Si ça échoue, essayez <em>Démarrer en mode sans échec</em> et désinstallez le dernier logiciel ou la dernière mise à jour installée.</li>
           </ol>
           <div class="faq-note"><svg class="txt-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> N'utilisez l'option « Réinitialiser ce PC » qu'en dernier recours, et seulement si vos fichiers sont sauvegardés. Dans le doute, écrivez-nous avant.</div>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
@@ -259,7 +271,7 @@
     <!-- ═══ IMPRIMANTE ═══ -->
     <h2 class="guide-group-title" id="imprimante"><svg class="g-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg> Mon imprimante ne répond pas</h2>
     <div class="faq-list">
-      <details class="faq-item">
+      <details class="faq-item" id="impression">
         <summary>L'impression ne part pas</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -269,6 +281,8 @@
             <li>Réglez votre imprimante comme imprimante <em>par défaut</em> dans la même fenêtre.</li>
             <li>Toujours rien ? <em>Supprimez</em> l'imprimante puis <em>Ajoutez-la</em> de nouveau.</li>
           </ol>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
     </div>
@@ -277,7 +291,7 @@
     <h2 class="guide-group-title" id="comptes"><svg class="g-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> Comptes et mots de passe</h2>
     <div class="faq-list">
 
-      <details class="faq-item">
+      <details class="faq-item" id="mot-de-passe-oublie">
         <summary>J'ai oublié mon mot de passe (compte Microsoft, Google, etc.)</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -286,10 +300,12 @@
             <li>Choisissez un mot de passe long (12+ caractères) et unique. Une phrase est plus forte et plus facile à retenir qu'un mot compliqué.</li>
           </ol>
           <div class="faq-note">Conseil sécurité : utilisez un gestionnaire de mots de passe et activez la <strong>vérification en deux étapes (2FA)</strong> partout où c'est possible. On forme volontiers les équipes là-dessus.</div>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
-      <details class="faq-item">
+      <details class="faq-item" id="courriel-reception">
         <summary>Je n'arrive plus à recevoir mes courriels</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -298,6 +314,8 @@
             <li>Vérifiez le dossier <em>Indésirables / Spam</em> et l'espace de stockage de la boîte.</li>
             <li>Sur mobile : supprimez et reconfigurez le compte de courriel.</li>
           </ol>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
@@ -307,7 +325,7 @@
     <h2 class="guide-group-title" id="securite"><svg class="g-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg> Sécurité — je pense être infecté ou piégé</h2>
     <div class="faq-list">
 
-      <details class="faq-item">
+      <details class="faq-item" id="publicites-navigateur">
         <summary>Fenêtres publicitaires, page d'accueil changée, lenteurs soudaines</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -317,10 +335,12 @@
             <li>Changez vos mots de passe importants <em>depuis un autre appareil sain</em> si vous suspectez un vol.</li>
           </ol>
           <div class="alert alert-warning" style="margin-top:14px;"><strong>Rançongiciel suspecté</strong> (fichiers chiffrés, demande de rançon) : débranchez l'appareil du réseau, ne payez rien, et appelez-nous immédiatement au <a href="tel:+14502319199">450 231-9199</a>.</div>
+          <!-- GUIDE:DÉBUT -->
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
-      <details class="faq-item">
+      <details class="faq-item" id="hameconnage">
         <summary>J'ai cliqué sur un lien d'hameçonnage / donné un mot de passe</summary>
         <div class="faq-content">
           <ol class="guide-steps">
@@ -329,6 +349,9 @@
             <li>Prévenez votre banque si des informations financières ont pu être exposées.</li>
             <li>En entreprise : avertissez votre responsable TI ou votre équipe — la rapidité limite les dégâts.</li>
           </ol>
+          <!-- GUIDE:DÉBUT -->
+          <p class="guide-lien">Pour aller au fond : <a href="/residentiel/blogue-faux-soutien-technique.html">Faux soutien technique : l'arnaque qui vise nos aînés</a> <span class="guide-lien-duree">(4 min)</span></p>
+          <!-- GUIDE:FIN -->
         </div>
       </details>
 
@@ -370,7 +393,7 @@
         <a href="/residentiel/tarifs.html">Tarifs</a>
         <a href="/residentiel/faq.html">FAQ</a>
         <a href="/residentiel/rendez-vous.html">Rendez-vous</a>
-        <a href="/residentiel/blogue.html">Blogue</a>
+        <a href="/residentiel/blogue.html">Guides</a>
       </div>
       <div class="res-footer-col">
         <span class="h">Aide gratuite</span>

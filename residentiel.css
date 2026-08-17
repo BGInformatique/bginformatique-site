@@ -791,6 +791,20 @@ a.res-card:hover {
 .res-btn-ghost:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.5); color: #fff; }
 
 /* ── Pied de page ─────────────────────────────────────── */
+/* Le pont entre le Centre d'aide et la bibliothèque : sous les premiers gestes
+   d'une question, le lien vers le guide qui la traite au fond. Sans ce pont,
+   le même sujet existe à deux endroits sans que le lecteur le sache. */
+.guide-lien {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--brand-blue);
+  background: rgba(14, 143, 196, .07);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.95rem;
+}
+.guide-lien a { font-weight: 600; }
+.guide-lien-duree { opacity: .65; font-size: 0.88em; }
+
 .res-footer {
   background: #0a1428;
   border-top: 1px solid rgba(255, 255, 255, 0.08);

@@ -168,13 +168,25 @@ if git diff --cached --name-only | grep -q '\.html$'; then
   fi
 fi
 
+# 5) Garde de BIBLIOTHÈQUE — la liste des guides est CLOSE.
+#    Un « blogue-*.html » déposé hors registre, c'est le flux qui recommence :
+#    une page publiée que l'index ne montre pas et que le sitemap ignore.
+#    Comme les deux gardes ci-dessus, elle pose un drapeau ici et bloque plus
+#    bas, pour que l'essai puisse rapporter TOUTES les objections d'un coup.
+BIBLIO=0
+if git diff --cached --name-only | grep -q 'blogue-.*\.html$'; then
+  if ! python3 "$(git rev-parse --show-toplevel)/generer-bibliotheque.py" --essai; then
+    BIBLIO=1
+  fi
+fi
+
 # L'essai RAPPORTE, il ne bloque pas : il passe donc après les deux gardes,
 # pour pouvoir dire aussi « ça serait refusé, et voici pourquoi ». Une
 # vérification qui s'arrête à la première objection ne sert qu'une fois.
 if [ "$ESSAI" -eq 1 ]; then
   echo -e "${BLUE}Serait commité :${NC}"
   git diff --cached --name-only | sed 's/^/  /'
-  if [ "$FUITE" -eq 1 ] || [ "$MELE" -eq 1 ]; then
+  if [ "$FUITE" -eq 1 ] || [ "$MELE" -eq 1 ] || [ "$BIBLIO" -eq 1 ]; then
     echo -e "${YELLOW}En vrai, ce déploiement serait REFUSÉ (voir ci-dessus).${NC}"
   fi
   git reset >/dev/null
@@ -193,6 +205,13 @@ if [ "$MELE" -eq 1 ]; then
   annuler
   echo "Si c'est voulu :        ./deploy.sh \"message\" --tout"
   echo "Sinon, ciblez :         ./deploy.sh \"message\" --seulement <zone> [<zone>…]"
+  exit 1
+fi
+
+if [ "$BIBLIO" -eq 1 ]; then
+  annuler
+  echo "La liste des guides est close. Inscrire celui-ci dans"
+  echo "_bibliotheque/sujets.tsv, puis :   ./generer-bibliotheque.py"
   exit 1
 fi
 
