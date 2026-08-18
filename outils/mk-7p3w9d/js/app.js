@@ -713,12 +713,29 @@ function rendreCourriels() {
             ? ` · <button type="button" class="p-act" data-cr="${ech(c.id)}" data-g="marquer"
                  title="Inscrire ENVOYÉ sur la fiche du batch">marquer envoyé</button>`
             : "");
-      return `<tr>
+      /* L'état du prospect visé, à côté de celui du courriel : « envoyé » ne
+         dit rien de la suite tant que le prospecteur n'a pas porté le contact
+         au journal. Un courriel que rien ne relie à l'inventaire s'ouvre et
+         s'envoie quand même — il ne peut simplement pas déclencher
+         l'acceptation tout seul, et il vaut mieux le voir avant. */
+      const suite = c.statut !== "envoye" ? ""
+        : c.journalId ? " · au journal"
+        : c.prospect ? " · acceptation au prochain cycle"
+        : " · à porter au journal à la main";
+      /* Trois morceaux calculés AVANT le gabarit, jamais dedans : un gabarit
+         imbriqué dans un ${…} inverse la lecture du contrôle des constantes
+         (tests/constantes.py), et le décalage se paie plus loin dans le
+         fichier, sur une ligne qui n'y est pour rien. */
+      const infobulle = c.prospect ? ' title="Prospect : ' + ech(c.prospect) + '"' : "";
+      const relie = c.prospect ? "" :
+        ' <span class="p-c-note" title="Aucune ligne de l’inventaire ne porte ce nom">· non relié</span>';
+      const etat = c.statut === "envoye" ? "envoyé le " + ech(c.envoyeLe) : "à envoyer";
+      return `<tr${infobulle}>
         <td class="p-c-num">${ech(c.id)}</td>
-        <td>${ech(c.nom)}</td>
+        <td>${ech(c.nom)}${relie}</td>
         <td class="p-c-note">${ech(c.objet)}</td>
         <td class="p-c-note">${ech(c.a)}</td>
-        <td>${c.statut === "envoye" ? `envoyé le ${ech(c.envoyeLe)}` : "à envoyer"}</td>
+        <td>${etat}<span class="p-c-note">${ech(suite)}</span></td>
         <td class="p-c-dec">${action}</td></tr>`;
     }).join("") + "</tbody>";
 
@@ -730,7 +747,7 @@ function rendreCourriels() {
         { demandes: { [b.dataset.cr]: { geste: b.dataset.g, maj: maintenant() } } },
         { merge: true })
         .then(() => avis(b.dataset.g === "marquer"
-          ? "Fiche marquée envoyée."
+          ? "Marqué envoyé — le prospect entre en cadence au prochain cycle."
           : "Thunderbird s'ouvre sur BG001 — rien ne part avant ton clic sur « Envoyer »."))
         .catch((e) => { b.disabled = false; avis("Demande refusée : " + e.message, true); });
     };
@@ -1089,7 +1106,7 @@ function rendreProspection() {
         <td>${liens.join(" ")}</td>
         <td class="p-c-dec">${action}
           <button type="button" class="p-x" data-xi="${ech(r.id)}"
-            title="Retirer ce prospect de l'inventaire">×</button></td></tr>
+            title="Retirer ce prospect de l’inventaire">×</button></td></tr>
       <tr class="p-fiche"${fichesOuvertes.has("inv:" + r.id) ? "" : " hidden"}>
         <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(ficheInv(r))}</td>
       </tr>`;
