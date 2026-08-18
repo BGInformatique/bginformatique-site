@@ -112,6 +112,8 @@ let dernierEcrit = null;
  */
 let filtreClient = lireMandat(), filtreChantier = "", filtreStatut = "actives", filtreTexte = "";
 let pageInv = 0;   // lot courant de l'inventaire de prospection (20 par lot)
+let montrerRetires = false;  // les prospects retirés d'un « × » sont cachés
+let lotCourriel = "";        // batch affiché dans les courriels préparés
 const fichesOuvertes = new Set();   // fiches contact dépliées — survit aux re-rendus
 const ouvertes = new Set();
 
@@ -128,6 +130,10 @@ let lancements = new Map();
 // « signal » (répondu, RDV fixé…) que le prospecteur applique au journal
 // TSV au cycle suivant. Les brouillons de relance, eux, sont des tâches.
 let prospection = null;
+// Miroir des courriels de prospection préparés, publié par la passerelle
+// courriels_msi.py de BG001. La page ne connaît que des numéros de fiche :
+// le texte, le destinataire et l'identité d'envoi restent sur la machine.
+let courrielsMsi = null;
 
 const LIB_PROSP = {
   a_contacter: "À contacter", contact_prepare: "1er contact prêt",
@@ -664,7 +670,76 @@ function ligneFiche(p) {
     : "coordonnées à compléter — journal ou inventaire de prospection (TSV)";
 }
 
+/* Les courriels de prospection déjà rédigés sur BG001 (dossier Batchs_
+   Courriels). Un clic ouvre la fenêtre de rédaction Thunderbird, remplie et
+   signée de la bonne identité — et RIEN NE PART : le clic sur « Envoyer »
+   reste un geste humain, comme le veut le dossier.
+
+   La page n'envoie qu'un NUMÉRO de fiche à la passerelle de BG001. Le texte,
+   le destinataire et l'identité d'envoi ne transitent jamais par le web :
+   ils sont lus sur la machine, au moment d'ouvrir la fenêtre. */
+function rendreCourriels() {
+  const tout = (courrielsMsi && courrielsMsi.courriels) || [];
+  const mien = tout.length &&
+    appartientAuMandat(filtreClient, courrielsMsi.mandat || "");
+  $("p-courriels").hidden = !mien;
+  if (!mien) return 0;
+
+  const lots = [...new Set(tout.map((c) => c.batch))].sort();
+  if (lotCourriel && !lots.includes(lotCourriel)) lotCourriel = "";
+  const visibles = lotCourriel ? tout.filter((c) => c.batch === lotCourriel) : tout;
+  const reste = tout.filter((c) => c.statut === "a_faire").length;
+  const demandes = (courrielsMsi && courrielsMsi.demandes) || {};
+
+  $("p-cr-n").textContent = `${tout.length} rédigés · ${reste} à envoyer`;
+  $("p-cr-lots").innerHTML =
+    `<button class="puce" data-lot="" aria-pressed="${!lotCourriel}">tous</button>` +
+    lots.map((l) => `<button class="puce" data-lot="${ech(l)}" ` +
+      `aria-pressed="${l === lotCourriel}">lot ${ech(l)}</button>`).join("");
+  $("p-cr-lots").querySelectorAll("[data-lot]").forEach((b) => {
+    b.onclick = () => { lotCourriel = b.dataset.lot; rendreCourriels(); };
+  });
+
+  $("p-cr-liste").innerHTML =
+    `<thead><tr><th>#</th><th>Entreprise</th><th>Objet</th><th>Destinataire</th>` +
+    `<th>Statut</th><th>Action</th></tr></thead><tbody>` +
+    visibles.map((c) => {
+      const attente = Boolean(demandes[c.id]);
+      const action = attente
+        ? `<span class="p-c-note">ouverture sur BG001…</span>`
+        : `<button type="button" class="p-act" data-cr="${ech(c.id)}" data-g="ouvrir"
+             title="Ouvrir la fenêtre Thunderbird, déjà remplie">✉ ouvrir</button>` +
+          (c.statut === "a_faire"
+            ? ` · <button type="button" class="p-act" data-cr="${ech(c.id)}" data-g="marquer"
+                 title="Inscrire ENVOYÉ sur la fiche du batch">marquer envoyé</button>`
+            : "");
+      return `<tr>
+        <td class="p-c-num">${ech(c.id)}</td>
+        <td>${ech(c.nom)}</td>
+        <td class="p-c-note">${ech(c.objet)}</td>
+        <td class="p-c-note">${ech(c.a)}</td>
+        <td>${c.statut === "envoye" ? `envoyé le ${ech(c.envoyeLe)}` : "à envoyer"}</td>
+        <td class="p-c-dec">${action}</td></tr>`;
+    }).join("") + "</tbody>";
+
+  $("p-cr-liste").querySelectorAll("[data-cr]").forEach((b) => {
+    b.onclick = () => {
+      if (!uidCourant) return;
+      b.disabled = true;
+      setDoc(doc(db, "users", uidCourant, "marketing", "courriels-msi"),
+        { demandes: { [b.dataset.cr]: { geste: b.dataset.g, maj: maintenant() } } },
+        { merge: true })
+        .then(() => avis(b.dataset.g === "marquer"
+          ? "Fiche marquée envoyée."
+          : "Thunderbird s'ouvre sur BG001 — rien ne part avant ton clic sur « Envoyer »."))
+        .catch((e) => { b.disabled = false; avis("Demande refusée : " + e.message, true); });
+    };
+  });
+  return tout.length;
+}
+
 function rendreProspection() {
+  const nCourriels = rendreCourriels();
   const liste = (prospection && prospection.prospects) || [];
   /*
    * Chaque mandat a sa prospection. Le miroir, lui, est écrit par le
@@ -684,13 +759,35 @@ function rendreProspection() {
   const sienne = (p) => p.mandat
     ? appartientAuMandat(filtreClient, p.mandat)
     : appartientAuMandat(filtreClient, proprietaire);
-  const miens = liste.filter(sienne);
+  /* Le « × » d'une ligne dépose un retrait ; le prospecteur ne l'appliquera au
+     journal qu'à son prochain cycle. La page, elle, retire la ligne TOUT DE
+     SUITE : un clic qui ne fait rien pendant une semaine se reclique, et on
+     finit par croire le bouton cassé. Un prospect déjà abandonné compte pour
+     retiré lui aussi — le bouton « voir les retirés » les ramène tous. */
+  const retraits = (prospection && prospection.retraits) || {};
+  const sigDe = (p) => (((prospection && prospection.signaux) || {})[p.id] || {}).statut || p.statut;
+  const retire = (p) => Boolean(retraits[p.id]) || sigDe(p) === "abandonne";
+  const tous = liste.filter(sienne);
+  const vivants = tous.filter((p) => !retire(p));
+  const nRetires = tous.length - vivants.length;
+  const miens = montrerRetires ? tous : vivants;
+  const bRetires = $("p-retires");
+  bRetires.onclick = () => { montrerRetires = !montrerRetires; rendreProspection(); };
+  bRetires.hidden = !nRetires;
+  bRetires.textContent = montrerRetires
+    ? `masquer les ${nRetires} retiré${nRetires > 1 ? "s" : ""}`
+    : `voir les ${nRetires} retiré${nRetires > 1 ? "s" : ""}`;
 
-  $("prospection").hidden = !liste.length;
+  // Le volet vit aussi pour les seuls courriels : la passerelle peut avoir
+  // publié ses fiches avant que le prospecteur ait écrit son premier miroir.
+  $("prospection").hidden = !liste.length && !nCourriels;
   if (!liste.length) return;
-  $("p-vide").hidden = miens.length > 0;
+  // Le mandat n'a AUCUN prospect : c'est le seul cas où le volet n'a rien à
+  // montrer. Une liste vidée par les retraits, elle, garde son inventaire et
+  // ses courriels — et son bouton pour ramener les retirés.
+  $("p-vide").hidden = tous.length > 0;
   $("p-liste").hidden = !miens.length;
-  if (!miens.length) {
+  if (!tous.length) {
     $("p-vide").textContent =
       `Aucun prospect pour ce mandat. Le miroir du prospecteur de BG001 en porte ` +
       `${liste.length} pour « ${proprietaire || "un autre mandat"} ».`;
@@ -836,7 +933,9 @@ function rendreProspection() {
         <td class="p-c-dec">${brouillon ? `<a class="p-act" href="${ech(lienCourriel(p.courriel, brouillon))}"
           title="Ouvrir un courriel avec le brouillon${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</a> ·
           <button type="button" class="p-act" data-cp title="Copier le brouillon (pour LinkedIn ou ailleurs)">copier</button>` : ""}</td>
-        <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select></td>
+        <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select>
+          <button type="button" class="p-x" data-x
+            title="Retirer ce prospect de la liste">×</button></td>
       </tr>
       <tr class="p-fiche"${fichesOuvertes.has(p.id) ? "" : " hidden"}>
         <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(p)}
@@ -905,13 +1004,25 @@ function rendreProspection() {
         { signaux: { [p.id]: { statut: v, maj: maintenant() } } }, { merge: true })
         .catch((e) => avis("Signal refusé : " + e.message, true));
     };
+    /* Le retrait ne demande pas confirmation : il se défait d'un clic sur
+       « voir les retirés », et une boîte de dialogue à chaque ligne rendrait
+       le ménage d'une liste de cent prospects insupportable. */
+    tr.querySelector("[data-x]").onclick = (ev) => {
+      ev.stopPropagation();
+      if (!uidCourant) return;
+      setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+        { retraits: { [p.id]: { nom: p.prospect, maj: maintenant() } } }, { merge: true })
+        .then(() => avis(`« ${p.prospect} » retiré.`))
+        .catch((e) => avis("Retrait refusé : " + e.message, true));
+    };
   });
 
   /* Inventaire : le bassin complet de prospects potentiels, cadence incluse,
      par pages de 20. Candidat → accepter/rejeter ; répertorié → cadencer ;
      rien n'entre dans la cadence sans un geste explicite, et un rejet est
      définitif (jamais reproposé). */
-  const inv = ((prospection && prospection.inventaire) || []).slice();
+  const inv = ((prospection && prospection.inventaire) || [])
+    .filter((r) => montrerRetires || !retraits[r.id]);
   const cands = (prospection && prospection.candidats) || [];
   const decisions = (prospection && prospection.candidatures) || {};
   const ajouts = (prospection && prospection.ajouts) || {};
@@ -976,7 +1087,9 @@ function rendreProspection() {
         <td class="p-c-note">${ech(r.origine || "")}</td>
         <td class="p-c-note">${LIB_INV[r.statut] || ech(r.statut)}</td>
         <td>${liens.join(" ")}</td>
-        <td class="p-c-dec">${action}</td></tr>
+        <td class="p-c-dec">${action}
+          <button type="button" class="p-x" data-xi="${ech(r.id)}"
+            title="Retirer ce prospect de l'inventaire">×</button></td></tr>
       <tr class="p-fiche"${fichesOuvertes.has("inv:" + r.id) ? "" : " hidden"}>
         <td colspan="7"><span class="p-fiche-cle">fiche</span> ${ligneFiche(ficheInv(r))}</td>
       </tr>`;
@@ -1006,6 +1119,16 @@ function rendreProspection() {
         { candidatures: { [b.dataset.c]: { decision: b.dataset.d, maj: maintenant() } } },
         { merge: true })
         .catch((e) => avis("Décision refusée : " + e.message, true));
+    };
+  });
+  $("p-cand-liste").querySelectorAll("[data-xi]").forEach((b) => {
+    b.onclick = () => {
+      if (!uidCourant) return;
+      const nom = (inv.find((r) => r.id === b.dataset.xi) || {}).nom || "";
+      setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+        { retraits: { [b.dataset.xi]: { nom, maj: maintenant() } } }, { merge: true })
+        .then(() => avis(`« ${nom} » retiré.`))
+        .catch((e) => avis("Retrait refusé : " + e.message, true));
     };
   });
   $("p-cand-liste").querySelectorAll("[data-n]").forEach((b) => {
@@ -1294,11 +1417,13 @@ $("btn-logout").addEventListener("click", () => signOut(auth));
 let desabonner = null;
 let desabonnerLancements = null;
 let desabonnerProspection = null;
+let desabonnerCourriels = null;
 
 onAuthStateChanged(auth, (user) => {
   if (desabonner) { desabonner(); desabonner = null; }
   if (desabonnerLancements) { desabonnerLancements(); desabonnerLancements = null; }
   if (desabonnerProspection) { desabonnerProspection(); desabonnerProspection = null; }
+  if (desabonnerCourriels) { desabonnerCourriels(); desabonnerCourriels = null; }
 
   if (!user) {
     userDocRef = null;
@@ -1338,6 +1463,12 @@ onAuthStateChanged(auth, (user) => {
   desabonnerProspection = onSnapshot(doc(db, "users", user.uid, "marketing", "prospection"),
     (snap) => { prospection = snap.exists() ? snap.data() : null; rendreProspection(); },
     () => { prospection = null; });
+
+  // Courriels de prospection déjà rédigés sur BG001. Absents (passerelle
+  // arrêtée, aucun batch), le bloc reste simplement caché.
+  desabonnerCourriels = onSnapshot(doc(db, "users", user.uid, "marketing", "courriels-msi"),
+    (snap) => { courrielsMsi = snap.exists() ? snap.data() : null; rendreProspection(); },
+    () => { courrielsMsi = null; });
 
   // File de lancement Claude : seuls les documents portant demandeLe sont des
   // lancements — le document « state » n'en a pas et reste hors de la requête.
