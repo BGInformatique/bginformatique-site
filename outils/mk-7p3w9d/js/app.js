@@ -539,6 +539,15 @@ function carte(t, contexte) {
   // lanceur avec ce que le propriétaire veut voir changer.
   const lcRendu = lc && (lc.statut === "fait" || lc.statut === "echec");
 
+  // Calculé AVANT le gabarit de la carte, jamais dedans : un gabarit imbriqué
+  // dans un ${…} inverse la lecture du contrôle des constantes
+  // (tests/constantes.py) — voir le même choix pour rendreProspection().
+  const outilCourriel = t.statut === "fait" || !brouillonDe(t) ? "" :
+    ((prospection && prospection.demandesCourriel || {})[t.id]
+      ? `<span class="ic" title="Ouverture sur BG001…">…</span>`
+      : `<button class="ic ic-mail" data-ecrire title="Ouvrir un courriel avec le brouillon, sur BG001">✉</button>`) +
+    `<button class="ic" data-copier-brouillon title="Copier le brouillon (pour LinkedIn ou ailleurs)">⧉</button>`;
+
   const el = document.createElement("div");
   el.className = "carte" + (t.statut === "fait" ? " fait" : "") +
     (actif ? " actif" : "") + (ouvertes.has(t.id) ? " ouvert" : "");
@@ -555,10 +564,7 @@ function carte(t, contexte) {
       <div class="etiq">${pil.join("")}</div>
     </div>
     <div class="outils">
-      ${t.statut !== "fait" && brouillonDe(t) ? `<a class="ic ic-mail"
-        href="${ech(lienCourriel((prospection && (prospection.prospects || []).find((p) => p.tacheId === t.id) || {}).courriel, brouillonDe(t)))}"
-        title="Ouvrir un courriel avec le brouillon">✉</a>
-      <button class="ic" data-copier-brouillon title="Copier le brouillon (pour LinkedIn ou ailleurs)">⧉</button>` : ""}
+      ${outilCourriel}
       <button class="ic ${t.statut === "fait" ? "on" : ""}" data-fait title="${t.statut === "fait" ? "Remettre à faire" : "Marquer faite"}">
         <svg><use href="#i-coche"></use></svg></button>
       <button class="ic ${actif ? "on" : ""}" data-chrono title="${actif ? "Arrêter le minuteur" : "Démarrer le minuteur"}">
@@ -579,6 +585,8 @@ function carte(t, contexte) {
     ouvertes.has(t.id) ? ouvertes.delete(t.id) : ouvertes.add(t.id);
     rendre();
   };
+  const bEcrire = el.querySelector("[data-ecrire]");
+  if (bEcrire) bEcrire.onclick = () => demanderCourriel(t.id, bEcrire);
   const bCopie = el.querySelector("[data-copier-brouillon]");
   if (bCopie) bCopie.onclick = async () => {
     try {
@@ -630,10 +638,15 @@ function remplir(cible, taches, contexte, vide) {
 }
 
 /*
- * « Écrire » : un lien mailto ouvre le logiciel de courriel du poste avec un
- * nouveau message prérempli — destinataire (si connu) et brouillon dans le
- * corps. L'envoi reste un geste : relire, ajuster, envoyer, puis marquer la
- * tâche faite. Le brouillon vit dans le détail de la tâche du prospecteur.
+ * « Écrire » : le brouillon vit dans le détail de la tâche du prospecteur.
+ * Un lien mailto: a d'abord servi à l'ouvrir, mais il ne choisit pas
+ * l'identité d'envoi (retombe sur l'identité par défaut du profil, pas celle
+ * du mandat) et rien ne garantit qu'il tombe sur Thunderbird plutôt que sur
+ * un autre client par défaut. Même piège, même remède que les courriels
+ * MSI : la page ne dépose qu'un numéro de tâche dans « demandesCourriel »,
+ * et la passerelle courriels_prospection.py de BG001 ouvre la fenêtre avec
+ * la syntaxe à champs (from=…,to=…,subject=…,body=…), qui sélectionne la
+ * bonne identité dans le champ « De ». Voir demanderCourriel() plus bas.
  */
 function brouillonDe(t) {
   const m = /Brouillon prêt[^:]*:\n\n([\s\S]*?)\n\nMarquer cette tâche/
@@ -641,10 +654,14 @@ function brouillonDe(t) {
   return m ? m[1].trim() : "";
 }
 
-function lienCourriel(courriel, brouillon) {
-  const dest = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(courriel || "") ? courriel : "";
-  return `mailto:${dest}?subject=${encodeURIComponent("MSI Bureautique")}` +
-    `&body=${encodeURIComponent(brouillon)}`;
+function demanderCourriel(tacheId, bouton) {
+  if (!uidCourant) return;
+  bouton.disabled = true;
+  setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+    { demandesCourriel: { [tacheId]: { geste: "ouvrir", maj: maintenant() } } },
+    { merge: true })
+    .then(() => avis("Thunderbird s'ouvre sur BG001 — rien ne part avant ton clic sur « Envoyer »."))
+    .catch((e) => { bouton.disabled = false; avis("Demande refusée : " + e.message, true); });
 }
 
 /* La fiche contact d'un prospect : tout ce que le journal sait pour le
@@ -941,14 +958,21 @@ function rendreProspection() {
         ["a_contacter", "contacte_sans_reponse", "relance_envoyee"].includes(p.statut);
       const retard = enCadence && p.prochaine && p.prochaine < auj;
       const brouillon = !envoye && !sig ? brouillonDe(t) : "";
+      const attenteCourriel = Boolean((prospection && prospection.demandesCourriel || {})[p.tacheId]);
+      // Calculé AVANT le gabarit du <tr>, jamais dedans : un gabarit imbriqué
+      // dans un ${…} inverse la lecture du contrôle des constantes
+      // (tests/constantes.py) — voir le même choix pour rendreCourriels().
+      const decisionEcrire = !brouillon ? "" : attenteCourriel
+        ? `<span class="p-c-note">ouverture sur BG001…</span>`
+        : `<button type="button" class="p-act" data-ecrire
+          title="Ouvrir un courriel avec le brouillon, sur BG001${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</button>`;
       return `<tr data-p="${ech(p.id)}">
         <td class="p-c-nom" title="Fiche contact — un clic">${ech(p.prospect)}</td>
         <td>${ech(etat)}</td>
         <td class="p-c-num">${p.relances || 0}</td>
         <td class="p-c-date${retard ? " p-retard" : ""}">${ech(p.prochaine || "—")}</td>
         <td class="p-c-note">${ech(p.note || "")}</td>
-        <td class="p-c-dec">${brouillon ? `<a class="p-act" href="${ech(lienCourriel(p.courriel, brouillon))}"
-          title="Ouvrir un courriel avec le brouillon${p.courriel ? " — " + ech(p.courriel) : " (destinataire à compléter)"}">✉ écrire</a> ·
+        <td class="p-c-dec">${brouillon ? decisionEcrire + ` ·
           <button type="button" class="p-act" data-cp title="Copier le brouillon (pour LinkedIn ou ailleurs)">copier</button>` : ""}</td>
         <td><select class="p-sig" data-id="${ech(p.id)}">${SIGNAL_OPTIONS}</select>
           <button type="button" class="p-x" data-x
@@ -967,6 +991,8 @@ function rendreProspection() {
   $("p-liste").querySelectorAll("tr[data-p]").forEach((tr) => {
     const p = parId.get(tr.dataset.p);
     if (!p) return;
+    const bEcrire = tr.querySelector("[data-ecrire]");
+    if (bEcrire) bEcrire.onclick = () => demanderCourriel(p.tacheId, bEcrire);
     const bCp = tr.querySelector("[data-cp]");
     if (bCp) bCp.onclick = async () => {
       const t = p.tacheId ? state.taches.find((x) => x.id === p.tacheId) : null;
