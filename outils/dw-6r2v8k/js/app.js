@@ -43,7 +43,27 @@ const els = {
   filtres: $("filtres"),
   liste: $("liste"),
   synchro: $("synchro"),
+  carteFiches: $("carte-fiches"),
+  listeFiches: $("liste-fiches"),
+  synchroFiches: $("synchro-fiches"),
 };
+
+/* Les champs d'une fiche d'installation, dans l'ordre de lecture, avec le
+   libellé affiché. Même liste que le formulaire client et que le pont. */
+const CHAMPS_FICHE = [
+  ["entreprise", "Entreprise"],
+  ["contactPublic", "Contact à afficher"],
+  ["adresse", "Adresse"],
+  ["horaires", "Heures"],
+  ["reseaux", "Réseaux"],
+  ["domaine", "Domaine"],
+  ["domaineEtat", "Domaine acheté"],
+  ["registraire", "Registraire"],
+  ["githubEtat", "Compte GitHub"],
+  ["githubCourriel", "Courriel GitHub"],
+  ["siteActuel", "Site actuel"],
+  ["notes", "Notes"],
+];
 
 /* ---------- État ---------- */
 
@@ -86,10 +106,12 @@ els.btnLogout.addEventListener("click", () => signOut(auth));
 
 let stopState = null;
 let stopLancements = null;
+let stopFiches = null;
 
 onAuthStateChanged(auth, (user) => {
   if (stopState) { stopState(); stopState = null; }
   if (stopLancements) { stopLancements(); stopLancements = null; }
+  if (stopFiches) { stopFiches(); stopFiches = null; }
 
   if (!user) {
     els.gate.hidden = false;
@@ -125,10 +147,16 @@ onAuthStateChanged(auth, (user) => {
   );
 
   // Les lancements vivent dans la même sous-collection, un document chacun.
+  //
+  // On ne retient QUE les « lancement-* ». Les signal-* portent eux aussi un
+  // idDemande, avec un demandeLe plus récent (ils sont écrits juste après le
+  // lancement) : sans ce filtre, le signal gagnait la comparaison ci-dessous
+  // et l'éclair se rouvrait aussitôt sur une demande déjà partie — deux fois
+  // le même travail sur le site d'un client.
   stopLancements = onSnapshot(refCollection, (snap) => {
     lancements = {};
     snap.forEach((d) => {
-      if (d.id === "state") return;
+      if (!d.id.startsWith("lancement-")) return;
       const l = d.data();
       if (!l || !l.idDemande) return;
       const connu = lancements[l.idDemande];
@@ -138,6 +166,13 @@ onAuthStateChanged(auth, (user) => {
     });
     rendre();
   });
+
+  /* Les fiches d'installation, déposées par le pont dans leur propre document.
+     Lecture seule ici : ce document appartient au pont, comme « state ». */
+  stopFiches = onSnapshot(doc(db, "users", user.uid, "clientsweb", "fiches"),
+    (snap) => rendreFiches(snap.exists() ? (snap.data().fiches || []) : []),
+    () => rendreFiches([]),
+  );
 });
 
 /* ---------- Filtres ---------- */
@@ -295,6 +330,121 @@ function actions(d, lancement) {
   }
 
   return zone;
+}
+
+/* ---------- Fiches d'installation ---------- */
+
+/*
+ * De la lecture, et deux gestes : copier la fiche pour l'avoir sous la main
+ * pendant le montage, et la verrouiller quand le site est en place. Pas
+ * d'éclair : une fiche n'est pas un travail à confier à Claude — créer un
+ * dépôt GitHub, acheter un domaine et brancher un DNS se font à la main, avec
+ * des comptes qui ne vivent pas sur BG001.
+ */
+function rendreFiches(fiches) {
+  els.carteFiches.hidden = !fiches.length;
+  if (!fiches.length) return;
+
+  const aMonter = fiches.filter((f) => !f.verrouillee).length;
+  els.synchroFiches.textContent = aMonter
+    ? aMonter + " à monter"
+    : "toutes montées";
+
+  els.listeFiches.replaceChildren(...fiches.map(carteFiche));
+}
+
+function carteFiche(f) {
+  const el = document.createElement("article");
+  el.className = "demande " + (f.verrouillee ? "etat-en_ligne" : "etat-recue");
+
+  const tete = document.createElement("div");
+  tete.className = "d-tete";
+
+  const gauche = document.createElement("div");
+  const nom = document.createElement("span");
+  nom.className = "d-client";
+  nom.textContent = f.entreprise || f.clientNom || f.clientCourriel || "Sans nom";
+  const courriel = document.createElement("span");
+  courriel.className = "d-type";
+  courriel.textContent = f.clientCourriel ? " — " + f.clientCourriel : "";
+  gauche.append(nom, courriel);
+
+  const past = document.createElement("span");
+  past.className = "pastille " + (f.verrouillee ? "etat-en_ligne" : "etat-analyse");
+  past.textContent = f.verrouillee ? "Site monté" : "À monter";
+
+  tete.append(gauche, past);
+
+  const meta = document.createElement("div");
+  meta.className = "d-meta";
+  meta.textContent = [dateLisible(f.majLe), f.dossier && "dossier : " + f.dossier]
+    .filter(Boolean).join(" · ");
+
+  const corps = document.createElement("div");
+  corps.className = "d-corps";
+  corps.textContent = texteFiche(f);
+
+  el.append(tete, meta, corps);
+
+  if (!f.declare) {
+    const avert = document.createElement("div");
+    avert.className = "non-relie";
+    avert.textContent = "Client pas encore relié à un dossier sur BG001 — " +
+      "à déclarer dans ~/.config/bg-lanceur/clients-web.json une fois le dépôt créé.";
+    el.append(avert);
+  }
+
+  const zone = document.createElement("div");
+  zone.className = "d-actions";
+
+  const copier = document.createElement("button");
+  copier.className = "btn btn-mini";
+  copier.textContent = "Copier la fiche";
+  copier.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(texteFiche(f));
+      copier.textContent = "Copiée";
+      setTimeout(() => { copier.textContent = "Copier la fiche"; }, 2000);
+    } catch (e) {
+      banner("warn", "Copie impossible : " + e.message);
+    }
+  });
+  zone.append(copier);
+
+  const verrou = document.createElement("button");
+  verrou.className = "btn btn-mini";
+  verrou.textContent = f.verrouillee ? "Rouvrir la fiche" : "Marquer le site monté";
+  verrou.addEventListener("click", () => verrouillerFiche(f, !f.verrouillee));
+  zone.append(verrou);
+
+  el.append(zone);
+  return el;
+}
+
+function texteFiche(f) {
+  return CHAMPS_FICHE
+    .filter(([cle]) => f[cle])
+    .map(([cle, libelle]) => libelle + " : " + f[cle])
+    .join("\n");
+}
+
+/* Même mécanique que « marquer » : une intention déposée pour le pont, qui
+   l'applique côté client puis l'efface. La page n'écrit jamais dans le
+   projet des clients — elle n'y a aucune identité. */
+async function verrouillerFiche(f, verrouiller) {
+  if (!refCollection) return;
+  try {
+    await setDoc(doc(refCollection, "signal-fiche-" + f.clientUid), {
+      idFiche: f.clientUid,
+      verrouiller: verrouiller,
+      demandeLe: Date.now(),
+    });
+    banner("warn", verrouiller
+      ? "Fiche verrouillée — le client la verra en lecture seule au prochain cycle du pont (5 min)."
+      : "Fiche rouverte — le client pourra la modifier au prochain cycle du pont (5 min).");
+  } catch (e) {
+    banner("danger", "Le signal n'a pas pu être écrit : " + e.message);
+  }
 }
 
 /* ---------- Écritures ---------- */

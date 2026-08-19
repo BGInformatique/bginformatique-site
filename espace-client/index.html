@@ -54,6 +54,136 @@
     </div>
     <div class="avis avis-erreur" id="avis-erreur" hidden></div>
 
+    <!-- ─── Fiche d'installation ─────────────────────────────────────────
+         Sert surtout AVANT que le site existe : elle rassemble ce qu'il faut
+         pour ouvrir le dépôt GitHub du client et brancher son domaine. Une
+         fois le site en place, BG Informatique la verrouille et la carte se
+         replie — les changements passent alors par une demande normale.
+
+         Aucun champ de mot de passe ici, et ce n'est pas un oubli : ce qui
+         est écrit dans cette page part dans une base de données et se relit
+         dans un outil. Un code d'accès n'a rien à y faire. -->
+    <section class="carte" id="section-fiche" hidden>
+      <h2 id="fiche-titre">Fiche d'installation de votre site</h2>
+      <p class="sous" id="fiche-sous"></p>
+
+      <!-- État replié : la fiche a déjà été transmise -->
+      <div id="fiche-resume" hidden>
+        <p class="demande-meta" id="fiche-resume-texte"></p>
+        <div class="demande-actions" id="fiche-resume-actions">
+          <button type="button" class="btn btn-fantome" id="btn-fiche-modifier">Modifier ma fiche</button>
+        </div>
+      </div>
+
+      <form id="fiche-form" hidden>
+
+        <div class="avis avis-alerte">
+          <strong>Aucun mot de passe ne doit être écrit ici.</strong>
+          Nous n'avons besoin d'aucun code d'accès&nbsp;: ni celui de votre
+          domaine, ni celui de votre courriel, ni celui de GitHub. S'il faut
+          se connecter quelque part, nous le ferons avec vous.
+        </div>
+
+        <div class="champ">
+          <label for="f-entreprise">Nom de votre entreprise</label>
+          <input type="text" id="f-entreprise" required maxlength="200"
+                 placeholder="Tel qu'il doit apparaître sur le site">
+        </div>
+
+        <div class="champ">
+          <label for="f-contact">Courriel ou téléphone à afficher sur le site</label>
+          <input type="text" id="f-contact" maxlength="200"
+                 placeholder="Ce que vos clients doivent voir pour vous joindre">
+        </div>
+
+        <div class="champ">
+          <label for="f-adresse">Adresse <span class="indice">(facultatif)</span></label>
+          <input type="text" id="f-adresse" maxlength="300">
+        </div>
+
+        <div class="champ">
+          <label for="f-horaires">Heures d'ouverture <span class="indice">(facultatif)</span></label>
+          <input type="text" id="f-horaires" maxlength="300"
+                 placeholder="Ex. : lundi au vendredi, 8 h à 17 h">
+        </div>
+
+        <div class="champ">
+          <label for="f-reseaux">Réseaux sociaux <span class="indice">(facultatif)</span></label>
+          <input type="text" id="f-reseaux" maxlength="500"
+                 placeholder="Adresses de vos pages Facebook, Instagram…">
+        </div>
+
+        <hr class="separateur">
+
+        <div class="champ">
+          <label for="f-domaine">Adresse web souhaitée</label>
+          <input type="text" id="f-domaine" maxlength="200"
+                 placeholder="Ex. : monentreprise.ca">
+        </div>
+
+        <div class="champ">
+          <label for="f-domaine-etat">Cette adresse est-elle déjà achetée&nbsp;?</label>
+          <select id="f-domaine-etat">
+            <option value="" selected>Choisir…</option>
+            <option>Oui, je l'ai déjà achetée</option>
+            <option>Non, pas encore</option>
+            <option>Je ne sais pas</option>
+          </select>
+        </div>
+
+        <div class="champ">
+          <label for="f-registraire">Si oui, chez qui&nbsp;? <span class="indice">(facultatif)</span></label>
+          <input type="text" id="f-registraire" maxlength="200"
+                 placeholder="Ex. : GoDaddy, Namecheap, Bell…">
+        </div>
+
+        <hr class="separateur">
+
+        <div class="champ">
+          <label for="f-github-etat">Avez-vous un compte GitHub&nbsp;?</label>
+          <select id="f-github-etat">
+            <option value="" selected>Choisir…</option>
+            <option>Oui, j'en ai un</option>
+            <option>Non, pas encore</option>
+            <option>Je ne sais pas ce que c'est</option>
+          </select>
+        </div>
+
+        <div class="champ">
+          <label for="f-github">Courriel de votre compte GitHub <span class="indice">(facultatif)</span></label>
+          <input type="text" id="f-github" maxlength="200"
+                 placeholder="Sert uniquement à vous inviter sur votre site">
+          <p class="indice" style="margin-top:6px">
+            GitHub est l'endroit où vivent les fichiers de votre site. Nous vous
+            y invitons pour que vous en restiez propriétaire. Si vous n'avez pas
+            de compte, laissez vide&nbsp;: nous le créerons ensemble.
+          </p>
+        </div>
+
+        <hr class="separateur">
+
+        <div class="champ">
+          <label for="f-site-actuel">Avez-vous déjà un site&nbsp;? <span class="indice">(facultatif)</span></label>
+          <input type="text" id="f-site-actuel" maxlength="300"
+                 placeholder="Son adresse, si vous en avez un">
+        </div>
+
+        <div class="champ">
+          <label for="f-notes">Autre chose à nous dire <span class="indice">(facultatif)</span></label>
+          <textarea id="f-notes" maxlength="3000"
+            placeholder="Ce que vous aimez, ce que vous voulez éviter, vos couleurs, un exemple de site que vous trouvez réussi…"></textarea>
+        </div>
+
+        <p class="indice" style="margin-bottom:14px">
+          Vos images et votre logo ne se déposent pas ici&nbsp;: envoyez-les par
+          courriel à <a href="mailto:boiesgrimardj@gmail.com">boiesgrimardj@gmail.com</a>,
+          ou apportez-les lors de l'installation.
+        </p>
+
+        <button type="submit" class="btn btn-principal" id="btn-fiche">Transmettre ma fiche</button>
+      </form>
+    </section>
+
     <!-- Nouvelle demande -->
     <section class="carte">
       <h2>Une modification pour votre site&nbsp;?</h2>

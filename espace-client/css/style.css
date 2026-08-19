@@ -137,6 +137,14 @@ legend { font-weight: 600; font-size: 0.92rem; margin-bottom: 6px; }
 }
 .urgences input { accent-color: var(--brand); }
 
+/* Sépare les blocs d'une longue fiche : l'entreprise, le domaine, GitHub.
+   Une fiche d'une quinzaine de champs se lit mal en un seul ruban. */
+.separateur {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 26px 0 22px;
+}
+
 /* ---------- Boutons ---------- */
 
 .btn {

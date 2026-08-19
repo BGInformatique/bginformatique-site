@@ -30,6 +30,7 @@ import {
   collection,
   addDoc,
   updateDoc,
+  setDoc,
   doc,
   query,
   where,
@@ -56,7 +57,44 @@ const els = {
   avisEnvoi: $("avis-envoi"),
   avisErreur: $("avis-erreur"),
   liste: $("liste"),
+  sectionFiche: $("section-fiche"),
+  ficheSous: $("fiche-sous"),
+  ficheResume: $("fiche-resume"),
+  ficheResumeTexte: $("fiche-resume-texte"),
+  ficheResumeActions: $("fiche-resume-actions"),
+  ficheForm: $("fiche-form"),
+  btnFiche: $("btn-fiche"),
+  btnFicheModifier: $("btn-fiche-modifier"),
 };
+
+/*
+ * Fiche d'installation — les champs que le client remplit une fois, avant que
+ * son site existe. La liste vit ici ET dans firestore.rules (champsFiche) :
+ * les deux doivent bouger ensemble, sinon l'écriture est refusée.
+ *
+ * Aucun mot de passe, aucun jeton, aucun code d'accès — ni ici, ni dans le
+ * formulaire. Ce qui est écrit ici traverse une base de données et se relit
+ * dans un outil : ce n'est pas un endroit où déposer un secret, et le
+ * meilleur moyen de ne pas en garder est de ne jamais en demander.
+ */
+const CHAMPS_FICHE = {
+  entreprise:    "f-entreprise",
+  contactPublic: "f-contact",
+  adresse:       "f-adresse",
+  horaires:      "f-horaires",
+  reseaux:       "f-reseaux",
+  domaine:       "f-domaine",
+  domaineEtat:   "f-domaine-etat",
+  registraire:   "f-registraire",
+  githubEtat:    "f-github-etat",
+  githubCourriel: "f-github",
+  siteActuel:    "f-site-actuel",
+  notes:         "f-notes",
+};
+
+/* Vraie dès qu'une fiche existe côté serveur — sert à ne poser « creeLe »
+   qu'une seule fois, à la première transmission. */
+let ficheRecue = false;
 
 /* Le projet Firebase n'existe pas encore : on le dit en français et on
    s'arrête là, plutôt que de laisser initializeApp lever une exception. */
@@ -85,10 +123,12 @@ function demarrer() {
   els.btnSortie.addEventListener("click", () => signOut(auth));
 
   let arreterEcoute = null;
+  let arreterFiche = null;
   let utilisateur = null;
 
   onAuthStateChanged(auth, (user) => {
     if (arreterEcoute) { arreterEcoute(); arreterEcoute = null; }
+    if (arreterFiche) { arreterFiche(); arreterFiche = null; }
     utilisateur = user;
 
     if (!user) {
@@ -118,6 +158,57 @@ function demarrer() {
       (snap) => afficherListe(snap.docs.map((d) => ({ id: d.id, ...d.data() })), db),
       (e) => avis(els.avisErreur, "La liste de vos demandes n'a pas pu être chargée : " + e.message),
     );
+
+    /* La fiche d'installation : UN document par client, dont l'identifiant EST
+       l'uid. Pas de requête, donc pas de filtre à oublier — le chemin lui-même
+       ne peut désigner que sa propre fiche. */
+    arreterFiche = onSnapshot(doc(db, "fiches", user.uid),
+      (snap) => afficherFiche(snap.exists() ? snap.data() : null),
+      () => afficherFiche(null),
+    );
+  });
+
+  /* ---------- Fiche d'installation ---------- */
+
+  els.btnFicheModifier.addEventListener("click", () => {
+    els.ficheResume.hidden = true;
+    els.ficheForm.hidden = false;
+    els.btnFiche.textContent = "Enregistrer les changements";
+  });
+
+  els.ficheForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!els.ficheForm.checkValidity()) { els.ficheForm.reportValidity(); return; }
+    if (!utilisateur) return;
+
+    els.btnFiche.disabled = true;
+    const libelle = els.btnFiche.textContent;
+    els.btnFiche.textContent = "Enregistrement…";
+    els.avisErreur.hidden = true;
+
+    const donnees = {
+      clientUid: utilisateur.uid,
+      clientNom: utilisateur.displayName || "",
+      clientCourriel: utilisateur.email || "",
+      majLe: serverTimestamp(),
+    };
+    for (const [cle, id] of Object.entries(CHAMPS_FICHE)) {
+      donnees[cle] = $(id).value.trim();
+    }
+    if (!ficheRecue) donnees.creeLe = serverTimestamp();
+
+    try {
+      /* merge : la fiche se remplit en plusieurs fois, et « verrouillee »
+         appartient à BG Informatique — on ne l'écrase jamais d'ici. */
+      await setDoc(doc(db, "fiches", utilisateur.uid), donnees, { merge: true });
+      avis(els.avisEnvoi, "Votre fiche est enregistrée. Merci — nous avons ce qu'il faut pour avancer.");
+    } catch (err) {
+      avis(els.avisErreur, "Votre fiche n'a pas pu être enregistrée : " + err.message +
+        " — écrivez-nous à boiesgrimardj@gmail.com si cela se reproduit.");
+    } finally {
+      els.btnFiche.disabled = false;
+      els.btnFiche.textContent = libelle;
+    }
   });
 
   els.formulaire.addEventListener("submit", async (e) => {
@@ -152,6 +243,57 @@ function demarrer() {
       els.btnEnvoyer.textContent = "Envoyer ma demande";
     }
   });
+}
+
+/* ---------- Affichage : fiche d'installation ---------- */
+
+/*
+ * Trois états, et un seul visible à la fois :
+ *
+ *   pas de fiche      → le formulaire, ouvert. C'est la première chose que
+ *                       voit un client dont le site n'existe pas encore.
+ *   fiche transmise   → un résumé d'une ligne, repliable, et « Modifier ».
+ *   fiche verrouillée → le résumé seul. BG Informatique a monté le site à
+ *                       partir de ces informations ; les corriger après coup
+ *                       passe par une demande, qui laisse une trace.
+ */
+function afficherFiche(fiche) {
+  els.sectionFiche.hidden = false;
+  ficheRecue = !!fiche;
+
+  if (!fiche) {
+    els.ficheSous.textContent =
+      "Ces informations nous servent à monter votre site et à garder vos " +
+      "coordonnées à jour. Vous pouvez répondre en plusieurs fois : rien ne se perd.";
+    els.ficheResume.hidden = true;
+    els.ficheForm.hidden = false;
+    els.btnFiche.textContent = "Transmettre ma fiche";
+    return;
+  }
+
+  for (const [cle, id] of Object.entries(CHAMPS_FICHE)) {
+    const champ = $(id);
+    if (champ) champ.value = fiche[cle] || "";
+  }
+
+  const quand = dateLisible(fiche.majLe || fiche.creeLe);
+  els.ficheResume.hidden = false;
+  els.ficheForm.hidden = true;
+
+  if (fiche.verrouillee) {
+    els.ficheSous.textContent = "";
+    els.ficheResumeTexte.textContent =
+      "Votre site est en place. Pour corriger une de ces informations, " +
+      "écrivez-nous une demande ci-dessous — nous en garderons la trace.";
+    els.ficheResumeActions.hidden = true;
+  } else {
+    els.ficheSous.textContent =
+      "Nous l'avons reçue. Vous pouvez encore la compléter ou la corriger.";
+    els.ficheResumeTexte.textContent = quand
+      ? "Dernière mise à jour : " + quand + "."
+      : "Fiche transmise.";
+    els.ficheResumeActions.hidden = false;
+  }
 }
 
 /* ---------- Affichage ---------- */

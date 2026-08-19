@@ -96,6 +96,73 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
+    //  FICHES D'INSTALLATION — fiches/{clientUid}
+    //
+    //  Ce que le client répond une fois, avant que son site existe : nom de
+    //  l'entreprise, domaine, compte GitHub à inviter, coordonnées à afficher.
+    //
+    //  L'IDENTIFIANT DU DOCUMENT EST L'UID. C'est plus solide qu'un champ à
+    //  comparer : la page lit doc("fiches", uid) sans requête, donc sans filtre
+    //  à oublier, et il n'existe aucun chemin par lequel un client atteindrait
+    //  la fiche d'un autre — pas même en se trompant. Aucune règle « list »
+    //  n'est écrite ici : personne ne peut énumérer les fiches depuis un
+    //  navigateur. Le pont de BG001 les lit toutes, par compte de service.
+    //
+    //  AUCUN CHAMP DE MOT DE PASSE N'EST PRÉVU, ici comme dans le formulaire.
+    //  Firestore n'est pas un coffre : ce document se recopie ensuite dans les
+    //  outils internes. La façon sûre de ne pas garder un secret est de ne
+    //  jamais le demander — d'où « hasOnly » ci-dessous, qui refuse aussi tout
+    //  champ inventé qu'une page modifiée essaierait d'ajouter.
+    // -------------------------------------------------------------------------
+    function champsFiche() {
+      return ['clientUid', 'clientNom', 'clientCourriel',
+              'entreprise', 'contactPublic', 'adresse', 'horaires', 'reseaux',
+              'domaine', 'domaineEtat', 'registraire',
+              'githubEtat', 'githubCourriel',
+              'siteActuel', 'notes', 'creeLe', 'majLe'];
+    }
+
+    function ficheBornee() {
+      return request.resource.data.entreprise is string
+             && request.resource.data.entreprise.size() > 0
+             && request.resource.data.entreprise.size() <= 200
+             && (!('notes' in request.resource.data)
+                 || request.resource.data.notes.size() <= 3000);
+    }
+
+    match /fiches/{clientUid} {
+
+      allow read: if connecte() && clientUid == request.auth.uid;
+
+      allow create: if connecte()
+                    && clientUid == request.auth.uid
+                    && request.resource.data.clientUid == request.auth.uid
+                    && request.resource.data.keys().hasOnly(champsFiche())
+                    && ficheBornee();
+
+      // MISE À JOUR — tant que BG Informatique n'a pas verrouillé la fiche.
+      //
+      // « verrouillee » est posé par BG001 (accès serveur, qui ignore ces
+      // règles) quand le site est monté : à partir de là, ces informations ont
+      // servi à construire quelque chose, et les corriger en silence ferait
+      // diverger la fiche du site réel. Le client passe alors par une demande,
+      // qui laisse une trace datée.
+      //
+      // diff() plutôt que keys() : le document contient peut-être déjà des
+      // champs posés par BG001, et exiger hasOnly sur l'ensemble fusionné
+      // barrerait le client dès la première écriture de BG.
+      allow update: if connecte()
+                    && clientUid == request.auth.uid
+                    && resource.data.verrouillee != true
+                    && request.resource.data.clientUid == request.auth.uid
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(champsFiche())
+                    && ficheBornee();
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
     //  RIEN D'AUTRE N'EST COUVERT — et c'est le point.
     //
     //  Aucun « match /users/{uid}/{document=**} » : un compte connecté ne peut

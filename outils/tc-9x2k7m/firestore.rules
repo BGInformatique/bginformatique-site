@@ -221,14 +221,18 @@ service cloud.firestore {
     //  Outil : Demandes web des clients
     //          https://bginformatique.ca/outils/dw-6r2v8k/
     //
-    //  Trois formes de documents dans une seule sous-collection :
+    //  Quatre formes de documents dans une seule sous-collection :
     //    state       — MIROIR des demandes clients, déposé par le pont de BG001
     //                  (pont_clients.py). La page ne l'écrit JAMAIS et ne doit
     //                  pas l'écrire : « On n'écrit RIEN ici — ce document
-    //                  appartient au pont » (js/app.js:111-112) ;
-    //    lancement-* — travail confié à Claude (js/app.js:311-314), annulable ;
-    //    signal-*    — changement d'état demandé par la page (js/app.js:348),
-    //                  appliqué puis EFFACÉ par le pont, en accès serveur.
+    //                  appartient au pont » ;
+    //    fiches      — MIROIR des fiches d'installation remplies par les clients
+    //                  dans l'espace client. Même statut que « state » : déposé
+    //                  par le pont, lu par la page, jamais écrit par elle ;
+    //    lancement-* — travail confié à Claude, annulable ;
+    //    signal-*    — intention déposée par la page (changement d'état d'une
+    //                  demande, verrouillage d'une fiche), appliquée puis
+    //                  EFFACÉE par le pont, en accès serveur.
     //
     //  CE BLOC N'OUVRE RIEN AUX CLIENTS. Les comptes clients vivent dans un
     //  AUTRE projet Firebase (espace-client/firestore.rules) et n'ont aucune
@@ -244,20 +248,22 @@ service cloud.firestore {
     match /users/{uid}/clientsweb/{docId} {
       allow read: if estProprietaire(uid);
 
-      // LA SEULE EXCEPTION DU FICHIER : « state » est en lecture seule pour le
-      // navigateur. Ce document appartient au pont, qui le réécrit toutes les
-      // 300 s ; la page n'a aucun code qui l'écrive. L'interdire ici ne casse
-      // donc rien et achète ceci : un bogue ou un jeton volé ne peut pas
-      // écraser le miroir des demandes clients — c'est-à-dire faire disparaître
-      // de l'écran des demandes payantes jusqu'au cycle suivant du pont.
+      // LA SEULE EXCEPTION DU FICHIER : les deux MIROIRS — « state » et
+      // « fiches » — sont en lecture seule pour le navigateur. Ces documents
+      // appartiennent au pont, qui les réécrit toutes les 300 s ; la page n'a
+      // aucun code qui les écrive. L'interdire ici ne casse donc rien et achète
+      // ceci : un bogue ou un jeton volé ne peut pas écraser le miroir — c'est-
+      // à-dire faire disparaître de l'écran des demandes payantes, ou les
+      // informations d'installation d'un client, jusqu'au cycle suivant.
       //
-      // NE PAS ALLER PLUS LOIN. En particulier, ne JAMAIS restreindre l'écriture
-      // au préfixe « lancement- » : le bouton d'annulation (updateDoc,
-      // js/app.js:333) peut viser un document signal-*, parce que les signal-*
-      // portent eux aussi idDemande et un demandeLe plus récent et gagnent donc
-      // la comparaison de js/app.js:128-138. Une telle règle ferait échouer un
-      // clic d'annulation en production, sans message clair à l'écran.
-      allow create, update: if estProprietaire(uid) && docId != 'state';
+      // NE PAS ALLER PLUS LOIN, et surtout ne jamais remplacer cette liste par
+      // une contrainte de préfixe (« seuls lancement-* et signal-* sont
+      // écrivables »). Tout ce qui s'écrit ici vient du même propriétaire
+      // authentifié : un préfixe n'ajoute aucune garantie, et il ferait échouer
+      // en silence la première page qui introduit une cinquième forme de
+      // document. On nomme ce qu'on protège, pas ce qu'on autorise.
+      allow create, update: if estProprietaire(uid)
+                            && docId != 'state' && docId != 'fiches';
 
       // Suppression refusée, pour la raison habituelle plus un enjeu de plus :
       // un lancement effacé depuis un navigateur laisserait le lanceur
@@ -363,6 +369,7 @@ service cloud.firestore {
     //    delete users/<uid>/marketing/lancement-1-abc123          authentifié <uid>
     //    delete users/<uid>/bgfoods/state                         authentifié <uid>
     //    update users/<uid>/clientsweb/state                      authentifié <uid>
+    //    update users/<uid>/clientsweb/fiches                     authentifié <uid>
     //    update users/<uid>/courriel/etat                         authentifié <uid>
     //    list   users/<uid>/courriel                              authentifié <uid>
     //    get    users/<uid>/autrechose/state                      authentifié <uid>
