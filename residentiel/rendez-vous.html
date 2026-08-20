@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <title>Prendre rendez-vous — estimation sans frais | BG Informatique Résidentiel</title>
-  <meta name="description" content="Demandez votre estimation sans frais à Saint-Jérôme et dans les Laurentides. Décrivez votre souci : on vous rappelle en moins de 24 h, sans engagement.">
+  <meta name="description" content="Demandez votre estimation sans frais à Saint-Jérôme et dans les Laurentides. Décrivez votre souci : on vous recontacte, sans engagement.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://bginformatique.ca/residentiel/rendez-vous.html">
 
   <meta property="og:title" content="Demandez votre estimation sans frais — BG Informatique Résidentiel">
-  <meta property="og:description" content="Décrivez votre souci en quelques mots. On vous rappelle en moins de 24 h pour planifier — à distance ou à domicile.">
+  <meta property="og:description" content="Décrivez votre souci en quelques mots. On vous recontacte pour planifier — à distance ou à domicile.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://bginformatique.ca/residentiel/rendez-vous.html">
   <meta property="og:image" content="https://bginformatique.ca/og-image.png">
@@ -94,9 +94,9 @@
       <div>
         <span class="res-pill">// prendre rendez-vous</span>
         <h1 id="rdv-title">Demandez votre estimation sans frais.</h1>
-        <p>Décrivez votre souci en quelques mots. On vous rappelle en moins de 24 h pour planifier — <strong>à distance ou à domicile</strong>.</p>
+        <p>Décrivez votre souci en quelques mots. On vous recontacte pour planifier — <strong>à distance ou à domicile</strong>.</p>
         <ul class="res-checks">
-          <li>Rappel en moins de 24 h</li>
+          <li>On vous recontacte</li>
           <li>Déplacement à domicile inclus</li>
           <li>Sans engagement, sans vente de matériel</li>
         </ul>
@@ -180,7 +180,7 @@
 
           <div class="form-submit">
             <button type="submit" class="btn-cta btn-cta--primary btn-submit" id="rdv-submit">Envoyer ma demande →</button>
-            <p class="form-note">On vous rappelle en moins de 24 h. Aucun engagement.</p>
+            <p class="form-note">On vous recontacte. Aucun engagement.</p>
           </div>
 
           <div class="form-status" id="rdv-status" role="alert" aria-live="polite"></div>
@@ -313,7 +313,7 @@
 
         if (res.ok) {
           status.className = 'form-status success';
-          status.textContent = '✅ Demande reçue ! On vous rappelle en moins de 24 h pour planifier la suite.';
+          status.textContent = '✅ Demande reçue ! On vous recontacte pour planifier la suite.';
           form.reset();
           submitBtn.textContent = 'Demande envoyée';
         } else {

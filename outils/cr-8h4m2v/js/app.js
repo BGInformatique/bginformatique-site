@@ -58,7 +58,8 @@ const JOUR = 86400;
 // Ordre d'affichage des catégories : celui de la mécanique de tri, pas
 // l'alphabet. Il va de ce qui rapporte à ce qui encombre.
 const ORDRE_CATEGORIES = [
-  "demande", "affaires", "facture", "emploi", "technique", "autre", "infolettre",
+  "demande", "affaires", "facture", "technique", "sauvegarde", "emploi",
+  "autre", "infolettre",
 ];
 
 const LIBELLES_CATEGORIES = {
@@ -67,16 +68,22 @@ const LIBELLES_CATEGORIES = {
   facture: "Factures et argent",
   emploi: "Emploi",
   technique: "Alertes techniques",
+  sauvegarde: "Sauvegardes",
   infolettre: "Infolettres",
   autre: "À trier",
 };
 
 // Les raisons d'être dans la file, de la plus pressante à la moins pressante.
-const ORDRE_RAISONS = ["marqué", "sans réponse", "à répondre", "à voir"];
+const ORDRE_RAISONS = [
+  "marqué", "sauvegarde en erreur", "sans réponse", "à répondre",
+  "sauvegarde en avertissement", "à voir",
+];
 
 const CLASSES_RAISONS = {
   "marqué": "raison-marque",
+  "sauvegarde en erreur": "raison-sauvegarde-erreur",
   "sans réponse": "raison-sans-reponse",
+  "sauvegarde en avertissement": "raison-sauvegarde-avertissement",
 };
 
 // Genre d'anomalie -> icône ET mot. Jamais la couleur seule : une pastille rouge

@@ -343,6 +343,8 @@ main {
 .raison { font-weight: 600; font-size: 0.85rem; }
 .raison-marque { color: var(--warn); }
 .raison-sans-reponse { color: var(--danger); }
+.raison-sauvegarde-erreur { color: var(--danger); }
+.raison-sauvegarde-avertissement { color: var(--warn); }
 
 /* ── graphiques ──────────────────────────────────────────────────────────── */
 
