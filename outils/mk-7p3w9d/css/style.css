@@ -142,6 +142,10 @@ button { font: inherit; cursor: pointer; }
 /* ── volet prospection : liste serrée, sans décor ─────── */
 .prosp { padding: 16px 22px 0; }
 
+/* Lancer le prospecteur : un bloc centré sur la même colonne que le reste. */
+.lancer-prosp { max-width: 860px; margin: 0 auto; padding: 8px 22px 0; }
+.lancer-msg { margin-top: 8px; font-size: 12.5px; color: var(--text-muted); }
+
 /* L'entonnoir du plan : une ligne de chiffres, les gestes, le revenu. */
 .ent {
   margin-top: 8px; padding: 8px 12px; font-size: 12.5px;

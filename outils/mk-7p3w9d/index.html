@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Tableau de bord marketing — BG Informatique</title>
-  <link rel="stylesheet" href="css/style.css?v=20260819133955">
+  <link rel="stylesheet" href="css/style.css?v=20260820094014">
 </head>
 <body>
 
@@ -97,6 +97,14 @@
       <div id="l-tout"></div>
     </div>
   </main>
+
+  <!-- Lancement manuel du prospecteur. Volontairement HORS de #prospection :
+       cette section-là se masque (app.js) quand le journal est vide — soit
+       exactement le moment où l'on veut relancer le cycle pour le remplir. -->
+  <div class="lancer-prosp" id="lancer-prosp">
+    <button type="button" id="btn-lancer-prospecteur" class="btn btn-lg">🔄 Lancer le prospecteur</button>
+    <div class="lancer-msg" id="prospecteur-status" hidden></div>
+  </div>
 
   <section class="prosp" id="prospection" hidden>
     <div class="entete">
@@ -208,6 +216,6 @@
   </form>
 </dialog>
 
-<script type="module" src="js/app.js?v=20260819133955"></script>
+<script type="module" src="js/app.js?v=20260820094014"></script>
 </body>
 </html>

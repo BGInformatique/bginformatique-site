@@ -1457,6 +1457,73 @@ $("btn-login").addEventListener("click", () => {
 
 $("btn-logout").addEventListener("click", () => signOut(auth));
 
+/* Lancer le prospecteur à la demande. La page ne fait que déposer un
+   « demandeLancement » dans le doc prospection : la passerelle
+   courriels_prospection.py de BG001 la voit (cycle de 5 s) et démarre la
+   chaîne d'acquisition — le recherchiste cherche de nouveaux clients
+   potentiels, le prospecteur rédige les courriels personnalisés des prospects
+   dus. Un candidat tout juste trouvé attend l'acceptation de Jérémie avant
+   d'obtenir son courriel, et RIEN NE PART : chaque envoi reste un clic humain
+   dans Thunderbird. La réponse (champ « lancement ») revient par le même
+   document et rallume le bouton. */
+let lancementAttendu = 0;
+
+function statutLancement(texte) {
+  const el = $("prospecteur-status");
+  el.textContent = texte || "";
+  el.hidden = !texte;
+}
+
+function majStatutLancement(p) {
+  const b = $("btn-lancer-prospecteur");
+  const l = p && p.lancement;
+  // On n'agit que sur l'accusé de NOTRE demande (l.quand posé par la
+  // passerelle au moment où elle la prend), pas sur un vieux statut résiduel.
+  if (!l || !lancementAttendu || (l.quand || 0) < lancementAttendu) return;
+  lancementAttendu = 0;
+  b.disabled = false;
+  const quand = l.quand
+    ? " à " + new Date(l.quand).toLocaleTimeString("fr-CA",
+        { hour: "2-digit", minute: "2-digit" })
+    : "";
+  statutLancement({
+    lance: `Chaîne lancée${quand} sur BG001 — nouveaux candidats et ` +
+           `brouillons vont apparaître ici dans quelques minutes.`,
+    erreur: `Échec du lancement${l.resume ? " : " + l.resume : ""}.`,
+  }[l.etat] || `Chaîne d'acquisition : ${l.etat || "état inconnu"}.`);
+}
+
+$("btn-lancer-prospecteur").addEventListener("click", () => {
+  if (!uidCourant) { avis("Connexion requise pour lancer le prospecteur.", true); return; }
+  if (!confirm(
+    "Lancer la chaîne d'acquisition sur BG001 ?\n\n" +
+    "1. Le recherchiste cherche de nouveaux clients potentiels.\n" +
+    "2. Le prospecteur rédige les courriels personnalisés des prospects dus.\n\n" +
+    "Les nouveaux candidats attendent ton acceptation avant d'obtenir un " +
+    "courriel. Aucun courriel ne part : chaque envoi reste un clic manuel " +
+    "dans Thunderbird."
+  )) return;
+  const b = $("btn-lancer-prospecteur");
+  b.disabled = true;
+  lancementAttendu = maintenant();
+  statutLancement("Demande envoyée à BG001…");
+  setDoc(doc(db, "users", uidCourant, "marketing", "prospection"),
+    { demandeLancement: { geste: "lancer", maj: maintenant() } }, { merge: true })
+    .catch((e) => {
+      lancementAttendu = 0; b.disabled = false;
+      statutLancement("");
+      avis("Demande refusée : " + e.message, true);
+    });
+  // Filet : sans passerelle active, aucun accusé ne viendra rallumer le bouton.
+  const demande = lancementAttendu;
+  setTimeout(() => {
+    if (lancementAttendu === demande) {
+      lancementAttendu = 0; b.disabled = false;
+      statutLancement("Pas de réponse de BG001 — la passerelle de prospection tourne-t-elle ?");
+    }
+  }, 15000);
+});
+
 let desabonner = null;
 let desabonnerLancements = null;
 let desabonnerProspection = null;
@@ -1504,7 +1571,11 @@ onAuthStateChanged(auth, (user) => {
   // Miroir de prospection publié par le prospecteur de BG001. Son absence
   // n'empêche rien : le volet reste simplement caché.
   desabonnerProspection = onSnapshot(doc(db, "users", user.uid, "marketing", "prospection"),
-    (snap) => { prospection = snap.exists() ? snap.data() : null; rendreProspection(); },
+    (snap) => {
+      prospection = snap.exists() ? snap.data() : null;
+      rendreProspection();
+      majStatutLancement(prospection);   // hors de rendreProspection : celui-ci
+    },                                   // sort tôt quand le journal est vide
     () => { prospection = null; });
 
   // Courriels de prospection déjà rédigés sur BG001. Absents (passerelle
