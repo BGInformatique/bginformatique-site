@@ -373,7 +373,11 @@ function carteFiche(f) {
   past.className = "pastille " + (f.verrouillee ? "etat-en_ligne" : "etat-analyse");
   past.textContent = f.verrouillee ? "Site monté" : "À monter";
 
-  tete.append(gauche, past);
+  const pastActivation = document.createElement("span");
+  pastActivation.className = "pastille " + (f.approuvee ? "etat-en_ligne" : "etat-recue");
+  pastActivation.textContent = f.approuvee ? "Demandes activées" : "Demandes fermées";
+
+  tete.append(gauche, past, pastActivation);
 
   const meta = document.createElement("div");
   meta.className = "d-meta";
@@ -417,6 +421,16 @@ function carteFiche(f) {
   verrou.addEventListener("click", () => verrouillerFiche(f, !f.verrouillee));
   zone.append(verrou);
 
+  /* Le formulaire de demandes du client reste fermé tant qu'on n'a pas lu sa
+     fiche et décidé d'ouvrir l'accès — voir firestore.rules côté espace
+     client, qui refuse la création d'une demande tant que « approuvee » n'est
+     pas vrai. */
+  const activation = document.createElement("button");
+  activation.className = "btn btn-mini";
+  activation.textContent = f.approuvee ? "Suspendre les demandes" : "Activer les demandes";
+  activation.addEventListener("click", () => activerDemandes(f, !f.approuvee));
+  zone.append(activation);
+
   el.append(zone);
   return el;
 }
@@ -438,10 +452,30 @@ async function verrouillerFiche(f, verrouiller) {
       idFiche: f.clientUid,
       verrouiller: verrouiller,
       demandeLe: Date.now(),
-    });
+    }, { merge: true });
     banner("warn", verrouiller
       ? "Fiche verrouillée — le client la verra en lecture seule au prochain cycle du pont (5 min)."
       : "Fiche rouverte — le client pourra la modifier au prochain cycle du pont (5 min).");
+  } catch (e) {
+    banner("danger", "Le signal n'a pas pu être écrit : " + e.message);
+  }
+}
+
+/* Même mécanique que verrouillerFiche : une intention déposée pour le pont,
+   qui l'applique côté client (fiches/<uid>.approuvee) puis efface le signal.
+   Même document « signal-fiche-<uid> », avec merge:true — si les deux actions
+   sont demandées avant le cycle suivant du pont, les deux s'appliquent. */
+async function activerDemandes(f, activer) {
+  if (!refCollection) return;
+  try {
+    await setDoc(doc(refCollection, "signal-fiche-" + f.clientUid), {
+      idFiche: f.clientUid,
+      activerDemandes: activer,
+      demandeLe: Date.now(),
+    }, { merge: true });
+    banner("warn", activer
+      ? "Demandes activées — le client pourra en envoyer au prochain cycle du pont (5 min)."
+      : "Demandes suspendues — au prochain cycle du pont (5 min).");
   } catch (e) {
     banner("danger", "Le signal n'a pas pu être écrit : " + e.message);
   }
