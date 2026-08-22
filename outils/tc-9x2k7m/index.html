@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>TimeCalculator — Feuille de temps et interventions</title>
-  <link rel="stylesheet" href="css/style.css?v=20260822133111">
+  <link rel="stylesheet" href="css/style.css?v=20260822162740">
 </head>
 <body>
   <header class="app-header">
@@ -101,6 +101,9 @@
         </span>
         <span class="range-label" id="range-label"></span>
         <span class="spacer"></span>
+        <label class="inline-label checkbox" title="Décoché par défaut : ce que facture chaque intervention ne regarde pas forcément qui reçoit le rapport.">
+          <input type="checkbox" id="report-include-billing"> Inclure facturable / à vérifier
+        </label>
         <button id="btn-export-report" class="btn btn-primary">📄 Rapport hebdomadaire</button>
         <button id="btn-simple-report" class="btn">📄 Rapport Simple</button>
         <button id="btn-print" class="btn">Imprimer</button>
@@ -290,6 +293,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="js/app.js?v=20260822133111"></script>
+  <script type="module" src="js/app.js?v=20260822162740"></script>
 </body>
 </html>

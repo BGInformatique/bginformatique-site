@@ -558,6 +558,7 @@ const els = {
   rangeLabel: $("range-label"),
   filterClient: $("filter-client"),
   filterToVerify: $("filter-to-verify"),
+  reportIncludeBilling: $("report-include-billing"),
   btnExportReport: $("btn-export-report"),
   btnSimpleReport: $("btn-simple-report"),
   btnPrint: $("btn-print"),
@@ -2248,6 +2249,15 @@ function generateWeeklyReport() {
     .filter((i) => i.billable)
     .reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
 
+  // Facturable et à vérifier ne sont utiles qu'à BG elle-même (ce qui se
+  // facture à quel client) — un rapport destiné à quelqu'un d'autre (un
+  // employeur, par exemple) n'a pas à les montrer par défaut. La case à
+  // cocher au-dessus du bouton décide, AVANT la génération : pas de bascule
+  // dans la page imprimée, qui resterait invisible une fois sur papier.
+  const avecFacturation = !!(els.reportIncludeBilling && els.reportIncludeBilling.checked);
+  const colonnesBase = 6; // Date, Heures, Durée, Client, Billet, Catégorie
+  const nbColonnes = colonnesBase + (avecFacturation ? 2 : 0);
+
   const interventionWeekSections = sortedWeeks
     .map((w) => {
       const interventionMin = w.interventions.reduce((sum, i) => sum + minutesBetween(i.start, i.end), 0);
@@ -2257,30 +2267,41 @@ function generateWeeklyReport() {
             .map((i) => {
               const s = new Date(i.start);
               const e = new Date(i.end);
-              return `<tr${i.toVerify ? ' class="to-verify-row"' : ""}>
+              const verifClass = i.toVerify ? ' class="to-verify-row"' : "";
+              const ligne = `<tr${verifClass}>
                 <td>${dateISO(s)}</td>
                 <td>${timeHM(s)}–${timeHM(e)}</td>
                 <td>${fmtDuration(minutesBetween(i.start, i.end))}</td>
                 <td>${escapeHtml((i.clients || []).join(", ")) || "—"}</td>
                 <td>${escapeHtml(i.ticket) || "—"}</td>
-                <td>${escapeHtml(i.category)}</td>
-                <td>${escapeHtml(i.description) || "—"}${
-                  i.toVerify && i.verifyNote ? `<div class="verify-note">⚠️ ${escapeHtml(i.verifyNote)}</div>` : ""
-                }</td>
-                <td class="center">${i.billable ? "✓" : "—"}</td>
-                <td class="center">${i.toVerify ? "⚠️" : "—"}</td>
+                <td>${escapeHtml(i.category)}</td>${
+                  avecFacturation
+                    ? `<td class="center">${i.billable ? "✓" : "—"}</td><td class="center">${i.toVerify ? "⚠️" : "—"}</td>`
+                    : ""
+                }
               </tr>`;
+              // La description vit dans sa propre ligne, pleine largeur, au
+              // lieu d'une colonne étroite : un texte de quelques lignes n'y
+              // force plus le tableau à s'étirer sur des pages en trop.
+              const contenu = escapeHtml(i.description) +
+                (i.toVerify && i.verifyNote ? `<div class="verify-note">⚠️ ${escapeHtml(i.verifyNote)}</div>` : "");
+              const descRow = contenu
+                ? `<tr${verifClass}><td colspan="${nbColonnes}" class="desc-box">${contenu}</td></tr>`
+                : "";
+              return ligne + descRow;
             })
             .join("")
-        : `<tr><td colspan="9" class="empty-row">Aucune intervention</td></tr>`;
+        : `<tr><td colspan="${nbColonnes}" class="empty-row">Aucune intervention</td></tr>`;
 
       return `
       <section class="week">
         <h3>${escapeHtml(isoWeekLabel(w.monday))}</h3>
         <table>
-          <thead><tr><th>Date</th><th>Heures</th><th>Durée</th><th>Client</th><th>Billet</th><th>Catégorie</th><th>Description</th><th>Fact.</th><th>Vérif.</th></tr></thead>
+          <thead><tr><th>Date</th><th>Heures</th><th>Durée</th><th>Client</th><th>Billet</th><th>Catégorie</th>${
+            avecFacturation ? "<th>Fact.</th><th>Vérif.</th>" : ""
+          }</tr></thead>
           <tbody>${interventionRows}</tbody>
-          <tfoot><tr><td colspan="7">Total de la semaine</td><td colspan="2">${fmtDuration(interventionMin)}</td></tr></tfoot>
+          <tfoot><tr><td colspan="${nbColonnes - 1}">Total de la semaine</td><td>${fmtDuration(interventionMin)}</td></tr></tfoot>
         </table>
       </section>`;
     })
@@ -2346,6 +2367,10 @@ function generateWeeklyReport() {
   .summary-card.warning .value { color: #9a5b00; }
   tr.to-verify-row td { background: #fff4e5; box-shadow: inset 4px 0 0 #d97706; }
   .verify-note { font-size: 0.85rem; font-weight: 700; color: #7c4a00; background: #fff4e5; border: 1px solid #d97706; border-radius: 6px; padding: 3px 7px; margin-top: 4px; display: inline-block; white-space: pre-wrap; }
+  /* La description d'une intervention, en pleine largeur sous sa ligne plutôt
+     que dans une colonne étroite qui forçait des retours à la ligne sur des
+     pages entières. */
+  td.desc-box { background: #f7f9fb; color: #333; font-size: 0.85rem; white-space: pre-wrap; border-top: none; }
   .report-part h2 { font-size: 1.2rem; color: #1a3a5c; border-bottom: 2px solid #1a3a5c; padding-bottom: 8px; margin: 0 0 20px; }
   .report-part.page-break { page-break-before: always; break-before: page; }
   section.week { margin-bottom: 28px; page-break-inside: avoid; break-inside: avoid; }
@@ -2394,7 +2419,9 @@ function generateWeeklyReport() {
     <h2>Interventions</h2>
     ${interventionWeekSections}
   </div>
-  <div class="report-part page-break">
+  ${
+    avecFacturation
+      ? `<div class="report-part page-break">
     <h2>Sommaire de facturation par billet</h2>
     <section class="week">
       <table>
@@ -2402,7 +2429,9 @@ function generateWeeklyReport() {
         <tbody>${summaryRows}</tbody>
       </table>
     </section>
-  </div>
+  </div>`
+      : ""
+  }
 </body>
 </html>`;
 

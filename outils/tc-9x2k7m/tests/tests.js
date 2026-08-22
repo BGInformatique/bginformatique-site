@@ -107,6 +107,7 @@ async function reinitialiser() {
   tc.els.customRange.hidden = true;
   tc.els.filterClient.value = "";
   tc.els.filterToVerify.checked = false;
+  tc.els.reportIncludeBilling.checked = false;
   tc.persistLocal();
   bouchon.viderEcritures();
   bouchon.echecEcriture = null;
@@ -1309,6 +1310,7 @@ async function sectionO() {
       description: "d", billable: true, toVerify: true, verifyNote: "note & rappel", updatedAt: 1,
     });
     tc.render();
+    tc.els.reportIncludeBilling.checked = true;
     let html = null;
     const openOriginal = window.open;
     window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
@@ -1326,8 +1328,51 @@ async function sectionO() {
     absent(html, "écart", "aucun écart dans le rapport non plus");
   });
 
+  await test("facturable, à vérifier et le sommaire par billet sont cachés par défaut", async () => {
+    await reinitialiser();
+    tc.state.interventions.push({
+      id: "ricache", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(),
+      clients: ["Client Discret"], ticket: "T-9", category: "Dépannage",
+      description: "note interne sensible", billable: true, toVerify: true, verifyNote: "", updatedAt: 1,
+    });
+    tc.render();
+    egal(tc.els.reportIncludeBilling.checked, false, "décoché par défaut");
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateWeeklyReport();
+    window.open = openOriginal;
+    vrai(html, "rapport produit");
+    absent(html, "Sommaire de facturation par billet", "section de facturation absente par défaut");
+    absent(html, ">Fact.<", "colonne Facturable absente par défaut");
+    absent(html, ">Vérif.<", "colonne Vérif. absente par défaut");
+    // La description, elle, reste visible : ce n'est pas une info de
+    // facturation, seule sa POSITION a changé (pleine largeur sous la ligne).
+    contient(html, "note interne sensible", "description toujours présente");
+    contient(html, "Client Discret", "client toujours présent");
+  });
+
+  await test("la description occupe sa propre ligne pleine largeur, hors de la colonne du tableau", async () => {
+    await reinitialiser();
+    tc.state.interventions.push({
+      id: "ridesc", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(),
+      clients: ["C"], ticket: "", category: "Dépannage",
+      description: "Texte de description", billable: true, toVerify: false, verifyNote: "", updatedAt: 1,
+    });
+    tc.render();
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateWeeklyReport();
+    window.open = openOriginal;
+    absent(html, "<th>Description</th>", "plus de colonne Description dans l'en-tête");
+    contient(html, 'class="desc-box"', "la description est dans sa propre case pleine largeur");
+    contient(html, "Texte de description");
+  });
+
   await test("plusieurs clients sur une intervention : temps réparti également dans le sommaire par billet", async () => {
     await reinitialiser();
+    tc.els.reportIncludeBilling.checked = true;
     // Durée impaire (61 min) exprès : la répartition entre 2 clients ne tombe
     // jamais rond, c'est le cas qui a motivé la répartition au plus grand
     // reste plutôt qu'une simple division.
