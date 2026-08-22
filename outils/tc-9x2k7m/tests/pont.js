@@ -87,6 +87,7 @@ globalThis.__tc = {
   load,
   normalizeState,
   sanePeriod,
+  strList,
   mergeStates,
   sameState,
   touch,
@@ -110,6 +111,8 @@ globalThis.__tc = {
   minutesBetween,
   fmtDuration,
   fmtDecimalHours,
+  splitMinutesEvenly,
+  clientMinuteShares,
   startOfDay,
   addDays,
   startOfWeek,
@@ -147,6 +150,7 @@ globalThis.__tc = {
   finishIntervention,
   cancelIntervention,
   updateChronoClient,
+  updateChronoStart,
   renderInterventionLive,
   updateInterventionTimers,
   signatureChronos,
@@ -163,6 +167,7 @@ globalThis.__tc = {
   updateInterventionVerifyNote,
   uniqueValues,
   uniqueClients,
+  parseClients,
 
   /* --- Périodes et filtres --- */
   filterRange,

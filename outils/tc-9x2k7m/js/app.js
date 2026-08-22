@@ -191,17 +191,23 @@ function normalizeState(data) {
       rejets++;
       continue;
     }
-    interventions.push({
+    const record = {
       ...i,
       ...clean,
-      client: str(i.client),
+      clients: strList(i.clients, i.client),
       ticket: str(i.ticket),
       category: str(i.category) || "Autre",
       description: typeof i.description === "string" ? i.description : "",
       billable: i.billable !== false,
       toVerify: i.toVerify === true,
       verifyNote: typeof i.verifyNote === "string" ? i.verifyNote : "",
-    });
+    };
+    // L'ancien champ `client` (chaîne unique) ne doit pas survivre au spread
+    // de `...i` — sinon un vieil enregistrement le garde indéfiniment à côté
+    // du nouveau `clients`, et Firestore n'accepte pas `undefined` : delete,
+    // pas une réaffectation.
+    delete record.client;
+    interventions.push(record);
   }
 
   let activePunch = null;
@@ -266,6 +272,29 @@ function sanePeriod(r) {
 
 function str(v) {
   return typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
+}
+
+// Normalise le champ client d'une intervention en tableau de noms uniques, non
+// vides, dans leur ordre d'origine. Migre l'ancien format (un seul `client`
+// en chaîne, d'avant le support multi-client) vers `clients: [nom]`.
+function strList(clients, legacyClient) {
+  const source = Array.isArray(clients) ? clients : legacyClient != null ? [legacyClient] : [];
+  const seen = new Set();
+  const out = [];
+  for (const v of source) {
+    const name = str(v);
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+// Découpe le champ texte "Client" (noms séparés par des virgules) en une
+// liste de clients uniques, dans l'ordre de saisie.
+function parseClients(text) {
+  return strList(String(text || "").split(","));
 }
 
 function num(v) {
@@ -333,7 +362,7 @@ function sameState(a, b) {
       (s.activeInterventions || []).map((c) => [c.id, c.start, c.client, c.updatedAt]),
       s.punches.map((p) => [p.id, p.start, p.end, p.updatedAt]),
       s.interventions.map((i) => [
-        i.id, i.start, i.end, i.client, i.ticket, i.category,
+        i.id, i.start, i.end, i.clients, i.ticket, i.category,
         i.description, i.billable, i.toVerify, i.verifyNote, i.updatedAt,
       ]),
       Object.entries(s.tombstones).sort(),
@@ -440,6 +469,28 @@ function fmtDuration(minutes) {
 
 function fmtDecimalHours(minutes) {
   return (minutes / 60).toFixed(2).replace(".", ",");
+}
+
+// Répartit `total` minutes en `n` parts entières dont la somme reste
+// exactement `total` (méthode du plus grand reste) : les `reste` premiers
+// éléments reçoivent 1 minute de plus que les autres.
+function splitMinutesEvenly(total, n) {
+  if (n <= 0) return [];
+  const base = Math.floor(total / n);
+  const reste = total - base * n;
+  return Array.from({ length: n }, (_, idx) => base + (idx < reste ? 1 : 0));
+}
+
+// Part de minutes attribuée à chaque client nommé d'UNE intervention,
+// répartition égale. Point de calcul unique, réutilisé par le sommaire à
+// l'écran groupé par client et par le sommaire de facturation par billet du
+// rapport hebdomadaire, pour que les deux vues restent cohérentes entre
+// elles. `minutesBetween` n'est appelé qu'une fois ici, jamais recalculé par
+// client.
+function clientMinuteShares(i) {
+  const clients = i.clients && i.clients.length ? i.clients : ["(sans client)"];
+  const parts = splitMinutesEvenly(minutesBetween(i.start, i.end), clients.length);
+  return clients.map((client, idx) => ({ client, minutes: parts[idx] }));
 }
 
 // Arrondi au quart d'heure le plus près, l'égalité tranchée vers le haut :
@@ -851,6 +902,43 @@ function updateChronoClient(id, value) {
   signatureChronosRendue = signatureChronos();
 }
 
+// L'heure de début, ajustable pendant que le chrono tourne : un démarrage
+// tardif (le technicien commence avant d'ouvrir l'appli) se corrige tout de
+// suite, sans attendre la fin de l'intervention pour la retoucher. Le jour
+// reste celui déjà en mémoire — seule l'heure change ; le changer de jour se
+// fait au formulaire complet, au moment de terminer.
+function updateChronoStart(id, value) {
+  const chrono = state.activeInterventions.find((c) => c.id === id);
+  if (!chrono) return;
+  const m = /^(\d{1,2}):(\d{2})/.exec(value);
+  if (!m) return;
+  const avant = new Date(chrono.start);
+  const next = new Date(avant.getFullYear(), avant.getMonth(), avant.getDate(), Number(m[1]), Number(m[2]));
+  if (isNaN(next.getTime())) return;
+  if (next.getTime() > Date.now()) {
+    showToast("L'heure de début ne peut pas être dans le futur.");
+    // Rien n'a changé en mémoire : on force seulement le prochain rendu à
+    // réafficher l'heure d'origine dans le champ, au lieu de garder la
+    // saisie invalide affichée à l'écran.
+    signatureChronosRendue = null;
+    renderInterventionLive();
+    return;
+  }
+  const avantChrono = { start: chrono.start, updatedAt: chrono.updatedAt };
+  chrono.start = next.getTime();
+  touch(chrono);
+  if (!save()) {
+    Object.assign(chrono, avantChrono);
+    signatureChronosRendue = null;
+    renderInterventionLive();
+    return;
+  }
+  // Le champ à l'écran porte déjà la valeur : on accorde la signature pour
+  // qu'un rendu ultérieur ne reconstruise pas la liste sous le curseur.
+  signatureChronosRendue = signatureChronos();
+  updateInterventionTimers();
+}
+
 const AVIS_CHRONO = "intervention-oubliee-";
 
 // Une bannière par chrono : celles des chronos disparus n'ont plus d'objet.
@@ -924,10 +1012,29 @@ function chronoRow(chrono) {
   client.dataset.chronoClient = chrono.id;
   li.appendChild(client);
 
-  const depuis = document.createElement("span");
-  depuis.className = "live-since";
-  depuis.textContent = `depuis ${timeHM(start)}${veille ? ` (${dateISO(start)})` : ""}`;
-  li.appendChild(depuis);
+  const depuisLabel = document.createElement("span");
+  depuisLabel.className = "live-since";
+  depuisLabel.textContent = "depuis";
+  li.appendChild(depuisLabel);
+
+  // Modifiable pendant que le chrono tourne : un démarrage tardif (le
+  // technicien commence avant d'ouvrir l'appli) se corrige tout de suite,
+  // sans attendre la fin de l'intervention. Le jour reste celui déjà en
+  // mémoire — le changer se fait au formulaire complet, à la fin.
+  const debut = document.createElement("input");
+  debut.type = "time";
+  debut.className = "live-start";
+  debut.value = timeHM(start);
+  debut.setAttribute("aria-label", "Heure de début de l'intervention en cours");
+  debut.dataset.chronoStart = chrono.id;
+  li.appendChild(debut);
+
+  if (veille) {
+    const jour = document.createElement("span");
+    jour.className = "live-since-day";
+    jour.textContent = `(${dateISO(start)})`;
+    li.appendChild(jour);
+  }
 
   const timer = document.createElement("span");
   timer.className = "live-timer";
@@ -1207,7 +1314,7 @@ function nouvelleIntervention(prefill) {
     date: jour,
     start: debut,
     end: (prefill && prefill.end) || timeHM(now),
-    client: (prefill && prefill.client) || (derniere ? derniere.client : ""),
+    client: (prefill && prefill.client) || (derniere ? derniere.clients.join(", ") : ""),
     ticket: (prefill && prefill.ticket) || (derniere ? derniere.ticket : ""),
     category: derniere ? derniere.category : "Dépannage",
   };
@@ -1256,9 +1363,9 @@ function submitInterventionForm(event) {
   if (!t || minutesBetween(t.start, t.end) <= 0) {
     return showFormError(els.fError, INVALID_DURATION_MSG);
   }
-  const client = els.fClient.value.trim();
+  const clients = parseClients(els.fClient.value);
   const description = els.fDescription.value.trim();
-  if (!client && !description) {
+  if (!clients.length && !description) {
     return showFormError(els.fError, "Inscrivez au moins un client ou une explication.");
   }
 
@@ -1266,7 +1373,7 @@ function submitInterventionForm(event) {
     id,
     start: t.start,
     end: t.end,
-    client,
+    clients,
     ticket: els.fTicket.value.trim(),
     category: els.fCategory.value,
     description,
@@ -1318,7 +1425,7 @@ function editIntervention(id) {
     date: dateISO(start),
     start: timeHM(start),
     end: timeHM(end),
-    client: i.client,
+    client: (i.clients || []).join(", "),
     ticket: i.ticket,
     category: i.category,
     description: i.description,
@@ -1332,7 +1439,8 @@ function deleteIntervention(id) {
   const idx = state.interventions.findIndex((x) => x.id === id);
   if (idx < 0) return;
   const i = state.interventions[idx];
-  const label = i.client ? ` (${i.client})` : "";
+  const clientLabel = (i.clients || []).join(", ");
+  const label = clientLabel ? ` (${clientLabel})` : "";
   if (!confirm(`Supprimer cette intervention${label} ?`)) return;
   state.interventions.splice(idx, 1);
   state.tombstones[id] = Date.now();
@@ -1395,21 +1503,27 @@ function fillDatalist(el, values) {
 }
 
 function refreshDatalists() {
-  fillDatalist(els.clientList, uniqueValues((i) => i.client));
+  fillDatalist(els.clientList, uniqueClients());
   fillDatalist(els.ticketList, uniqueValues((i) => i.ticket));
 }
 
+// `pick` retourne soit une valeur scalaire (ticket, catégorie), soit un
+// tableau (clients) — les tableaux sont aplatis avant déduplication.
 function uniqueValues(pick) {
   const set = new Set();
   for (const i of state.interventions) {
     const v = pick(i);
-    if (v) set.add(v);
+    if (Array.isArray(v)) {
+      for (const x of v) if (x) set.add(x);
+    } else if (v) {
+      set.add(v);
+    }
   }
   return [...set].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
 }
 
 function uniqueClients() {
-  return uniqueValues((i) => i.client);
+  return uniqueValues((i) => i.clients);
 }
 
 /* ---------- Filtres et rendu ---------- */
@@ -1513,7 +1627,7 @@ function ensureInterventionVisible(record) {
   const [from, to] = filterRange();
   const periodOk = record.start >= from && record.start < to;
   const clientFilter = els.filterClient.value;
-  const clientOk = !clientFilter || clientFilter === record.client;
+  const clientOk = !clientFilter || (record.clients || []).includes(clientFilter);
   const verifyOk = !els.filterToVerify.checked || record.toVerify;
   if (periodOk && clientOk && verifyOk) return;
   els.filterPeriod.value = "all";
@@ -1543,7 +1657,7 @@ function filteredInterventions() {
   const client = els.filterClient.value;
   const toVerifyOnly = els.filterToVerify.checked;
   return periodInterventions()
-    .filter((i) => (!client || i.client === client) && (!toVerifyOnly || i.toVerify))
+    .filter((i) => (!client || (i.clients || []).includes(client)) && (!toVerifyOnly || i.toVerify))
     .sort((a, b) => b.start - a.start);
 }
 
@@ -1737,7 +1851,7 @@ function renderInterventionTable() {
       <td>${timeHM(start)}</td>
       <td>${timeHM(end)}${dateISO(end) !== dateISO(start) ? ' <span class="next-day" title="Se termine le lendemain">+1</span>' : ""}</td>
       <td>${fmtDuration(min)}</td>
-      <td>${escapeHtml(i.client) || "—"}</td>
+      <td>${escapeHtml((i.clients || []).join(", ")) || "—"}</td>
       <td>${escapeHtml(i.ticket) || "—"}</td>
       <td>${escapeHtml(i.category)}</td>
       <td class="desc">${escapeHtml(i.description) || "—"}</td>
@@ -1791,17 +1905,26 @@ const GROUP_LABELS = { ticket: "Billet", client: "Client", category: "Catégorie
 function groupedInterventions() {
   const cle = els.groupBy.value;
   const groupes = new Map();
-  for (const i of filteredInterventions()) {
-    const k = (i[cle] || "").trim() || "(sans " + GROUP_LABELS[cle].toLowerCase() + ")";
+  const ajoute = (k, i, min) => {
     if (!groupes.has(k)) groupes.set(k, { cle: k, count: 0, minutes: 0, billable: 0, toVerify: 0, items: [] });
     const g = groupes.get(k);
-    const min = minutesBetween(i.start, i.end);
     g.count++;
     g.minutes += min;
     // Le non facturable ne devient jamais facturable par regroupement.
     if (i.billable) g.billable += min;
     if (i.toVerify) g.toVerify++;
     g.items.push(i);
+  };
+  for (const i of filteredInterventions()) {
+    if (cle === "client") {
+      // Une intervention à plusieurs clients répartit sa durée à parts égales
+      // entre eux (clientMinuteShares) plutôt que de la compter en entier
+      // dans chaque groupe, ce qui gonflerait artificiellement le total.
+      for (const share of clientMinuteShares(i)) ajoute(share.client, i, share.minutes);
+    } else {
+      const k = (i[cle] || "").trim() || "(sans " + GROUP_LABELS[cle].toLowerCase() + ")";
+      ajoute(k, i, minutesBetween(i.start, i.end));
+    }
   }
   for (const g of groupes.values()) g.items.sort((a, b) => a.start - b.start);
   return [...groupes.values()].sort((a, b) => b.minutes - a.minutes);
@@ -1852,7 +1975,7 @@ function renderSummaryTable() {
         <td>${dateISO(s)} ${timeHM(s)}–${timeHM(e)}</td>
         <td></td>
         <td>${fmtDuration(minutesBetween(i.start, i.end))}</td>
-        <td colspan="2" class="desc">${escapeHtml(i.client) || "—"}${i.description ? " — " + escapeHtml(i.description) : ""}</td>
+        <td colspan="2" class="desc">${escapeHtml((i.clients || []).join(", ")) || "—"}${i.description ? " — " + escapeHtml(i.description) : ""}</td>
         <td class="center">${i.billable ? "✓" : "—"}${i.toVerify ? " ⚠️" : ""}</td>`;
       els.summaryTbody.appendChild(trd);
     }
@@ -1999,7 +2122,7 @@ function exportInterventionsCsv() {
         timeHM(end),
         min,
         fmtDecimalHours(min),
-        csvField(i.client),
+        csvField((i.clients || []).join(", ")),
         csvField(i.ticket),
         csvField(i.category),
         csvField(i.description),
@@ -2138,7 +2261,7 @@ function generateWeeklyReport() {
                 <td>${dateISO(s)}</td>
                 <td>${timeHM(s)}–${timeHM(e)}</td>
                 <td>${fmtDuration(minutesBetween(i.start, i.end))}</td>
-                <td>${escapeHtml(i.client) || "—"}</td>
+                <td>${escapeHtml((i.clients || []).join(", ")) || "—"}</td>
                 <td>${escapeHtml(i.ticket) || "—"}</td>
                 <td>${escapeHtml(i.category)}</td>
                 <td>${escapeHtml(i.description) || "—"}${
@@ -2164,25 +2287,34 @@ function generateWeeklyReport() {
     .join("");
 
   // Sommaire par billet inclus dans le rapport : c'est ce qui sert à facturer,
-  // et il reprend les vraies heures de chaque intervention.
+  // et il reprend les vraies heures de chaque intervention. Le regroupement se
+  // fait par CLIENT d'abord, par billet ensuite : deux interventions sans
+  // billet mais chez deux clients différents ne doivent jamais tomber dans le
+  // même « (sans billet) », sinon la ligne fait croire qu'un seul client
+  // absorbe des heures qui appartiennent en réalité à plusieurs. Une même
+  // intervention à plusieurs clients (clientMinuteShares) répartit sa durée
+  // à parts égales entre eux, pour la même raison.
   const parBillet = new Map();
   for (const i of interventions) {
-    const k = (i.ticket || "").trim() || "(sans billet)";
-    if (!parBillet.has(k)) parBillet.set(k, { minutes: 0, billable: 0, count: 0, toVerify: 0, clients: new Set() });
-    const g = parBillet.get(k);
-    const min = minutesBetween(i.start, i.end);
-    g.minutes += min;
-    if (i.billable) g.billable += min;
-    if (i.toVerify) g.toVerify++;
-    g.count++;
-    if (i.client) g.clients.add(i.client);
+    const ticket = (i.ticket || "").trim() || "(sans billet)";
+    for (const share of clientMinuteShares(i)) {
+      const k = `${share.client}␟${ticket}`;
+      if (!parBillet.has(k)) {
+        parBillet.set(k, { client: share.client, ticket, minutes: 0, billable: 0, count: 0, toVerify: 0 });
+      }
+      const g = parBillet.get(k);
+      g.minutes += share.minutes;
+      if (i.billable) g.billable += share.minutes;
+      if (i.toVerify) g.toVerify++;
+      g.count++;
+    }
   }
-  const summaryRows = [...parBillet.entries()]
-    .sort((a, b) => b[1].minutes - a[1].minutes)
+  const summaryRows = [...parBillet.values()]
+    .sort((a, b) => b.minutes - a.minutes)
     .map(
-      ([k, g]) => `<tr${g.toVerify ? ' class="to-verify-row"' : ""}>
-        <td>${escapeHtml(k)}</td>
-        <td>${escapeHtml([...g.clients].join(" / ")) || "—"}</td>
+      (g) => `<tr${g.toVerify ? ' class="to-verify-row"' : ""}>
+        <td>${escapeHtml(g.ticket)}</td>
+        <td>${escapeHtml(g.client)}</td>
         <td class="center">${g.count}</td>
         <td>${fmtDuration(g.minutes)} (${fmtDecimalHours(g.minutes)} h)</td>
         <td>${fmtDuration(g.billable)} (${fmtDecimalHours(g.billable)} h)</td>
@@ -2480,8 +2612,10 @@ els.interventionList.addEventListener("click", (event) => {
 });
 
 els.interventionList.addEventListener("change", (event) => {
-  const champ = event.target.closest("[data-chrono-client]");
-  if (champ) updateChronoClient(champ.dataset.chronoClient, champ.value);
+  const client = event.target.closest("[data-chrono-client]");
+  if (client) updateChronoClient(client.dataset.chronoClient, client.value);
+  const debut = event.target.closest("[data-chrono-start]");
+  if (debut) updateChronoStart(debut.dataset.chronoStart, debut.value);
 });
 
 els.btnAddPunch.addEventListener("click", () => {

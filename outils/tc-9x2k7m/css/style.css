@@ -199,6 +199,19 @@ main > *,
   white-space: nowrap;
 }
 
+/* Modifiable, contrairement au reste de la ligne : c'est ce qui permet de
+   corriger un démarrage tardif sans attendre la fin de l'intervention. */
+.live-start {
+  width: 6.5em;
+  font-size: 0.85rem;
+}
+
+.live-since-day {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .live-timer {
   font-size: 1.35rem;
   font-variant-numeric: tabular-nums;

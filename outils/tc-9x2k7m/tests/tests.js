@@ -301,11 +301,21 @@ async function sectionD() {
     egal(rejets, 1, "une intervention rejetée");
     const i = s.interventions[0];
     egal(i.extra, "garde-moi", "champ inconnu conservé");
-    egal(i.client, "42", "client converti en chaîne");
+    egal(JSON.stringify(i.clients), JSON.stringify(["42"]), "ancien client migré en tableau");
+    egal("client" in i, false, "l'ancien champ client ne survit pas à la migration");
     egal(i.category, "Autre", "catégorie par défaut");
     egal(i.billable, true, "facturable par défaut");
     egal(i.toVerify, false);
     egal(i.verifyNote, "");
+  });
+
+  await test("normalizeState : plusieurs clients conservés, dédupliqués, ordre de saisie gardé", () => {
+    const { state: s } = tc.normalizeState({
+      interventions: [
+        { id: "b", start: 1000, end: 2000, clients: ["Vertika", " Seanautics ", "Vertika", ""] },
+      ],
+    });
+    egal(JSON.stringify(s.interventions[0].clients), JSON.stringify(["Vertika", "Seanautics"]));
   });
 
   await test("normalizeState : pierres tombales élaguées après 180 jours", () => {
@@ -386,10 +396,10 @@ async function sectionE() {
 
   await test("même identifiant : le updatedAt le plus récent gagne", () => {
     const f = tc.mergeStates(
-      etat({ interventions: [{ id: "x", start: 100, end: 200, client: "local", updatedAt: 5 }] }),
-      etat({ interventions: [{ id: "x", start: 100, end: 200, client: "distant", updatedAt: 9 }] })
+      etat({ interventions: [{ id: "x", start: 100, end: 200, clients: ["local"], updatedAt: 5 }] }),
+      etat({ interventions: [{ id: "x", start: 100, end: 200, clients: ["distant"], updatedAt: 9 }] })
     );
-    egal(f.interventions[0].client, "distant");
+    egal(JSON.stringify(f.interventions[0].clients), JSON.stringify(["distant"]));
   });
 
   await test("égalité de updatedAt : la version locale est conservée", () => {
@@ -452,9 +462,11 @@ async function sectionE() {
     const a = etat({ tombstones: { x: 1, y: 2 } });
     const b = etat({ tombstones: { y: 2, x: 1 } });
     egal(tc.sameState(a, b), true);
-    const c = etat({ interventions: [{ id: "i", start: 1, end: 2, client: "", ticket: "", category: "Autre", description: "", billable: true, toVerify: false, verifyNote: "n", updatedAt: 0 }] });
-    const d = etat({ interventions: [{ id: "i", start: 1, end: 2, client: "", ticket: "", category: "Autre", description: "", billable: true, toVerify: false, verifyNote: "AUTRE", updatedAt: 0 }] });
+    const c = etat({ interventions: [{ id: "i", start: 1, end: 2, clients: [], ticket: "", category: "Autre", description: "", billable: true, toVerify: false, verifyNote: "n", updatedAt: 0 }] });
+    const d = etat({ interventions: [{ id: "i", start: 1, end: 2, clients: [], ticket: "", category: "Autre", description: "", billable: true, toVerify: false, verifyNote: "AUTRE", updatedAt: 0 }] });
     egal(tc.sameState(c, d), false, "une note différente compte");
+    const e = etat({ interventions: [{ id: "i", start: 1, end: 2, clients: ["A"], ticket: "", category: "Autre", description: "", billable: true, toVerify: false, verifyNote: "n", updatedAt: 0 }] });
+    egal(tc.sameState(c, e), false, "une liste de clients différente compte");
   });
 }
 
@@ -835,7 +847,7 @@ async function sectionK() {
     await attendre(0);
     egal(tc.state.interventions.length, 1);
     const i = tc.state.interventions[0];
-    egal(i.client, "ClientX", "client taillé");
+    egal(JSON.stringify(i.clients), JSON.stringify(["ClientX"]), "client taillé");
     egal(i.ticket, "T-1");
     egal(i.category, "Maintenance");
     egal(i.description, "Nettoyage");
@@ -891,13 +903,22 @@ async function sectionK() {
     vrai(tc.state.tombstones[id] > 0);
   });
 
+  await test("inscription : plusieurs clients séparés par virgule, dédupliqués", async () => {
+    tc.openInterventionDialog({ title: "t", date: "2026-07-15", start: "11:00", end: "12:00" });
+    tc.els.fClient.value = "Seanautics, Vertika, Seanautics ,  ";
+    tc.submitInterventionForm(evenement);
+    await attendre(0);
+    const i = tc.state.interventions[tc.state.interventions.length - 1];
+    egal(JSON.stringify(i.clients), JSON.stringify(["Seanautics", "Vertika"]), "clients séparés, taillés, dédupliqués");
+  });
+
   await test("nouvelle intervention : reprend client, billet et heure de la dernière du jour", async () => {
     await reinitialiser();
     const now = new Date();
     const finDerniere = ceJour(0, 0, 20); // 00 h 20 aujourd'hui : presque toujours passé
     tc.state.interventions.push({
       id: "prec", start: ceJour(0, 0, 5).getTime(), end: finDerniere.getTime(),
-      client: "Clinique ABC", ticket: "T-77", category: "Installation",
+      clients: ["Clinique ABC"], ticket: "T-77", category: "Installation",
       description: "x", billable: true, toVerify: false, verifyNote: "", updatedAt: 1,
     });
     tc.persistLocal();
@@ -968,19 +989,22 @@ async function sectionL() {
     await reinitialiser();
     const base = { start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(), category: "Autre", description: "d", billable: true, verifyNote: "", updatedAt: 1, ticket: "" };
     tc.state.interventions.push(
-      { ...base, id: "ia", client: "A", toVerify: false },
-      { ...base, id: "ib", client: "B", toVerify: true },
-      { ...base, id: "ic", client: "A", toVerify: true }
+      { ...base, id: "ia", clients: ["A"], toVerify: false },
+      { ...base, id: "ib", clients: ["B"], toVerify: true },
+      { ...base, id: "ic", clients: ["A"], toVerify: true },
+      { ...base, id: "id", clients: ["A", "B"], toVerify: false }
     );
     tc.render();
     tc.els.filterClient.value = "A";
-    egal(tc.filteredInterventions().length, 2, "client A");
+    egal(tc.filteredInterventions().length, 3, "client A (y compris l'intervention à 2 clients)");
     tc.els.filterToVerify.checked = true;
     const restants = tc.filteredInterventions();
     egal(restants.length, 1, "client A et à vérifier");
     egal(restants[0].id, "ic");
-    tc.els.filterClient.value = "";
     tc.els.filterToVerify.checked = false;
+    tc.els.filterClient.value = "B";
+    egal(tc.filteredInterventions().length, 2, "client B (seul ou co-listé)");
+    tc.els.filterClient.value = "";
   });
 
   await test("un ajout hors période bascule le filtre sur « Tout », avec avis", () => {
@@ -994,15 +1018,16 @@ async function sectionL() {
     await reinitialiser();
     const base = { start: 1000, end: 61000, category: "Autre", description: "d", billable: true, toVerify: false, verifyNote: "", updatedAt: 1, ticket: "" };
     tc.state.interventions.push(
-      { ...base, id: "u1", client: "Éric" },
-      { ...base, id: "u2", client: "abc" },
-      { ...base, id: "u3", client: "Éric" },
-      { ...base, id: "u4", client: "" }
+      { ...base, id: "u1", clients: ["Éric"] },
+      { ...base, id: "u2", clients: ["abc"] },
+      { ...base, id: "u3", clients: ["Éric", "abc"] },
+      { ...base, id: "u4", clients: [] }
     );
-    const valeurs = tc.uniqueValues((i) => i.client);
-    egal(valeurs.length, 2);
+    const valeurs = tc.uniqueValues((i) => i.clients);
+    egal(valeurs.length, 2, "tableaux aplatis avant déduplication");
     egal(valeurs[0], "abc", "tri insensible aux accents");
     egal(valeurs[1], "Éric");
+    egal(JSON.stringify(tc.uniqueClients()), JSON.stringify(valeurs), "uniqueClients aplatit aussi");
   });
 }
 
@@ -1020,7 +1045,7 @@ async function sectionM() {
     );
     tc.state.interventions.push({
       id: "mi1", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 9, 30).getTime(),
-      client: "Client <b>X</b>", ticket: "T-1", category: "Dépannage",
+      clients: ["Client <b>X</b>"], ticket: "T-1", category: "Dépannage",
       description: "desc", billable: true, toVerify: true, verifyNote: "vérifier tarif", updatedAt: 1,
     });
     tc.persistLocal();
@@ -1145,7 +1170,7 @@ async function sectionM() {
     await semer();
     tc.state.interventions.push({
       id: "mi2", start: ceJour(0, 10, 0).getTime(), end: ceJour(0, 10, 30).getTime(),
-      client: "C", ticket: "", category: "Autre", description: "d",
+      clients: ["C"], ticket: "", category: "Autre", description: "d",
       billable: false, toVerify: false, verifyNote: "", updatedAt: 1,
     });
     tc.els.groupBy.value = "ticket";
@@ -1189,13 +1214,13 @@ async function sectionN() {
     tc.state.interventions.push(
       {
         id: "ci1", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(),
-        client: "Cli;ent", ticket: "T-1", category: "Maintenance",
+        clients: ["Cli;ent", "Autre"], ticket: "T-1", category: "Maintenance",
         description: "Réparation; écran", billable: true, toVerify: true,
         verifyNote: 'Note "spéciale"', updatedAt: 1,
       },
       {
         id: "ci2", start: ceJour(0, 10, 30).getTime(), end: ceJour(0, 11, 0).getTime(),
-        client: "Cli;ent", ticket: "T-1", category: "Maintenance",
+        clients: ["Cli;ent"], ticket: "T-1", category: "Maintenance",
         description: "suite", billable: false, toVerify: false, verifyNote: "", updatedAt: 1,
       }
     );
@@ -1235,7 +1260,8 @@ async function sectionN() {
     tc.exportInterventionsCsv();
     const f = tc.dernierFichier();
     egal(f.name, "interventions-tout.csv");
-    contient(f.content, '"Cli;ent"', "client avec point-virgule cité");
+    contient(f.content, '"Cli;ent"', "un seul client avec point-virgule cité");
+    contient(f.content, '"Cli;ent, Autre"', "plusieurs clients joints par virgule dans une seule cellule");
     contient(f.content, '"Réparation; écran"');
     contient(f.content, '"Note ""spéciale"""', "guillemets doublés");
     const totale = f.content.slice(1).split("\r\n").find((l) => l.startsWith(";;;TOTAL"));
@@ -1279,7 +1305,7 @@ async function sectionO() {
     tc.state.punches.push({ id: "rp", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 11, 0).getTime(), updatedAt: 1 });
     tc.state.interventions.push({
       id: "ri", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(),
-      client: "Client <script>", ticket: "T-9", category: "Dépannage",
+      clients: ["Client <script>"], ticket: "T-9", category: "Dépannage",
       description: "d", billable: true, toVerify: true, verifyNote: "note & rappel", updatedAt: 1,
     });
     tc.render();
@@ -1298,6 +1324,59 @@ async function sectionO() {
     contient(html, "note &amp; rappel", "note de vérification incluse et échappée");
     contient(html, "ventilé en interventions : 1 h 00", "temps ventilé de la semaine");
     absent(html, "écart", "aucun écart dans le rapport non plus");
+  });
+
+  await test("plusieurs clients sur une intervention : temps réparti également dans le sommaire par billet", async () => {
+    await reinitialiser();
+    // Durée impaire (61 min) exprès : la répartition entre 2 clients ne tombe
+    // jamais rond, c'est le cas qui a motivé la répartition au plus grand
+    // reste plutôt qu'une simple division.
+    tc.state.interventions.push(
+      {
+        id: "multi", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 1).getTime(),
+        clients: ["Seanautics", "Vertika"], ticket: "T-1", category: "Dépannage",
+        description: "d", billable: true, toVerify: false, verifyNote: "", updatedAt: 1,
+      },
+      // Même billet, un seul client : ne doit jamais se mélanger avec les
+      // deux lignes ci-dessus (régression du bug « un seul client facturé »).
+      {
+        id: "seul", start: ceJour(0, 10, 30).getTime(), end: ceJour(0, 11, 0).getTime(),
+        clients: ["Seanautics"], ticket: "T-1", category: "Dépannage",
+        description: "d", billable: true, toVerify: false, verifyNote: "", updatedAt: 1,
+      }
+    );
+    tc.render();
+    let html = null;
+    const openOriginal = window.open;
+    window.open = () => ({ document: { open() {}, write(h) { html = h; }, close() {} } });
+    tc.generateWeeklyReport();
+    window.open = openOriginal;
+    vrai(html, "rapport produit");
+    // splitMinutesEvenly(61, 2) = [31, 30] (plus grand reste, 1er nommé
+    // avantagé) : Seanautics (1er) reçoit 31 min de "multi" + 30 min de
+    // "seul" = 61 min ; Vertika (2e) reçoit seulement les 30 min de "multi".
+    contient(html, "Seanautics", "ligne Seanautics présente");
+    contient(html, "Vertika", "ligne Vertika présente, séparée");
+    contient(html, "1 h 01 (1,02 h)", "Seanautics : 31 min partagées + 30 min seul = 61 min");
+    contient(html, "30 min (0,50 h)", "Vertika : sa seule part de l'intervention partagée");
+  });
+
+  await test("plusieurs clients : temps réparti également dans le sommaire écran groupé par client", () => {
+    tc.els.groupBy.value = "client";
+    const groupes = tc.groupedInterventions();
+    const seanautics = groupes.find((g) => g.cle === "Seanautics");
+    const vertika = groupes.find((g) => g.cle === "Vertika");
+    vrai(seanautics && vertika, "les deux clients apparaissent comme groupes distincts");
+    egal(seanautics.minutes, 61, "31 (part) + 30 (intervention seule)");
+    egal(vertika.minutes, 30);
+    egal(seanautics.minutes + vertika.minutes, 61 + 30, "aucune minute perdue ni doublée");
+  });
+
+  await test("affichage brut : la même intervention multi-client garde sa durée totale, non répartie", async () => {
+    tc.els.filterClient.value = "";
+    tc.render();
+    contient(tc.els.interventionTbody.textContent, "Seanautics, Vertika", "les deux noms joints, une seule ligne");
+    contient(tc.els.interventionTbody.textContent, "1 h 01", "durée totale réelle, pas la moitié");
   });
 
   await test("fenêtre bloquée : explication claire, pas d'erreur", async () => {
@@ -1325,7 +1404,7 @@ async function sectionO() {
     tc.state.punches.push({ id: "rs", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 11, 30).getTime(), updatedAt: 1 });
     tc.state.interventions.push({
       id: "rsi", start: ceJour(0, 9, 0).getTime(), end: ceJour(0, 10, 0).getTime(),
-      client: "Client <script>", ticket: "T-9", category: "Dépannage",
+      clients: ["Client <script>"], ticket: "T-9", category: "Dépannage",
       description: "d", billable: true, toVerify: true, verifyNote: "n", updatedAt: 1,
     });
     tc.render();
@@ -1622,7 +1701,10 @@ async function sectionS() {
     const premier = chronos()[0];
     const ligne = tc.els.interventionList.querySelector(`li[data-chrono="${premier.id}"]`);
     vrai(ligne, "ligne du premier chrono");
-    contient(ligne.textContent, "depuis " + tc.timeHM(new Date(premier.start)));
+    contient(ligne.textContent, "depuis", "libellé « depuis »");
+    const champStart = ligne.querySelector(`[data-chrono-start="${premier.id}"]`);
+    vrai(champStart, "heure de début modifiable, propre à ce chrono");
+    egal(champStart.value, tc.timeHM(new Date(premier.start)), "heure de début affichée");
     vrai(ligne.querySelector(`[data-chrono-timer="${premier.id}"]`), "minuterie propre");
     vrai(ligne.querySelector(`[data-finish-chrono="${premier.id}"]`), "bouton Terminer propre");
     vrai(ligne.querySelector(`[data-cancel-chrono="${premier.id}"]`), "bouton d'annulation propre");
@@ -1646,6 +1728,41 @@ async function sectionS() {
       tc.els.interventionList.querySelector(`[data-chrono-client="${b.id}"]`).value,
       "",
       "champ du second chrono toujours vide"
+    );
+  });
+
+  await test("l'heure de début est corrigeable pendant que le chrono tourne", async () => {
+    const [a, b] = chronos();
+    const dixMinAvant = new Date(a.start - 10 * 60000);
+    // L'entrée « HH:MM » ne porte pas les secondes : l'heure reconstruite les
+    // met à zéro, comme partout ailleurs où un input type="time" est en jeu.
+    const attendu = new Date(
+      dixMinAvant.getFullYear(), dixMinAvant.getMonth(), dixMinAvant.getDate(),
+      dixMinAvant.getHours(), dixMinAvant.getMinutes()
+    ).getTime();
+    tc.updateChronoStart(a.id, tc.timeHM(dixMinAvant));
+    egal(chronos()[0].start, attendu, "nouvelle heure de début appliquée");
+    egal(chronos()[1].start, b.start, "l'autre chrono n'est pas touché");
+    vrai(chronos()[0].updatedAt >= a.updatedAt, "horodaté pour la fusion");
+    // Même garantie que pour le client : pas de reconstruction sous le curseur.
+    const champAvant = tc.els.interventionList.querySelector(`[data-chrono-start="${a.id}"]`);
+    tc.renderInterventionLive();
+    vrai(
+      champAvant === tc.els.interventionList.querySelector(`[data-chrono-start="${a.id}"]`),
+      "champ reconstruit sous le curseur"
+    );
+  });
+
+  await test("l'heure de début refuse le futur et revient à l'heure d'origine", async () => {
+    const [a] = chronos();
+    const avant = a.start;
+    const dansUneHeure = new Date(Date.now() + 3600000);
+    tc.updateChronoStart(a.id, tc.timeHM(dansUneHeure));
+    egal(chronos()[0].start, avant, "heure inchangée, refusée");
+    egal(
+      tc.els.interventionList.querySelector(`[data-chrono-start="${a.id}"]`).value,
+      tc.timeHM(new Date(avant)),
+      "le champ revient à l'heure d'origine"
     );
   });
 
